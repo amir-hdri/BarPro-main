@@ -368,3 +368,179 @@ async def test_auto_complete_shipping_4012_sets_backoff():
     assert state.backoff_until != ""
     assert state.completion_attempts == 1
     mock_save.assert_awaited()
+
+
+# ==========================================================================
+# FINDING 8: acknowledgement is decided by the numeric rule code
+# ==========================================================================
+
+
+def test_acknowledgement_survives_utcms_rewording_the_message():
+    """The old matcher required an exact Persian phrase ("شروع حمل" plus
+    "نمی توان"/"نمیتوان"). If UTCMS reworded it, /shipping/start read a
+    SUCCESSFUL self-declared start as a rejection, reset the state to "ready",
+    every retry 4006'd again and /finish refused because the status was not
+    in_transit — the trip dead-ended. The numeric code now decides.
+    """
+    from app.automation.shipping_contract import shipping_acknowledged
+
+    documented = {"resultCode": 4006, "resultMessage": "برای بارنامه نمی توان شروع حمل ثبت کرد"}
+    reworded = {"resultCode": 4006, "resultMessage": "وضعیت حمل این سند قبلا به صورت خوداظهاری ثبت گردیده است"}
+    spacing_variant = {"resultCode": 4006, "resultMessage": "برای  بارنامه   نمیتوان  شروع  حمل  ثبت  کرد"}
+    arabic_yeh = {"resultCode": 4006, "resultMessage": "براي بارنامه نمي توان شروع حمل ثبت كرد"}
+    for response in (documented, reworded, spacing_variant, arabic_yeh):
+        assert shipping_acknowledged(response, start=True) is True, response["resultMessage"]
+
+    # The end-side rule behaves identically.
+    assert shipping_acknowledged({"resultCode": 4011, "resultMessage": "پایان حمل تایید گردید"}) is True
+    # A code string straight off the wire is still numeric-compared.
+    assert shipping_acknowledged({"resultCode": "4011", "resultMessage": "ok"}) is True
+
+
+def test_explicit_rejection_still_vetoes_the_rule_code():
+    """UTCMS overloads rule 4011 for BOTH the accepted and the refused
+    self-declared end, so the numeric code alone cannot separate them. The
+    message is therefore kept as a NEGATION-only veto (fail-closed): a false
+    veto merely retries, a false acknowledgement is unrecoverable.
+    """
+    from app.automation.shipping_contract import shipping_acknowledged, shipping_explicitly_rejected
+
+    refused = {"resultCode": 4011, "resultMessage": "پایان حمل بر اساس خوداظهاری تایید نشده است"}
+    no_start = {"resultCode": 4011, "resultMessage": "برای بارنامه انتخاب شده شروع حمل ثبت نشده است."}
+    assert shipping_explicitly_rejected(refused) is True
+    assert shipping_acknowledged(refused) is False
+    assert shipping_acknowledged(no_start) is False
+    # 4006 on the END side is not the end rule, and vice versa.
+    assert shipping_acknowledged({"resultCode": 4006, "resultMessage": "ok"}) is False
+    assert shipping_acknowledged({"resultCode": 4011, "resultMessage": "ok"}, start=True) is False
+    # Unrelated codes are never acknowledged.
+    for code in (4012, 4013, 429, 500, None):
+        assert shipping_acknowledged({"resultCode": code, "resultMessage": "x"}) is False
+
+
+# ==========================================================================
+# FINDING 9: rule 4012 escalates instead of re-sending the same trace
+# ==========================================================================
+
+
+def test_reported_distance_is_parsed_from_the_4012_message():
+    from app.automation.shipping_contract import shipping_reported_distance_km
+
+    ascii_digits = {
+        "resultCode": 4012,
+        "resultMessage": (
+            "برای ثبت پایان حمل، شما حداقل باید 2 کیلومتر طی کرده باشید. مسیر طی شده فعلی : 1.552 کیلومتر"
+        ),
+    }
+    assert shipping_reported_distance_km(ascii_digits) == 1.552
+    persian_digits = {"resultCode": 4012, "resultMessage": "مسیر طی شده فعلی : ۱٫۲ کیلومتر"}
+    assert shipping_reported_distance_km(persian_digits) == 1.2
+    assert shipping_reported_distance_km({"resultCode": 4012, "resultMessage": "no number here"}) is None
+
+
+def test_trace_target_escalates_and_can_never_weaken_the_2km_floor():
+    """Detour injection used to be idempotent: attempt 1 produced 2.1500 km and
+    so did attempt 2, forever, while UTCMS measured ROAD distance and kept
+    refusing (288 calls/day/trip, which then tripped the 429 breaker).
+    """
+    from app.automation.shipping_contract import _distance, prepare_shipping_trace
+
+    points = [
+        {"Latitude": 35.2415, "Longitude": 58.4655, "Date": "2026-09-28T12:49:24.000Z", "Type": 2},
+        {"Latitude": 35.2320, "Longitude": 58.4780, "Date": "2026-09-28T13:09:24.000Z", "Type": 3},
+    ]
+
+    def total_km(prepared):
+        return sum(_distance(a, b) for a, b in zip(prepared, prepared[1:], strict=False))
+
+    default = prepare_shipping_trace([dict(p) for p in points])
+    escalated = prepare_shipping_trace([dict(p) for p in points], target_km=3.702)
+    assert total_km(default) >= 2.05  # documented rule-4012 floor, unchanged
+    assert total_km(escalated) > total_km(default) + 1.0, "the retry must actually send a longer trace"
+    # A caller can only escalate: a smaller target is clamped to the default.
+    assert abs(total_km(prepare_shipping_trace([dict(p) for p in points], target_km=0.1)) - total_km(default)) < 1e-9
+    # Preserved invariants on the injected detour.
+    detour = escalated[-2]
+    assert detour["Type"] == 2 and escalated[-1]["Type"] == 3
+    assert detour["Date"] == detour["DateTime"] and detour["Date"].endswith(".000Z")
+    assert detour["Provenance"] == "simulated_detour"
+
+
+@pytest.mark.asyncio
+async def test_4012_rejection_escalates_required_distance_from_reported_figure():
+    """record_shipping_rejection must learn from the distance UTCMS reports."""
+    from app.automation.gps_shipping_manager import record_shipping_rejection
+
+    state = ShippingState(job_id="job-4012-escalate", status="in_transit", completion_attempts=1)
+    result = {
+        "resultCode": 4012,
+        "resultMessage": "برای ثبت پایان حمل، شما حداقل باید 2 کیلومتر طی کرده باشید. مسیر طی شده فعلی : 1.552 کیلومتر",
+    }
+    with patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()):
+        first = await record_shipping_rejection(state, result, now=datetime(2026, 9, 28, 16, 0, tzinfo=UTC))
+
+    assert first["status"] == "waiting_distance_requirement"
+    assert state.required_distance_km == pytest.approx(1.552 + 2.15)
+    assert state.backoff_until  # first 4012 keeps the documented 5-minute cooldown
+    assert first["backoff_until"].startswith("2026-09-28T16:05:00")
+
+    # A second, still-short answer escalates further and never regresses.
+    state.completion_attempts = 2
+    with patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()):
+        await record_shipping_rejection(
+            state,
+            {"resultCode": 4012, "resultMessage": "مسیر طی شده فعلی : 1.9 کیلومتر"},
+            now=datetime(2026, 9, 28, 16, 10, tzinfo=UTC),
+        )
+    assert state.required_distance_km == pytest.approx(1.9 + 2.15)
+
+    # The escalated target is what the next attempt actually asks the contract for.
+    from app.automation.gps_shipping_manager import _escalated_trace_target_km
+
+    assert _escalated_trace_target_km(state) == pytest.approx(4.05)
+
+
+@pytest.mark.asyncio
+async def test_completion_attempts_are_capped_and_the_trip_stops_looping():
+    """FINDING 9 (second half): 4012 had no retry ceiling at all."""
+    from app.automation.gps_shipping_manager import MAX_COMPLETION_ATTEMPTS, record_shipping_rejection
+
+    state = ShippingState(job_id="job-4012-capped", status="in_transit", completion_attempts=MAX_COMPLETION_ATTEMPTS)
+    with (
+        patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
+        patch(
+            "app.automation.gps_shipping_manager._route_shipping_job_to_reconciliation",
+            AsyncMock(return_value="reconciling"),
+        ) as mock_route,
+    ):
+        result = await record_shipping_rejection(
+            state, {"resultCode": 4012, "resultMessage": "مسیر طی شده فعلی : 1.1 کیلومتر"}
+        )
+
+    assert result["status"] == "needs_review"
+    # "unknown" is not swept by get_due_in_transit_jobs, so the loop stops.
+    assert state.status == "unknown"
+    assert result["routed_to"] == "reconciling"
+    assert mock_route.await_args.kwargs["reason"] == "completion_attempts_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_preserved_backoff_invariants_for_4013_and_429():
+    """Guard the schedules the audit verified INTACT while 4012 changed."""
+    from app.automation.gps_shipping_manager import record_shipping_rejection
+
+    now = datetime(2026, 9, 28, 16, 0, tzinfo=UTC)
+    with patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()):
+        state = ShippingState(job_id="job-4013-inv", status="in_transit", completion_attempts=3)
+        res = await record_shipping_rejection(state, {"resultCode": 4013, "resultMessage": "x"}, now=now)
+        assert res["status"] == "waiting_elapsed_time"
+        assert state.backoff_until.startswith("2026-09-28T16:05:00")  # flat 5 minutes
+
+        # 429 and 4013 are exempt from MAX_COMPLETION_ATTEMPTS: they are UTCMS
+        # saying "not yet" with its own bounded schedule, not a payload defect.
+        for attempts, expected in ((1, "16:10:00"), (2, "16:20:00"), (3, "16:30:00"), (12, "16:30:00")):
+            state = ShippingState(job_id="job-429-inv", status="in_transit", completion_attempts=attempts)
+            res = await record_shipping_rejection(state, {"resultCode": 429, "resultMessage": "x"}, now=now)
+            assert res["status"] == "rate_limited"
+            assert state.backoff_until.startswith(f"2026-09-28T{expected}"), (attempts, state.backoff_until)
+            assert state.status == "in_transit"  # 429 stays retryable

@@ -39,6 +39,8 @@ def benchmark_model():
         "load_weight": "1500",
         "load_price": "35,000,000",
         "cost": "5,000,000",
+        # Constructed synthetic national code: the digits were chosen so the
+        # Iranian checksum validates. Not a captured identifier.
         "driver_national_code": "3720285359",
         "plack_region": "51",
         "plack_2": "86",
@@ -165,6 +167,49 @@ def test_invalid_financial_and_cargo_values_are_not_repaired(benchmark_model, fi
     benchmark_model[field] = value
     with pytest.raises(ValueError):
         build_draft(benchmark_model)
+
+
+@pytest.mark.parametrize("field,label", [("cost", "fare"), ("load_price", "cargo value")])
+def test_fractional_rial_amount_is_rejected_not_forwarded(benchmark_model, field, label):
+    # A fractional Rial amount used to format straight through with an empty
+    # validation_errors; downstream `str(...).isdigit()` guards then forwarded
+    # it verbatim to #txtkeraye and drew the UTCMS 4025 fare rejection.
+    benchmark_model[field] = "5000000.50"
+    with pytest.raises(ValueError, match=f"{label} must be a whole number"):
+        build_draft(benchmark_model)
+
+
+def test_integral_amounts_do_not_keep_a_trailing_fraction(benchmark_model):
+    # Decimal("2.0") == Decimal("2") numerically, so the integrality check
+    # passed while format(..., "f") still emitted "2.0".
+    benchmark_model["load_count"] = "2.0"
+    benchmark_model["cost"] = "5000000.00"
+    benchmark_model["load_price"] = "35000000.0"
+    payload = build_draft(benchmark_model).payload
+    assert payload["cargo"]["count"] == "2"
+    assert payload["financial"]["cost"] == "5000000"
+    assert payload["cargo"]["value"] == "35000000"
+
+
+def test_fractional_weight_is_still_allowed(benchmark_model):
+    # Weight is tonnage, not currency — it must stay fractional.
+    benchmark_model["load_weight"] = "1500"
+    assert build_draft(benchmark_model, weight_unit="kg").payload["cargo"]["weight"] == "1.5"
+
+
+@pytest.mark.parametrize("plack_char,expected", [("ي", "86ی335ایران51"), (" ع ", "86ع335ایران51")])
+def test_plate_letter_is_canonicalized_for_the_draft(benchmark_model, plack_char, expected):
+    # plack_char arrives unnormalized (Arabic yeh is common on Iranian
+    # keyboards); the raw form would not match a stored BarPro plate.
+    benchmark_model["plack_char"] = plack_char
+    assert build_draft(benchmark_model).payload["vehicle"]["plate"] == expected
+
+
+def test_unparseable_plate_stays_raw_for_review_instead_of_raising(benchmark_model):
+    benchmark_model["plack_char"] = "??"
+    draft = build_draft(benchmark_model)
+    assert draft.payload["vehicle"]["plate"] == "86??335ایران51"
+    assert draft.validation_errors
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "91", ""])

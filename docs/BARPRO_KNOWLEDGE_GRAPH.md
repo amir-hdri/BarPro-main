@@ -12,6 +12,15 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## OTP پایدار + fence چرخه حمل — 2026-10-04 (CODE-VERIFIED؛ uncommitted→committed در این نشست)
+
+- CODE-VERIFIED: سرویس جدید `app/services/otp_delivery.py` (ingest پایدار و مرتب OTP). یک تراکنش Lua یکجا dedup + ordering + نوشتن پایدار + pub/sub را انجام می‌دهد: retry نه TTL را تازه می‌کند نه کد مصرف‌شده را احیا، و SMS قدیمی‌تر نمی‌تواند روی OTP جدیدتر بنویسد (409). TTL=300s، skew=30s، روی قطع Redis **fail-closed** (503؛ تحویل پیش از نوشتن پایدار ACK نمی‌شود). متن خام SMS نه ذخیره و نه بازگردانده می‌شود.
+- CODE-VERIFIED: مسیر امضاشده `POST /api/v1/otp/sms-gateway` — envelope `BP1#phone#timestamp#code#signature` با HMAC-SHA256 (`hmac(OTP_WEBHOOK_SECRET, "#".join(parts[:4])).hexdigest()[:32]`) و تطبیق فرستنده با گیرنده؛ همان هویت تحویلِ `sms-forwarder` را دارد (dedup مشترک). فورواردر اکنون `driver_phone` اجباری، سقف بدنه 16KB، رویداد `HEALTH_CHECK` و `extract_otp_code` کلیدواژه‌محور دارد (کد رهگیری/شماره تلفن/پیامک بانک هرگز OTP تلقی نمی‌شود).
+- CODE-VERIFIED: ماشین حالت حمل اکنون `ready → starting → in_transit → finishing → delivered` (به‌علاوه `unknown`/`needs_review`) است. fenceهای پایدار `starting`/`finishing` زیر completion-claim دوکلیده پیش از mutation نوشته می‌شوند؛ `reclaim_stuck_shipping_fences` فقط fence رهاشده (کهنه‌تر از `COMPLETION_CLAIM_TTL_SECONDS` و بدون claim زنده) را به `in_transit` بازمی‌گرداند و هرگز mutation زنده را نمی‌دزدد (روی قطع Redis fail-closed). `estimated_end_at` خالی/آینده به‌صورت `waiting_eta` fail-closed است.
+- CODE-VERIFIED: شروع خودکار پس از صدور (`waybill_bot_multitenant._finalize_shipping_start`) نتیجه‌ی UTCMS را رعایت می‌کند (ack/4006 → `in_transit` با ثبت شاهد مبدأ؛ رد صریح → `unknown`؛ raised → `in_transit` قابل‌sweep) و دیگر `in_transit` را بی‌قیدوشرط ست نمی‌کند. `utcms_mobile_client.finish_shipping_with_gps` روی 404 دیگر پاسخ 200 جعلی نمی‌سازد و به `RegisterEndOfShipping` fallback می‌کند.
+- CODE-VERIFIED: فیلتر تاریخ تاریخچه (`_parse_history_date_bounds`) اکنون اکیداً `YYYY-MM-DD` را می‌پذیرد و بازه‌ی معکوس را با 400 رد می‌کند؛ `/shipping/finish` دستی هدف فاصله‌ی قاعده‌ی 4012 را مانند مسیر Beat افزایش می‌دهد.
+- موارد باز (fail-closed، ثبت‌شده در ISSUES.md): سیاستِ egress استخر Clean IP (O1، نیازمند تصمیم کاربر)، واگراییِ `unknown` در `/start`//`/finish` دستی (O2/O3/O4)، و لبه‌های گزارش‌گیری (O5/O6).
+
 ## بسته رفع ممیزی — 2026-10-02 (25 یافته، همه رفع/مستند شد)
 
 - CODE-VERIFIED: کلیدهای idempotency در مسیر صف tenant-scoped شدند
@@ -76,7 +85,7 @@
   صریحاً `submission_ready=false` و `egress_verified=false` است.
 - CODE-VERIFIED: مسیر فعلی `shipping_gps.py` همچنان از کلاینت HTTP استفاده می‌کند؛
   این مسیر مبنای مهاجرت است. Bridge هنوز به عملیات start/finish متصل نشده است.
-- RUNTIME-VERIFIED در `2026-09-25`: استقرار کامل Redroid با پیکربندی امن (`privileged: false`، `cap_add: [SYS_ADMIN, NET_ADMIN]`، مونت گره‌های `/dev/binderfs/{binder,hwbinder,vndbinder}`)، کانتینر `barpro-redroid` فعال روی IP داخلی `172.20.0.80:5555` و لوپ‌بک `127.0.0.1:5555`. نصب اپ رسمی و FakeTraveler، اعطای `android:mock_location allow`، تنظیم پراکسی Squid 1 (`172.20.0.1:3128`) و راستی‌آزمایی IP خروجی `87.107.5.238`. کنترلر `AndroidShippingController` با تست‌های کامل واحد در `tests/test_android_bridge_controller.py` مستقر شد.
+- RUNTIME-VERIFIED در `2026-09-25`: استقرار کامل Redroid با پیکربندی امن (`privileged: false`، `cap_add: [SYS_ADMIN, NET_ADMIN]`، مونت گره‌های `/dev/binderfs/{binder,hwbinder,vndbinder}`)، کانتینر `barpro-redroid` فعال روی IP داخلی `172.20.0.80:5555` و لوپ‌بک `127.0.0.1:5555`. نصب اپ رسمی و FakeTraveler، اعطای `android:mock_location allow`، تنظیم پراکسی Squid 1 (`172.20.0.1:3128`) و راستی‌آزمایی IP خروجی `<CENTRAL_IP>`. کنترلر `AndroidShippingController` با تست‌های کامل واحد در `tests/test_android_bridge_controller.py` مستقر شد.
 - جزئیات: [طرح اجرایی](ANDROID_CLIENT_IMPLEMENTATION_PLAN.md) و
   [ممیزی شواهد و تست](ANDROID_CLIENT_REVIEW.md).
 
@@ -113,7 +122,7 @@
 
 ## 0.7 snapshot این بازبینی (2026-09-06)
 
-- CODE-VERIFIED: commit جاری `bfefd9c` است و در گیت‌هاب، سرور اصلی (`87.107.5.238`) و لوکال کاملاً همگام است.
+- CODE-VERIFIED: commit جاری `bfefd9c` است و در گیت‌هاب، سرور اصلی (`<CENTRAL_IP>`) و لوکال کاملاً همگام است.
 - LIVE-OBSERVED: ارسال موفق Job 56 به سامانه مرکزی UTCMS با کد پاسخ ۲۰۰ و ایجاد سند رسمی شماره `214489653`.
 - CODE-VERIFIED: رفع خطای HTTP 500 در `UpdateRegisterNewOld` با تکمیل فیلدهای نقشه و مختصات اعشاری (`a1dc727`).
 - CODE-VERIFIED: رفع خطای ۴۰۲۵ (کرایه الزامی) با مقداردهی خودکار `#txtkeraye` و اعمال کرایه پیش‌فرض ۵,۰۰۰,۰۰۰ ریال (`72556f0`).

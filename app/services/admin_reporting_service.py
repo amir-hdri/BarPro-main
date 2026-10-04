@@ -18,7 +18,6 @@ User reports:
 import json
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -28,6 +27,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import async_session_factory
+from app.core.jalali import tehran_day_end_utc, tehran_day_start_utc
 from app.models_multitenant import (
     Client,
     Driver,
@@ -111,10 +111,10 @@ class AdminReportingService:
                 # per-client job counts and first/last timestamps are fetched with two queries.
                 job_filters: list[ColumnElement[bool]] = [col(WaybillJob.client_id).in_(client_ids)]
                 if date_from:
-                    dt = datetime.fromisoformat(date_from)
+                    dt = tehran_day_start_utc(date_from)
                     job_filters.append(col(WaybillJob.created_at) >= dt)
                 if date_to:
-                    dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                    dt = tehran_day_end_utc(date_to)
                     job_filters.append(col(WaybillJob.created_at) < dt)
 
                 counts_stmt = (
@@ -259,10 +259,10 @@ class AdminReportingService:
                 if filters.status:
                     query = query.where(WaybillJob.status == filters.status.strip().lower())
                 if filters.date_from:
-                    dt = datetime.fromisoformat(filters.date_from)
+                    dt = tehran_day_start_utc(filters.date_from)
                     query = query.where(WaybillJob.created_at >= dt)
                 if filters.date_to:
-                    dt = datetime.fromisoformat(filters.date_to) + timedelta(days=1)
+                    dt = tehran_day_end_utc(filters.date_to)
                     query = query.where(WaybillJob.created_at < dt)
                 if filters.operation_type:
                     query = query.where(WaybillJob.source == filters.operation_type)
@@ -380,10 +380,10 @@ class AdminReportingService:
                 )
                 stmt = stmt.where(col(WaybillJob.driver_id).in_(p_stmt))
             if date_from:
-                dt = datetime.fromisoformat(date_from)
+                dt = tehran_day_start_utc(date_from)
                 stmt = stmt.where(WaybillJob.created_at >= dt)
             if date_to:
-                dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                dt = tehran_day_end_utc(date_to)
                 stmt = stmt.where(WaybillJob.created_at < dt)
 
             result = await session.exec(stmt)
@@ -581,7 +581,7 @@ class AdminReportingService:
 
         if date_from:
             try:
-                dt = datetime.fromisoformat(date_from)
+                dt = tehran_day_start_utc(date_from)
                 jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at >= dt)
             except ValueError:
                 raise HTTPException(
@@ -589,7 +589,7 @@ class AdminReportingService:
                 ) from None
         if date_to:
             try:
-                dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                dt = tehran_day_end_utc(date_to)
                 jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at < dt)
             except ValueError:
                 raise HTTPException(
@@ -621,10 +621,10 @@ class AdminReportingService:
             )
 
             if date_from:
-                dt = datetime.fromisoformat(date_from)
+                dt = tehran_day_start_utc(date_from)
                 driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at >= dt)
             if date_to:
-                dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                dt = tehran_day_end_utc(date_to)
                 driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at < dt)
 
             driver_agg_result = await session.exec(driver_agg_stmt)
@@ -666,10 +666,10 @@ class AdminReportingService:
         )
 
         if date_from:
-            dt = datetime.fromisoformat(date_from)
+            dt = tehran_day_start_utc(date_from)
             failure_stmt = failure_stmt.where(WaybillJob.created_at >= dt)
         if date_to:
-            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+            dt = tehran_day_end_utc(date_to)
             failure_stmt = failure_stmt.where(WaybillJob.created_at < dt)
 
         failure_result = await session.exec(failure_stmt)

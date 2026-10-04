@@ -97,12 +97,23 @@ def _parse_history_date_bounds(date_from: str | None, date_to: str | None) -> tu
     everything registered on that day).
 
     Raises:
-        HTTPException: 400 if a value is not a valid ``YYYY-MM-DD`` date.
+        HTTPException: 400 if a value is not a strict ``YYYY-MM-DD`` date, or if
+            the range is reversed (``date_from`` falls after ``date_to``).
     """
 
     def _parse(value: str, name: str) -> tuple[int, int, int]:
+        # The documented contract is strictly ``YYYY-MM-DD``. ``datetime.fromisoformat``
+        # also accepts compact (``20261002``), ISO week dates, full datetimes and
+        # tz-aware strings — silently discarding any time/offset — so an input
+        # outside the contract was reinterpreted instead of rejected. The regex
+        # pins a 4-digit year and ``strptime`` rejects every one of those forms.
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"قالب تاریخ {name} نامعتبر است (YYYY-MM-DD)",
+            )
         try:
-            parsed = datetime.fromisoformat(value)
+            parsed = datetime.strptime(value, "%Y-%m-%d")
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -112,6 +123,11 @@ def _parse_history_date_bounds(date_from: str | None, date_to: str | None) -> tu
 
     dt_from = tehran_day_bounds_utc(*_parse(date_from, "شروع"))[0] if date_from else None
     dt_to = tehran_day_bounds_utc(*_parse(date_to, "پایان"))[1] if date_to else None
+    if dt_from is not None and dt_to is not None and dt_from > dt_to:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="بازه تاریخ نامعتبر است: تاریخ شروع نباید بعد از تاریخ پایان باشد",
+        )
     return dt_from, dt_to
 
 

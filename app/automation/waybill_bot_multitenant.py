@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 try:
     from datetime import UTC, datetime
@@ -22,8 +23,7 @@ from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     validate_live_waybill_payload,
 )
-from app.automation.otp_keys import otp_lookup_keys
-from app.automation.waybill_enhanced import EnhancedWaybillManager
+from app.automation.waybill_enhanced import EnhancedWaybillManager, fetch_scoped_otp
 from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
 from app.models_multitenant import TaskStatus
@@ -322,7 +322,7 @@ class WaybillAutomationBot:
                 ]
             else:
                 formatted_items = []
-                for itm in (raw_items if isinstance(raw_items, list) else [raw_items]):
+                for itm in raw_items if isinstance(raw_items, list) else [raw_items]:
                     itm_dict = dict(itm) if isinstance(itm, dict) else {}
                     p_id = itm_dict.get("productId") or itm_dict.get("product_id") or 10956
                     pk_id = itm_dict.get("packTypeId") or itm_dict.get("pack_type_id") or 18074
@@ -638,6 +638,7 @@ class WaybillAutomationBot:
                 return result
 
             max_insert_attempts = 4
+            otp_requested_at = time.time()
             last_insert_exc = None
             response = None
             for ins_attempt in range(1, max_insert_attempts + 1):
@@ -722,7 +723,27 @@ class WaybillAutomationBot:
                     logger.debug("GetDocTrackingCode check failed: %s", trk_exc)
 
             async def _finalize_shipping_start(track_code: str, doc_id_val: Any) -> None:
-                """Initialize shipping state and trigger RegisterStartOfShipping immediately."""
+                """Initialize shipping state and trigger RegisterStartOfShipping immediately.
+
+                The waybill itself is already registered on UTCMS by the time this
+                runs, so a shipping-start problem must NEVER fail the issuance.
+                What it must also never do is record an unverified start:
+
+                * acknowledged start (``shipping_acknowledged(..., start=True)``,
+                  which covers the self-declared Rule 4006 case) -> ``in_transit``.
+                * explicit rejection -> ``unknown`` plus the recorded UTCMS code
+                  and message. UTCMS refused, so claiming ``in_transit`` would be
+                  a lie and would send the sweeper after a trip that never began.
+                * the call RAISED (proxy/WAF/timeout) -> the POST may well have
+                  landed and UTCMS may already hold the trip at code 1, so the
+                  state is left SWEEPABLE (``in_transit``) with the error
+                  recorded. ``get_due_in_transit_jobs`` only selects
+                  ``in_transit``, and the terminal POST has an explicit
+                  missing-start (Rule 4011) recovery path, so this is the only
+                  option that cannot strand the trip forever.
+                """
+                from app.automation.shipping_contract import shipping_acknowledged
+
                 try:
                     from app.automation.gps_shipping_manager import init_shipping, save_shipping_state
 
@@ -733,39 +754,101 @@ class WaybillAutomationBot:
                         doc_id=str(doc_id_val or ""),
                         persist=True,
                     )
-                    origin_lat = ship_state.origin_lat
-                    origin_lng = ship_state.origin_lng
-                    if doc_id_val and origin_lat and origin_lng:
-                        start_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                        logger.info(
-                            "Triggering automated RegisterStartOfShipping: doc_id=%s, lat=%s, lng=%s, time=%s",
-                            doc_id_val,
-                            origin_lat,
-                            origin_lng,
-                            start_iso,
-                        )
-                        start_res = await client.register_start_of_shipping(
-                            document_id=int(str(doc_id_val).strip()),
-                            speed=0,
-                            altitude=1000,
-                            longitude=origin_lng,
-                            latitude=origin_lat,
-                            start_date=start_iso,
-                            allow_live_submit=True,
-                        )
-                        ship_state.status = "in_transit"
-                        await save_shipping_state(ship_state)
-                        if isinstance(result.get("result"), dict):
-                            result["result"]["start_shipping"] = start_res
-                        result["steps"].append(
-                            {"step": "mobile_start_shipping", "status": "success", "result": start_res}
-                        )
-                        logger.info("Automated start of shipping completed: %s", start_res)
-                except Exception as ship_err:
-                    logger.warning("Automated start of shipping non-fatal blip: %s", ship_err)
+                except Exception as init_err:
+                    logger.warning("Automated shipping init non-fatal blip: %s", init_err)
                     result["steps"].append(
-                        {"step": "mobile_start_shipping", "status": "warning", "error": str(ship_err)}
+                        {"step": "mobile_start_shipping", "status": "warning", "error": str(init_err)}
                     )
+                    return
+
+                origin_lat = ship_state.origin_lat
+                origin_lng = ship_state.origin_lng
+                if not (doc_id_val and origin_lat and origin_lng):
+                    return
+
+                start_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                logger.info(
+                    "Triggering automated RegisterStartOfShipping: doc_id=%s, lat=%s, lng=%s, time=%s",
+                    doc_id_val,
+                    origin_lat,
+                    origin_lng,
+                    start_iso,
+                )
+
+                def _origin_witness() -> list[dict[str, Any]]:
+                    """The origin point exactly as POSTed to RegisterStartOfShipping.
+
+                    Recording it here is what gives the terminal POST a real
+                    2-point trace: init_shipping seeds ``gps_list=[]`` and no
+                    other step on this path appends an origin, so without this
+                    the finish route built a 1-point trace.
+                    """
+                    return [
+                        {
+                            "Latitude": origin_lat,
+                            "Longitude": origin_lng,
+                            "Type": 2,
+                            "Date": start_iso,
+                            "Speed": 0,
+                            "Altitude": 1000,
+                            "Provider": "operator_anchor",
+                            "Provenance": "registered_start_of_shipping",
+                        }
+                    ]
+
+                async def _persist(state: Any) -> None:
+                    try:
+                        await save_shipping_state(state)
+                    except Exception as persist_err:  # issuance must not be rolled back
+                        logger.warning("shipping_state_persist_after_start_failed: %s", persist_err)
+
+                try:
+                    start_res = await client.register_start_of_shipping(
+                        document_id=int(str(doc_id_val).strip()),
+                        speed=0,
+                        altitude=1000,
+                        longitude=origin_lng,
+                        latitude=origin_lat,
+                        start_date=start_iso,
+                        allow_live_submit=True,
+                    )
+                except Exception as ship_err:
+                    # Ambiguous: UTCMS may already hold the trip at code 1, so
+                    # keep it sweepable instead of stranding it at "ready".
+                    logger.warning("Automated start of shipping unconfirmed: %s", ship_err)
+                    ship_state.status = "in_transit"
+                    ship_state.gps_list = _origin_witness()
+                    ship_state.last_error_message = str(ship_err)[:200]
+                    await _persist(ship_state)
+                    result["steps"].append(
+                        {"step": "mobile_start_shipping", "status": "unknown", "error": str(ship_err)}
+                    )
+                    return
+
+                acknowledged = isinstance(start_res, dict) and shipping_acknowledged(start_res, start=True)
+                if acknowledged:
+                    ship_state.status = "in_transit"
+                    ship_state.gps_list = _origin_witness()
+                else:
+                    ship_state.status = "unknown"
+                    if isinstance(start_res, dict):
+                        ship_state.last_error_code = start_res.get("resultCode")
+                        ship_state.last_error_message = str(start_res.get("resultMessage") or "")[:200]
+                await _persist(ship_state)
+                if isinstance(result.get("result"), dict):
+                    result["result"]["start_shipping"] = start_res
+                result["steps"].append(
+                    {
+                        "step": "mobile_start_shipping",
+                        "status": "success" if acknowledged else "rejected",
+                        "result": start_res,
+                    }
+                )
+                logger.info(
+                    "Automated start of shipping %s: %s",
+                    "acknowledged" if acknowledged else "REJECTED by UTCMS",
+                    start_res,
+                )
 
             if tracking_code:
                 result["status"] = TaskStatus.SUCCESS.value
@@ -804,26 +887,16 @@ class WaybillAutomationBot:
                             # Tenant-isolation (C1): scoped keys only — job-scoped,
                             # then phone-scoped. The unscoped global key is retired;
                             # without job/phone context we fail closed (no OTP).
-                            keys_to_check = otp_lookup_keys(job_id, driver_phone)
-
-                            for _ in range(8):
-                                for k in keys_to_check:
-                                    otp_raw = await redis.get(k)
-                                    if otp_raw:
-                                        try:
-                                            otp_data = json.loads(otp_raw)
-                                            code_val = str(otp_data.get("code") or "").strip()
-                                            if code_val and code_val.isdigit():
-                                                otp_code = code_val
-                                                # Never log the OTP value itself: it is valid for
-                                                # ~5 minutes and log readers could replay it.
-                                                logger.info("Received OTP from Redis (%s)", k)
-                                                break
-                                        except Exception:
-                                            pass
-                                if otp_code:
+                            deadline = time.monotonic() + min(300, max(0, utcms_config.UTCMS_OTP_WAIT_TIMEOUT_SECONDS))
+                            while time.monotonic() < deadline:
+                                found = await fetch_scoped_otp(
+                                    redis, job_id=job_id, driver_phone=driver_phone, wait_start=otp_requested_at
+                                )
+                                if found:
+                                    otp_code = found[0]
+                                    logger.info("Received a current OTP for the mobile document")
                                     break
-                                await asyncio.sleep(2)
+                                await asyncio.sleep(min(1.0, max(0, deadline - time.monotonic())))
                 except Exception as redis_exc:
                     logger.warning("Redis OTP lookup failed: %s", redis_exc)
 
@@ -872,7 +945,7 @@ class WaybillAutomationBot:
 
             result.update(
                 status=TaskStatus.UNKNOWN.value,
-                error=("API موبایل سند را پذیرفت اما کد رهگیری بازنگرداند؛ " "تطبیق خواندنی لازم است"),
+                error=("API موبایل سند را پذیرفت اما کد رهگیری بازنگرداند؛ تطبیق خواندنی لازم است"),
                 error_category="submission_unconfirmed",
                 mutation_status="dispatched" if document_id else "ambiguous",
                 needs_reconciliation=True,

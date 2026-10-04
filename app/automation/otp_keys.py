@@ -27,8 +27,12 @@ def normalize_phone_for_otp_key(raw_phone: str | None) -> str:
     if not raw_phone:
         return ""
     digits = re.sub(r"[^\d]", "", str(raw_phone).translate(_PERSIAN_TO_ENGLISH_DIGITS))
-    if digits.startswith("98") and len(digits) > 10:
+    if digits.startswith("0098") and len(digits) == 14:
+        digits = "0" + digits[4:]
+    elif digits.startswith("98") and len(digits) == 12:
         digits = "0" + digits[2:]
+    elif digits.startswith("9") and len(digits) == 10:
+        digits = "0" + digits
     return digits
 
 

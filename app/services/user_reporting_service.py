@@ -18,6 +18,7 @@ from sqlalchemy import case, func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.jalali import tehran_day_end_utc, tehran_day_start_utc
 from app.models_multitenant import (
     Client,
     Driver,
@@ -273,10 +274,10 @@ class UserReportingService:
             if status:
                 query = query.where(col(WaybillJob.status) == status.strip().lower())
             if date_from:
-                dt = datetime.fromisoformat(date_from)
+                dt = tehran_day_start_utc(date_from)
                 query = query.where(col(WaybillJob.created_at) >= dt)
             if date_to:
-                dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                dt = tehran_day_end_utc(date_to)
                 query = query.where(col(WaybillJob.created_at) < dt)
             return query
 
@@ -367,10 +368,10 @@ class UserReportingService:
         if driver_id:
             stmt = stmt.where(WaybillJob.driver_id == driver_id)
         if date_from:
-            dt = datetime.fromisoformat(date_from)
+            dt = tehran_day_start_utc(date_from)
             stmt = stmt.where(WaybillJob.created_at >= dt)
         if date_to:
-            dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+            dt = tehran_day_end_utc(date_to)
             stmt = stmt.where(WaybillJob.created_at < dt)
         stmt = stmt.order_by(col(WaybillJob.created_at).desc()).limit(limit)
 

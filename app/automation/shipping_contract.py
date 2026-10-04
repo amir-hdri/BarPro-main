@@ -3,12 +3,62 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import UTC, datetime
 from typing import Any
 
+# UTCMS business rules that acknowledge a mutation the portal had already
+# self-declared (AGENTS.md -> "Automated Shipping Lifecycle & GPS Completion
+# Contract"): 4006 on the start side, 4011 on the end side.
+SELF_DECLARED_START_RULE = 4006
+SELF_DECLARED_END_RULE = 4011
+
+# Minimum cumulative trace distance UTCMS accepts for a terminal registration
+# (rule 4012) and the default target the detour aims for.
+DEFAULT_TRACE_TARGET_KM = 2.15
+TRACE_TARGET_MARGIN_KM = 0.10
+
+# A rule code alone cannot always decide acknowledgement: UTCMS reuses 4011 for
+# BOTH "end confirmed by self-declaration" and at least one refusal variant
+# ("... شروع حمل ثبت نشده است"). The positive decision is therefore made on the
+# numeric code (so a reworded acknowledgement can never dead-end a trip), and
+# only an EXPLICIT negation can veto it. Fail-closed by design: a false veto
+# retries after a cooldown, while a false acknowledgement would record a
+# rejection as a delivery, which is unrecoverable.
+_REJECTION_MARKERS = ("نشده", "نمی باشد", "مجاز نیست", "ناموفق")
+
+_PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+# "... مسیر طی شده فعلی : 1.552 کیلومتر" — the distance UTCMS itself measured.
+_REPORTED_DISTANCE_RE = re.compile(r"فعلی\s*[:：]?\s*(\d+(?:\.\d+)?)")
+
+
+def normalize_shipping_message(value: Any) -> str:
+    """Fold the Persian spelling variants UTCMS mixes into one comparable form."""
+    text = str(value or "")
+    for source, target in (("‌", ""), ("ي", "ی"), ("ى", "ی"), ("ك", "ک"), ("أ", "ا"), ("إ", "ا")):
+        text = text.replace(source, target)
+    return " ".join(text.split())
+
+
+def shipping_result_code(response: Any) -> int | None:
+    """Return the numeric UTCMS result code, or None when there is none."""
+    code = response.get("resultCode") if isinstance(response, dict) else None
+    if code is None or isinstance(code, bool):
+        return None
+    try:
+        return int(str(code).strip())
+    except (TypeError, ValueError):
+        return None
+
 
 def utc_shipping_timestamp(value: str | datetime) -> str:
-    """Convert an aware timestamp to the exact UTCMS wire format; never guess a zone."""
+    """Convert an aware timestamp to the exact UTCMS wire format; never guess a zone.
+
+    Deliberately strict: a naive value submitted as UTC when it was really
+    Tehran local time shifts ``estimatedTimeOfEndShipment`` by 3.5 hours and
+    trips rule 4013. Callers holding a legacy naive value must normalise it
+    explicitly (see ``gps_shipping_manager._assume_utc_timestamp``).
+    """
     parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("shipping timestamp must include a timezone")
@@ -42,17 +92,61 @@ def shipping_response(value: Any) -> dict[str, Any] | None:
     return result
 
 
+def shipping_explicitly_rejected(response: dict[str, Any]) -> bool:
+    """True when the message carries an explicit negation of the mutation.
+
+    A NEGATION-only guard, never a positive acknowledgement test: UTCMS answers
+    both the accepted and the refused self-declared-end outcomes under the SAME
+    rule code 4011, so the numeric code on its own cannot tell them apart. See
+    ``shipping_acknowledged`` for why the veto is the fail-closed side.
+    """
+    message = normalize_shipping_message(response.get("resultMessage"))
+    if not message:
+        return False
+    return any(marker in message for marker in _REJECTION_MARKERS)
+
+
 def shipping_acknowledged(response: dict[str, Any], *, start: bool = False) -> bool:
-    code = response.get("resultCode")
-    if type(code) is int and code in (0, 200):
+    """Decide acknowledgement from the numeric rule code, vetoed only by a negation.
+
+    * 0 / 200 - plain success.
+    * 4006 (start) / 4011 (end) - the documented self-declared rules. The code
+      alone decides the POSITIVE case, so UTCMS rewording an acknowledgement can
+      no longer flip a successful self-declared start into a false rejection
+      (which dead-ended the trip: ``/start`` reset to "ready", every retry
+      4006'd again, and ``/finish`` refused because status was not in_transit).
+    * Anything else - not acknowledged.
+
+    The message is consulted ONLY to veto, because rule 4011 is overloaded
+    upstream: an explicit refusal must never be recorded as a delivery. A false
+    veto merely retries after a cooldown; a false acknowledgement is
+    unrecoverable. ``resultMessage`` stays on the response for diagnostics.
+    """
+    code = shipping_result_code(response)
+    if code in (0, 200):
         return True
-    message = str(response.get("resultMessage") or "").replace("\u200c", "").replace("ي", "ی")
-    if start and code == 4006:
-        return "شروع حمل" in message and ("نمی توان" in message or "نمیتوان" in message)
-    if not start and code == 4011:
-        acknowledged = "تایید شد" in message or "تأیید شد" in message
-        return "پایان حمل" in message and "خوداظهاری" in message and acknowledged and "نشده" not in message
+    if code == (SELF_DECLARED_START_RULE if start else SELF_DECLARED_END_RULE):
+        return not shipping_explicitly_rejected(response)
     return False
+
+
+def shipping_reported_distance_km(response: dict[str, Any]) -> float | None:
+    """Extract the distance UTCMS measured for itself from a rule-4012 message.
+
+    UTCMS computes ROAD distance along ``gpsList`` and reports its own figure
+    (for example a trailing "1.552" before the kilometre unit). Ignoring that
+    number is what made detour injection non-escalating: a trace rebuilt to the
+    same 2.15 km target is rejected identically forever.
+    """
+    message = normalize_shipping_message(response.get("resultMessage")).translate(_PERSIAN_DIGITS)
+    match = _REPORTED_DISTANCE_RE.search(message.replace("\u066b", ".").replace("\u060c", "."))
+    if match is None:
+        return None
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return None
+    return value if math.isfinite(value) and 0.0 <= value < 100_000.0 else None
 
 
 def _distance(first: dict[str, Any], second: dict[str, Any]) -> float:
@@ -63,14 +157,24 @@ def _distance(first: dict[str, Any], second: dict[str, Any]) -> float:
     return 12742.0 * math.asin(math.sqrt(min(1.0, max(0.0, h))))
 
 
-def prepare_shipping_trace(gps_list: Any) -> list[dict[str, Any]]:
+def prepare_shipping_trace(gps_list: Any, *, target_km: float = DEFAULT_TRACE_TARGET_KM) -> list[dict[str, Any]]:
     """Validate a chronological trace and explicitly label any virtual detour.
 
     The detour is a synthetic route point, never an Android or physical GPS
     observation. Input objects are copied so preparation is deterministic.
+
+    ``target_km`` is the cumulative length the detour aims for when the trace
+    is too short for UTCMS rule 4012. It is clamped UP to the documented
+    default, so a caller can only ever escalate (see
+    ``gps_shipping_manager._escalated_trace_target_km``), never weaken the
+    2.0 km floor. Escalation matters because UTCMS measures ROAD distance and
+    rejects an identical re-send forever.
     """
     if not isinstance(gps_list, list) or len(gps_list) < 2:
         raise ValueError("shipping trace requires an origin and destination")
+    target = max(DEFAULT_TRACE_TARGET_KM, float(target_km))
+    if not math.isfinite(target):
+        raise ValueError("invalid shipping trace target")
     formatted: list[dict[str, Any]] = []
     for index, point in enumerate(gps_list):
         if not isinstance(point, dict):
@@ -115,13 +219,13 @@ def prepare_shipping_trace(gps_list: Any) -> list[dict[str, Any]]:
         formatted.append(item)
 
     distance = sum(_distance(a, b) for a, b in zip(formatted, formatted[1:], strict=False))
-    if distance >= 2.05:
+    if distance >= target - TRACE_TARGET_MARGIN_KM:
         return formatted
 
     # Extend the last segment, retaining all earlier points and their chronology.
     pt_first, pt_last = formatted[-2:]
     segment = _distance(pt_first, pt_last)
-    target_segment = 2.15 - (distance - segment)
+    target_segment = target - (distance - segment)
     lat1, lon1 = math.radians(pt_first["Latitude"]), math.radians(pt_first["Longitude"])
     lat2, lon2 = math.radians(pt_last["Latitude"]), math.radians(pt_last["Longitude"])
     bearing = math.atan2(

@@ -9,7 +9,7 @@ import { ErrorState } from '@/components/layout/States';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
-import { normalizeDigits } from '@/lib/plate';
+import { canonicalizePlate } from '@/lib/plate';
 import dynamic from 'next/dynamic';
 
 const ShippingRouteMap = dynamic(
@@ -471,7 +471,11 @@ export default function HistoryPage() {
     const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
     if (statusFilter) params.status = statusFilter;
     if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
-    if (plateFilter.trim()) params.plate_number = normalizeDigits(plateFilter.trim());
+    // The backend matches the plate as a raw substring against the canonical
+    // stored form (`12ب345ایران67`), so the needle must be canonicalized too —
+    // normalizing digits alone misses Arabic ي/ك and «ايران».
+    const plateKeyword = canonicalizePlate(plateFilter);
+    if (plateKeyword) params.plate_number = plateKeyword;
     if (dateFromFilter) params.date_from = dateFromFilter;
     if (dateToFilter) params.date_to = dateToFilter;
 
@@ -499,10 +503,13 @@ export default function HistoryPage() {
     setFuelError(null);
     const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
     // "registered" is a waybill-only aggregate (tracking-panel «ثبت» set);
-    // fuel inquiries have their own status vocabulary.
+    // fuel inquiries have their own status vocabulary. `handleCategoryChange`
+    // clears it on the way into the fuel tab and the option is not rendered
+    // there, so the control can never display a filter this request drops.
     if (statusFilter && statusFilter !== 'registered') params.status = statusFilter;
     if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
-    if (plateFilter.trim()) params.plate_number = normalizeDigits(plateFilter.trim());
+    const plateKeyword = canonicalizePlate(plateFilter);
+    if (plateKeyword) params.plate_number = plateKeyword;
     if (dateFromFilter) params.date_from = dateFromFilter;
     if (dateToFilter) params.date_to = dateToFilter;
 
@@ -603,6 +610,14 @@ export default function HistoryPage() {
       if (activeCategory === 'waybills') void loadJobs();
       else void loadFuelInquiries();
     }, 50);
+  };
+
+  // «ثبت‌شده» is a waybill-only aggregate that `loadFuelInquiries` drops from
+  // the request. Clearing it on the way into the fuel tab keeps the control
+  // from displaying a filter the fuel list is not actually filtered by.
+  const handleCategoryChange = (category: 'waybills' | 'fuel') => {
+    if (category !== 'waybills' && statusFilter === 'registered') setStatusFilter('');
+    setActiveCategory(category);
   };
 
   const handleRetryJob = useCallback(async (jobId: string) => {
@@ -773,7 +788,7 @@ export default function HistoryPage() {
             <div className="flex rounded-2xl bg-slate-900/80 p-1 border border-white/10 shadow-inner">
               <button
                 type="button"
-                onClick={() => setActiveCategory('waybills')}
+                onClick={() => handleCategoryChange('waybills')}
                 className={`flex items-center gap-2 rounded-xl px-5 py-3 text-xs font-black transition-all ${
                   activeCategory === 'waybills'
                     ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg'
@@ -789,7 +804,7 @@ export default function HistoryPage() {
 
               <button
                 type="button"
-                onClick={() => setActiveCategory('fuel')}
+                onClick={() => handleCategoryChange('fuel')}
                 className={`flex items-center gap-2 rounded-xl px-5 py-3 text-xs font-black transition-all ${
                   activeCategory === 'fuel'
                     ? 'bg-slate-950 border border-white/10 text-cyan-400 shadow-lg'
@@ -868,7 +883,11 @@ export default function HistoryPage() {
                   className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
                 >
                   <option value="">همه وضعیت‌ها</option>
-                  <option value="registered" className="bg-slate-950">ثبت‌شده (موفق / صادرشده / در حال حمل / تحویل‌شده)</option>
+                  {/* Waybill-only aggregate: the fuel-inquiry endpoint has no
+                      «ثبت‌شده» status, so the option is not offered there. */}
+                  {activeCategory === 'waybills' && (
+                    <option value="registered" className="bg-slate-950">ثبت‌شده (موفق / صادرشده / در حال حمل / تحویل‌شده)</option>
+                  )}
                   <option value="success" className="bg-slate-950">موفق (Completed)</option>
                   <option value="pending" className="bg-slate-950">در صف (Pending)</option>
                   <option value="queued" className="bg-slate-950">صف‌شده (Queued)</option>

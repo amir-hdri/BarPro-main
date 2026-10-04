@@ -64,14 +64,15 @@ async def fetch_scoped_otp(
                 continue
             otp_entry = json.loads(raw_data)
             recv_at = float(otp_entry.get("received_at", 0) or 0)
+            expires_at = float(otp_entry.get("expires_at", recv_at + 300))
         except Exception as redis_err:
             logger.warning("redis_otp_check_failed: %s", redis_err)
             continue
         # Accept OTP if received within 15s before wait_start or during waiting
-        if recv_at < (wait_start - 15.0):
+        if recv_at < (wait_start - 15.0) or expires_at <= time.time() or recv_at > time.time() + 30:
             continue
         candidate_code = str(otp_entry.get("code", "")).strip()
-        if candidate_code:
+        if re.fullmatch(r"[0-9]{4,8}", candidate_code):
             return candidate_code, key, otp_entry
     return None
 

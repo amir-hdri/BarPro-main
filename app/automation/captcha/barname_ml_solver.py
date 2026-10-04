@@ -25,6 +25,27 @@ SUPPORTED_CLASSES = tuple(str(value) for value in range(10)) + ("plus",)
 VALUE_MAP = {str(value): value for value in range(10)}
 _DIGIT_TRANSLATION = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 _PLUS_ALIASES = {"plus", "+", "＋", "add", "sum", "جمع"}
+# There are 11 classes (0-9 and "plus"), so pure chance is ~0.091 per character.
+# A character scored at or below this floor carries no information, and accepting
+# it means submitting a guess to UTCMS — which costs a login attempt and returns
+# business rejection 4003. The aggregate (mean) confidence must never be allowed
+# to mask such a character, so every candidate is gated on its WEAKEST character.
+_MIN_CHAR_CONFIDENCE = 0.15
+
+
+def _weakest_confidence(candidate: MlMathCaptchaCandidate) -> float:
+    """Confidence of the least-certain character (0.0 when unknown)."""
+    return min(candidate.confidences) if candidate.confidences else 0.0
+
+
+def _candidate_rank(candidate: MlMathCaptchaCandidate) -> tuple[float, float]:
+    """Rank by weakest character first, then by mean.
+
+    A uniformly moderate read ("6","plus","6" at 0.6 each) is strictly more
+    trustworthy than one carrying a near-chance character ("8" at 0.03 beside
+    two confident neighbours), even though the latter can have the higher mean.
+    """
+    return (_weakest_confidence(candidate), candidate.confidence)
 
 
 @dataclass(frozen=True)
@@ -302,7 +323,14 @@ class BarnameMlCaptchaSolver:
 
         # 1. Primary solver: CNN multi-digit / noise-resistant solver (100% on live benchmark suite)
         multi_candidate = self._solve_multidigit_or_noisy(image)
-        if multi_candidate is not None and multi_candidate.confidence >= 0.35:
+        if (
+            multi_candidate is not None
+            and multi_candidate.confidence >= 0.35
+            and _weakest_confidence(multi_candidate) >= _MIN_CHAR_CONFIDENCE
+        ):
+            # Short-circuit only when EVERY character is better than chance.
+            # Gating on the mean alone let a near-chance digit ride along with
+            # two confident neighbours and skip the stronger solvers below.
             return multi_candidate
 
         # 2. Secondary solver: Simple 3-symbol variant segmentation (for single-digit X+Y)
@@ -336,7 +364,7 @@ class BarnameMlCaptchaSolver:
                     characters=tuple(labels),
                     confidences=tuple(confidences),
                 )
-                if best_candidate is None or candidate.confidence > best_candidate.confidence:
+                if best_candidate is None or _candidate_rank(candidate) > _candidate_rank(best_candidate):
                     best_candidate = candidate
 
         # 3. Tertiary fallback: End-to-end MathCRNN solver (with strict mathematical validity guard)
@@ -350,7 +378,10 @@ class BarnameMlCaptchaSolver:
 
         candidates = [c for c in (multi_candidate, best_candidate, crnn_cand) if c is not None]
         if candidates:
-            return max(candidates, key=lambda c: c.confidence)
+            # Rank on the weakest character, not the mean, for the same reason
+            # the short-circuit above does: a candidate whose mean is inflated by
+            # two confident characters must not beat a uniformly solid read.
+            return max(candidates, key=_candidate_rank)
 
         return None
 

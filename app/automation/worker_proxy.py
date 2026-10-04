@@ -189,7 +189,16 @@ def invalidate_worker_proxy_cache() -> None:
 
 
 def clear_proxy_cache() -> None:
-    """Clear cached worker proxy URL to force a fresh health check on next call."""
+    """Clear this process's cached proxy choice AND the clean pool's in-memory
+    record cache, forcing a fresh health check and a fresh pool read next call.
+
+    Scope, precisely: the cached proxy URL/source/timestamp here, plus
+    ``CleanIPPoolManager`` local records and round-robin cursors. It does NOT
+    clear the harvester provider cache (``clean_ip_pool.clear_harvest_cache``),
+    so calling this from a failed Squid health check can no longer trigger a
+    full nine-source network re-harvest; use ``refresh_pool(force=True)`` when a
+    genuine re-harvest is wanted.
+    """
     global _cached_proxy_source, _cached_proxy_url, _cached_proxy_timestamp
     _cached_proxy_url = None
     _cached_proxy_source = None

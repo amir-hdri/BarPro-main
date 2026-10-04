@@ -795,8 +795,26 @@ class UtcmsMobileClient:
             return await self._post("/Document/FinishShippingWithGps", body)
         except UtcmsMobileApiError as exc:
             if getattr(exc, "status_code", None) == 404:
-                logger.info("FinishShippingWithGps 404 (endpoint removed on UTCMS); returning success stub")
-                return {"resultCode": 200, "resultMessage": "FinishShippingWithGps bypassed", "obj": {"success": True}}
+                logger.info("FinishShippingWithGps 404; falling back to RegisterEndOfShipping")
+                # Mirror the start-side fallback: NEVER fabricate a success
+                # envelope for an endpoint UTCMS removed. The terminal point is
+                # handed to the live endpoint, whose contract validator
+                # (prepare_shipping_trace) requires a chronological
+                # origin -> destination trace, so an unsatisfiable single-point
+                # finish raises instead of being reported as registered.
+                terminal = {
+                    "Latitude": lat,
+                    "Longitude": lon,
+                    "Altitude": alt,
+                    "Speed": speed,
+                    "Date": datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "Type": 3,
+                }
+                return await self.register_end_of_shipping(
+                    document_id=doc_no,
+                    gps_list=[terminal],
+                    allow_live_submit=allow_live_submit,
+                )
             raise
 
     async def get_carrying_doc_id(self) -> dict[str, Any]:

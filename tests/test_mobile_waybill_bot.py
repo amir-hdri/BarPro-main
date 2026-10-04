@@ -537,6 +537,7 @@ async def test_submit_otp_success_and_state_machine_transition(async_db):
         patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=None),
         patch("app.automation.utcms_mobile_client.UtcmsMobileClient", return_value=mock_mobile_client),
         patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pw"),
+        patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://test-proxy.invalid:3128"),
     ):
         updated = await WaybillJobService.submit_otp(user_context, job.job_id, session, "12345")
 

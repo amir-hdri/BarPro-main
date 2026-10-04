@@ -390,6 +390,10 @@ async def test_corrupt_backoff_value_is_logged_and_job_stays_eligible(caplog):
     state = ShippingState(
         job_id="job-f4-backoff",
         status="in_transit",
+        # A real (past) ETA so the trip is otherwise due: a corrupt COOLDOWN
+        # must not dead-end it, while a MISSING ETA fails closed separately
+        # (test_missing_estimated_end_at_is_not_due).
+        estimated_end_at="2020-01-01T00:00:00+00:00",
         backoff_until="not-a-datetime",
     )
     redis = FakeRedis()
@@ -504,3 +508,239 @@ async def test_completion_claim_manually_held_blocks_completion():
 
     assert result == {"status": "skipped", "reason": "completion_claim_held", "job_id": "job-f5-held"}
     assert inner_calls == []
+
+
+# --------------------------------------------------------------------------
+# FINDING 4: the durable "finishing"/"starting" fence has a reaper
+# --------------------------------------------------------------------------
+
+
+def _fenced_state(job_id: str, *, status: str, age_seconds: int, now):
+    from datetime import timedelta
+
+    return ShippingState(
+        job_id=job_id,
+        status=status,
+        estimated_end_at=(now - timedelta(hours=1)).isoformat(),
+        last_attempt_at=(now - timedelta(seconds=age_seconds)).isoformat(),
+        completion_attempts=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_abandoned_finishing_fence_is_reclaimed_and_swept_again():
+    """A worker OOM-killed between the durable fence and the response left Redis
+    on "finishing" while the DB mirror still said "in_transit". The claim
+    expired but nothing reset the status, and the Redis entry shadowed the DB
+    fallback for its 7-day TTL: the trip was never completed and never surfaced
+    as failed.
+    """
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    state = _fenced_state(
+        "job-fence-stuck", status="finishing", age_seconds=manager.COMPLETION_CLAIM_TTL_SECONDS + 60, now=now
+    )
+    redis = FakeRedis()
+    redis.values[f"utcms:shipping:job:{state.job_id}"] = json.dumps(state.to_dict())
+    session = make_fake_session(None)
+
+    with (
+        patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
+        patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()) as mock_save,
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(session)),
+    ):
+        due = await manager.get_due_in_transit_jobs(now_dt=now)
+
+    assert [s.job_id for s in due] == ["job-fence-stuck"]
+    assert due[0].status == "in_transit"
+    mock_save.assert_awaited()  # the reclaim is durable, not in-memory only
+    assert "reclaimed abandoned finishing fence" in due[0].last_error_message
+
+
+@pytest.mark.asyncio
+async def test_starting_fence_is_reclaimed_too():
+    """``/shipping/start`` writes the same kind of fence before its first POST."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    state = _fenced_state(
+        "job-fence-start", status="starting", age_seconds=manager.COMPLETION_CLAIM_TTL_SECONDS + 5, now=now
+    )
+    redis = FakeRedis()
+    redis.values[f"utcms:shipping:job:{state.job_id}"] = json.dumps(state.to_dict())
+    session = make_fake_session(None)
+
+    with (
+        patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
+        patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(session)),
+    ):
+        due = await manager.get_due_in_transit_jobs(now_dt=now)
+
+    assert [s.job_id for s in due] == ["job-fence-start"]
+
+
+@pytest.mark.asyncio
+async def test_live_fence_is_never_stolen_from_the_worker_holding_the_claim():
+    """The reaper must not race a worker that is mid-mutation: a held claim (of
+    EITHER key generation) means the fence is live, however old it looks.
+    """
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    for template in (manager.COMPLETION_CLAIM_KEY, manager.LEGACY_COMPLETION_CLAIM_KEY):
+        state = _fenced_state("job-fence-live", status="finishing", age_seconds=99_999, now=now)
+        redis = FakeRedis()
+        redis.values[f"utcms:shipping:job:{state.job_id}"] = json.dumps(state.to_dict())
+        redis.values[template.format(job_id=state.job_id)] = "worker-token"
+        session = make_fake_session(None)
+
+        with (
+            patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
+            patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()) as mock_save,
+            patch("app.core.database.async_session_factory", lambda s=session: FakeAsyncSessionContext(s)),
+        ):
+            due = await manager.get_due_in_transit_jobs(now_dt=now)
+
+        assert due == [], f"a fence held under {template} must not be reclaimed"
+        mock_save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fresh_fence_within_the_claim_ttl_is_left_alone():
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    state = _fenced_state("job-fence-fresh", status="finishing", age_seconds=30, now=now)
+    redis = FakeRedis()
+    redis.values[f"utcms:shipping:job:{state.job_id}"] = json.dumps(state.to_dict())
+    session = make_fake_session(None)
+
+    with (
+        patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
+        patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()) as mock_save,
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(session)),
+    ):
+        due = await manager.get_due_in_transit_jobs(now_dt=now)
+
+    assert due == []
+    mock_save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_redis_decision_still_wins_over_a_stale_db_mirror():
+    """Guard the invariant the reclaim deliberately does NOT trade away: Redis is
+    authoritative and the DB envelope is only a fallback for Redis loss, so a
+    fail-closed "unknown" (or a fresh "delivered") must never be resurrected by
+    a stale DB mirror that still says "in_transit".
+    """
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    past = (now - timedelta(hours=2)).isoformat()
+    redis = FakeRedis()
+    for job_id, status in (("job-redis-unknown", "unknown"), ("job-redis-delivered", "delivered")):
+        redis.values[f"utcms:shipping:job:{job_id}"] = json.dumps(
+            ShippingState(job_id=job_id, status=status, estimated_end_at=past).to_dict()
+        )
+    stale_jobs = [
+        SimpleNamespace(
+            job_id=job_id,
+            result_json={
+                "_shipping_state": ShippingState(job_id=job_id, status="in_transit", estimated_end_at=past).to_dict()
+            },
+        )
+        for job_id in ("job-redis-unknown", "job-redis-delivered")
+    ]
+    session = AsyncMock()
+    exec_res = Mock()
+    exec_res.all.return_value = stale_jobs
+    exec_res.first.return_value = None
+    session.exec.return_value = exec_res
+
+    with (
+        patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(session)),
+    ):
+        due = await manager.get_due_in_transit_jobs(now_dt=now)
+
+    assert due == []
+
+
+@pytest.mark.asyncio
+async def test_missing_estimated_end_at_is_not_due():
+    """FINDING 10: the arrival gate in front of the terminal POST was deleted, so
+    the ETA is the only client-side trigger left. A blank ETA used to mean "no
+    wait", making such an envelope due IMMEDIATELY with nothing left to stop it.
+    """
+    state = ShippingState(job_id="job-no-eta-failclosed", status="in_transit", estimated_end_at="")
+    redis = FakeRedis()
+    redis.values[f"utcms:shipping:job:{state.job_id}"] = json.dumps(state.to_dict())
+    session = make_fake_session(None)
+
+    with (
+        patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)),
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(session)),
+    ):
+        due = await manager.get_due_in_transit_jobs()
+
+    assert due == []
+    wait = manager.shipping_wait_reason(state)
+    assert wait is not None
+    assert wait["reason"] == "missing_estimated_end_at"
+
+
+# --------------------------------------------------------------------------
+# FINDING 7: rolling-deploy claim-key compatibility
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_claim_covers_both_key_generations_during_a_rolling_deploy():
+    """In Model B, Central is updated while Workers 2/3 still run the previous
+    image, which claims the OLD key. Without claiming both, Central's new key
+    is free and BOTH generations POST RegisterEndOfShipping for one trip.
+    """
+    redis = FakeRedis()
+    new_key = manager.COMPLETION_CLAIM_KEY.format(job_id="job-rolling")
+    legacy_key = manager.LEGACY_COMPLETION_CLAIM_KEY.format(job_id="job-rolling")
+    assert new_key != legacy_key
+
+    with patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)):
+        token = await manager._acquire_completion_claim("job-rolling")
+        assert token
+        assert redis.values[new_key] == token
+        assert redis.values[legacy_key] == token
+        # A concurrent claimant of either generation is refused.
+        assert await manager._acquire_completion_claim("job-rolling") is None
+        await manager._release_completion_claim("job-rolling", token)
+        assert new_key not in redis.values
+        assert legacy_key not in redis.values
+
+
+@pytest.mark.asyncio
+async def test_old_image_holding_only_the_legacy_key_blocks_the_new_claim():
+    """The exact rolling-deploy hazard, and the half-claim must be rolled back
+    so the previous generation is not starved by an orphaned lock either.
+    """
+    redis = FakeRedis()
+    legacy_key = manager.LEGACY_COMPLETION_CLAIM_KEY.format(job_id="job-old-worker")
+    new_key = manager.COMPLETION_CLAIM_KEY.format(job_id="job-old-worker")
+    redis.values[legacy_key] = "worker-2-old-image-token"
+
+    with patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=redis)):
+        assert await manager._acquire_completion_claim("job-old-worker") is None
+
+    assert redis.values[legacy_key] == "worker-2-old-image-token"  # untouched
+    assert new_key not in redis.values, "the partially acquired new key must be rolled back"
+
+
+def test_claim_ttl_comment_matches_the_constant():
+    """FINDING 12: the comment claimed a 10-minute TTL for a 900-second value."""
+    import inspect
+
+    source = inspect.getsource(manager)
+    assert manager.COMPLETION_CLAIM_TTL_SECONDS == 900
+    assert "a 15-minute claim TTL" in source
+    assert "a 10-minute claim TTL" not in source

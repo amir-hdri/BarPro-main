@@ -35,6 +35,21 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["AndroidShippingController"]
 
+#: Slack, in seconds, allowed between the Apply tap and the read-back fix's own
+#: timestamp. It exists purely to absorb *measurement* error, never to widen the
+#: gate into a tolerance a pre-existing fix could slip through:
+#:
+#: * Android reports a fix age either as an integer-second ``age=Ns`` token (1 s
+#:   of quantization) or as an ``et=`` elapsed-realtime stamp that the observer
+#:   must resolve against a SECOND ADB read of ``/proc/uptime`` — and because
+#:   that read happens after the dump, its latency is charged to the computed
+#:   age, over-estimating it.
+#: * 2 s therefore covers 1 s of quantization plus ~1 s of ADB round-trip, while
+#:   still rejecting any genuinely pre-existing fix: a mock left behind by an
+#:   earlier job is at minimum a full apply/verify cycle old, and in practice
+#:   minutes or hours old.
+_DEFAULT_READBACK_TOLERANCE_S = 2.0
+
 
 class AndroidShippingController:
     """Controller orchestrating FakeTraveler and official transport app over ADB."""
@@ -49,6 +64,7 @@ class AndroidShippingController:
         apply_retry_delay: float = 1.0,
         apply_verify_timeout: float = 5.0,
         apply_poll_interval: float = 0.5,
+        readback_tolerance: float | None = None,
     ) -> None:
         if bridge is not None:
             self.bridge = bridge
@@ -65,17 +81,35 @@ class AndroidShippingController:
 
         if not isinstance(apply_attempts, int) or isinstance(apply_attempts, bool) or apply_attempts < 1:
             raise ValueError("apply_attempts must be an integer >= 1")
-        for name, value in (
+        timings: list[tuple[str, Any]] = [
             ("apply_retry_delay", apply_retry_delay),
             ("apply_verify_timeout", apply_verify_timeout),
             ("apply_poll_interval", apply_poll_interval),
-        ):
+        ]
+        if readback_tolerance is not None:
+            timings.append(("readback_tolerance", readback_tolerance))
+        for name, value in timings:
             if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < float(value) <= 300:
                 raise ValueError(f"{name} must be a finite number in (0, 300] seconds")
         self.apply_attempts = apply_attempts
         self.apply_retry_delay = float(apply_retry_delay)
         self.apply_verify_timeout = float(apply_verify_timeout)
         self.apply_poll_interval = float(apply_poll_interval)
+        # Freshness bound for the apply read-back gate. Derived from the poll
+        # cadence so a caller that slows the loop down automatically gets the
+        # matching measurement slack, with a floor of _DEFAULT_READBACK_TOLERANCE_S.
+        self.readback_tolerance = (
+            float(readback_tolerance)
+            if readback_tolerance is not None
+            else max(_DEFAULT_READBACK_TOLERANCE_S, self.apply_poll_interval * 2.0)
+        )
+        # Reconcile the observer's absolute staleness bound with the gate's
+        # apply-relative one, so the observer can never pre-empt (nor silently
+        # outlive) the gate. A fix the gate accepts is at most
+        # `readback_tolerance` older than the tap and is read at most
+        # `apply_verify_timeout` after it, so its age never exceeds the sum —
+        # and anything older is rejected by BOTH checks for the same reason.
+        self.readback_max_age = self.apply_verify_timeout + self.readback_tolerance
 
     def _require_enabled(self) -> None:
         if not self.config.enabled:
@@ -166,40 +200,6 @@ class AndroidShippingController:
         x, y = (left + right) // 2, (top + bottom) // 2
         await self._adb("shell", "input", "tap", str(x), str(y))
 
-    async def _verify_mock_location_registered(self) -> None:
-        """Verify FakeTraveler MockedLocationService or mock provider is active."""
-        try:
-            obs = await self.bridge.layout()
-            node = obs.require_unique(resource_id=f"{LOCATION_PACKAGE}:id/button_applyStop")
-            if node.text == "Stop":
-                return
-        except Exception as exc:
-            logger.debug("mock_location_fast_path_check_failed: %s", exc)
-        services_out = await self._adb("shell", "dumpsys", "activity", "services", LOCATION_PACKAGE)
-        if "MockedLocationService" in services_out:
-            return
-        loc_out = await self._adb("shell", "dumpsys", "location")
-        if "mock" in loc_out.lower() or LOCATION_PACKAGE in loc_out:
-            return
-        raise BridgeError("mock_location_not_registered")
-
-    async def _wait_until_mock_registered(self) -> None:
-        """Poll mock-registration verification until it succeeds or the timeout expires.
-
-        Replaces fixed sleeps with bounded polling: FakeTraveler's
-        MockedLocationService may take a moment to appear after the Apply tap,
-        and a single immediate check would report a false negative under load.
-        """
-        deadline = time.monotonic() + self.apply_verify_timeout
-        while True:
-            try:
-                await self._verify_mock_location_registered()
-                return
-            except BridgeError:
-                if time.monotonic() >= deadline:
-                    raise
-                await asyncio.sleep(self.apply_poll_interval)
-
     async def apply_location(self, lat: float, lon: float, altitude: float = 1200.0) -> None:
         """Send geo intent to FakeTraveler, trigger Apply, and verify mock location is registered.
 
@@ -207,8 +207,9 @@ class AndroidShippingController:
         every tap, so a retry never taps a button that already shows Stop
         (which would disable the provider). Taps happen only when the state
         is definitively "apply"; an unreadable or unexpected state fails
-        closed without any tap. The final attempt's error propagates
-        unchanged.
+        closed without any tap. Up to ``apply_attempts`` full apply cycles are
+        attempted, ``apply_retry_delay`` apart; the final attempt's error
+        propagates unchanged.
 
         Device serialization (batch-B fix B3): the single Redroid/FakeTraveler
         device is shared across jobs, so every apply is additionally
@@ -240,14 +241,46 @@ class AndroidShippingController:
             await rpa_runtime.release_lock(ANDROID_DEVICE_MUTATION_LOCK_KEY)
 
     async def _apply_location_locked(self, lat: float, lon: float, altitude: float = 1200.0) -> None:
-        """Apply once, then prove a fresh matching mock fix while holding the device lease."""
+        """Apply, then prove a fresh matching mock fix, while holding the device lease.
+
+        ``apply_attempts`` bounds a RE-TAP budget: a device whose provider is
+        slow to publish, or that reports a coarser fix age than the read-back
+        gate can absorb, gets a full fresh apply cycle rather than a dead end.
+        Each cycle re-reads the Apply/Stop toggle from the layout and resets a
+        live Stop before tapping, so a retry is never a blind tap on a toggle
+        that is already active. The final cycle's error propagates unchanged.
+        """
         from app.travel.android_observer import AdbLocationObserver
-        from app.travel.geometry import haversine_km
 
         await self.verify_device_ready()
         for package in (LOCATION_PACKAGE, TARGET_PACKAGE):
             if not (await self._adb("shell", "pm", "path", package)).startswith("package:"):
                 raise BridgeError("required_android_package_missing")
+        observer = AdbLocationObserver(
+            self.config,
+            bridge=self.bridge,
+            runner=self._runner,
+            max_age_s=self.readback_max_age,
+        )
+        for attempt in range(1, self.apply_attempts + 1):
+            try:
+                await self._apply_cycle(lat, lon, observer)
+                return
+            except BridgeError as exc:
+                if attempt >= self.apply_attempts:
+                    raise
+                logger.warning(
+                    "apply_location_attempt_failed attempt=%d/%d reason=%s",
+                    attempt,
+                    self.apply_attempts,
+                    exc,
+                )
+                await asyncio.sleep(self.apply_retry_delay)
+
+    async def _apply_cycle(self, lat: float, lon: float, observer: Any) -> None:
+        """One complete apply: toggle reset, geo intent, Apply tap, read-back proof."""
+        from app.travel.geometry import haversine_km
+
         # Foreground FakeTraveler first so the toggle can be read before filling.
         await self._adb("shell", "am", "start", "-n", f"{LOCATION_PACKAGE}/.MainActivity")
         state = await self._read_apply_button_state()
@@ -274,14 +307,17 @@ class AndroidShippingController:
         )
         applied_at = datetime.now(UTC)
         await self._trigger_apply_action()
-        observer = AdbLocationObserver(self.config, bridge=self.bridge, runner=self._runner)
         deadline = time.monotonic() + self.apply_verify_timeout
         while True:
             try:
                 fix = await observer.observe()
                 if not fix.is_mock or fix.serial != self.config.serial:
                     raise BridgeError("location_readback_invalid")
-                if fix.sampled_at < applied_at - timedelta(seconds=1.5):
+                # The gate proves OUR apply landed, so the bound is measured
+                # from the tap — only `readback_tolerance` of measurement slack
+                # is granted (see _DEFAULT_READBACK_TOLERANCE_S), never the
+                # observer's absolute window.
+                if fix.sampled_at < applied_at - timedelta(seconds=self.readback_tolerance):
                     raise BridgeError("location_readback_stale")
                 if haversine_km(fix.latitude, fix.longitude, lat, lon) > 0.005:
                     raise BridgeError("location_readback_mismatch")
@@ -296,6 +332,22 @@ class AndroidShippingController:
         self._require_enabled()
         logger.info("stopping_location_mock")
         await self._adb("shell", "am", "force-stop", LOCATION_PACKAGE)
+
+    async def _stop_location_mock_best_effort(self) -> bool:
+        """Tear the mock provider down, reporting whether it actually happened.
+
+        The Redroid/FakeTraveler device is SHARED across jobs and FakeTraveler
+        keeps injecting the last applied coordinates until it is stopped, so a
+        job that ends without this teardown leaves the next job's pre-apply
+        state a live stale mock. The boolean is the real outcome — callers must
+        never report a teardown that did not happen.
+        """
+        try:
+            await self.stop_location_mock()
+            return True
+        except Exception as exc:
+            logger.warning("stop_location_mock_failed: %s", exc)
+            return False
 
     async def launch_transport_app(self) -> None:
         """Launch the official UTCMS transport application (com.baarnameshahri)."""
@@ -354,7 +406,14 @@ class AndroidShippingController:
         altitude: float = 1200.0,
         raise_on_error: bool = False,
     ) -> dict[str, Any]:
-        """Finish shipping flow: validate coordinates, apply mock dest location, complete app action, and stop mock."""
+        """Finish shipping flow: validate coordinates, complete the app action, and stop the mock.
+
+        The FakeTraveler mock provider is torn down on EVERY exit path,
+        including the fail-closed transport-action error, because that is
+        precisely when the shared device would otherwise be left injecting the
+        last applied coordinates. ``mock_stopped`` reports the measured outcome
+        of that teardown, never a fabricated ``True``.
+        """
         if not doc_no or not isinstance(doc_no, str) or not doc_no.strip():
             raise ValueError("doc_no must be a non-empty string")
         self._validate_coordinates(dest_lat, dest_lon, altitude)
@@ -362,25 +421,31 @@ class AndroidShippingController:
 
         sanitized_doc = str(doc_no).strip()
         logger.info("finish_shipping doc_no=%s", sanitized_doc)
+        action_error: BridgeError | None = None
+        action_res: dict[str, Any] | None = None
         try:
             action_res = await self._perform_transport_action("finish", sanitized_doc)
-            return {
-                "status": "delivered",
-                "finished": True,
-                "doc_no": sanitized_doc,
-                "dest_lat": dest_lat,
-                "dest_lon": dest_lon,
-                "altitude": altitude,
-                "mock_stopped": True,
-                "action_result": action_res,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
         except BridgeError as exc:
+            action_error = exc
+        mock_stopped = await self._stop_location_mock_best_effort()
+        if action_error is not None:
             if raise_on_error:
-                raise
-            logger.warning("finish_shipping_failed doc_no=%s reason=%s", sanitized_doc, exc)
+                raise action_error
+            logger.warning("finish_shipping_failed doc_no=%s reason=%s", sanitized_doc, action_error)
             return {
                 "status": "error",
-                "reason": str(exc),
+                "reason": str(action_error),
                 "doc_no": sanitized_doc,
+                "mock_stopped": mock_stopped,
             }
+        return {
+            "status": "delivered",
+            "finished": True,
+            "doc_no": sanitized_doc,
+            "dest_lat": dest_lat,
+            "dest_lon": dest_lon,
+            "altitude": altitude,
+            "mock_stopped": mock_stopped,
+            "action_result": action_res,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }

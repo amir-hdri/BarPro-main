@@ -20,6 +20,7 @@ from app.auth_multitenant import get_current_user_or_admin
 from app.automation.gps_shipping_manager import (
     ShippingStatePersistenceError,
     _acquire_completion_claim,
+    _escalated_trace_target_km,
     _release_completion_claim,
     extract_coordinates_from_payload,
     get_or_login_client,
@@ -37,6 +38,7 @@ from app.automation.shipping_contract import (
 )
 from app.automation.worker_proxy import ProxyUnavailableError, get_worker_proxy_url
 from app.core.config import utcms_config
+from app.core.jalali import to_persian_digits
 from app.core.security import require_sensitive_auth
 
 logger = logging.getLogger(__name__)
@@ -218,6 +220,137 @@ def _assert_route_anchor(
         raise HTTPException(status_code=422, detail=f"مختصات ارسالی با {label} بارنامه تطبیق ندارد")
 
 
+# Codes for which a UTCMS start response PROVES no new start was accepted, so
+# the durable "starting" fence may safely roll back to the retryable "ready".
+#
+# Only 4006 qualifies: it is the documented pre-processing refusal
+# ("برای بارنامه نمی‌توان شروع حمل ثبت کرد") — either a self-declared start
+# already exists (handled as acknowledged by shipping_acknowledged(start=True))
+# or UTCMS declined to record one. Either way THIS request created nothing.
+#
+# Everything else — HTTP 429 (which shipping_response() renders as a dict and
+# which the gateway can emit AFTER the start landed), any code outside the
+# known allowlist, and non-int renderings such as 200.0 — is ambiguous. Those
+# fail closed to "unknown" so a silently-accepted start can never be retried
+# into a duplicate RegisterStartOfShipping.
+_START_PREPROCESSING_REJECTION_CODES = frozenset({"4006"})
+
+
+def _start_rejection_is_preprocessing(result: dict[str, Any]) -> bool:
+    """True only for codes that prove the start was refused before processing."""
+    code = result.get("resultCode")
+    if code is None or isinstance(code, bool):
+        return False
+    return str(code).strip() in _START_PREPROCESSING_REJECTION_CODES
+
+
+def _persian_duration(total_seconds: float) -> str:
+    """Render a wait as an operator-readable Persian duration."""
+    seconds = max(0, int(total_seconds))
+    minutes, hours = (seconds + 59) // 60, 0
+    if minutes >= 60:
+        hours, minutes = divmod(minutes, 60)
+    if hours and minutes:
+        return f"{to_persian_digits(hours)} ساعت و {to_persian_digits(minutes)} دقیقه"
+    if hours:
+        return f"{to_persian_digits(hours)} ساعت"
+    return f"{to_persian_digits(max(1, minutes))} دقیقه"
+
+
+def _wait_detail(wait: dict[str, Any]) -> str:
+    """Persian sentence for an ETA/backoff gate.
+
+    ``shipping_wait_reason`` returns a structured dict; handing that dict to
+    HTTPException made ``main.py``'s ``str(exc.detail)`` render a Python repr
+    (``{'status': 'waiting_eta', ...}``) in an RTL Persian UI and leaked the
+    internal field names. The structured payload is logged instead.
+    """
+    remaining = _persian_duration(wait.get("remaining_seconds") or 0)
+    if wait.get("status") == "backoff":
+        return f"ثبت پایان حمل در حال انتظار است؛ لطفاً {remaining} دیگر دوباره تلاش کنید"
+    return f"زمان لازم برای پایان حمل هنوز سپری نشده است؛ لطفاً {remaining} دیگر دوباره تلاش کنید"
+
+
+# Operator-facing Persian text for UTCMS finish rejections. Keyed by the
+# category record_shipping_rejection() derives, so the raw upstream envelope
+# never has to reach the client to explain the outcome.
+_REJECTION_MESSAGES_FA: dict[str, str] = {
+    "needs_review": "UTCMS پایان حمل خوداظهاری را تأیید نکرد؛ این بارنامه نیازمند بررسی دستی است",
+    "waiting_distance_requirement": (
+        "برای ثبت پایان حمل باید حداقل ۲ کیلومتر مسیر طی شده باشد؛ پس از پایان زمان انتظار دوباره تلاش کنید"
+    ),
+    "waiting_elapsed_time": ("زمان لازم برای پایان حمل هنوز سپری نشده است؛ پس از پایان زمان انتظار دوباره تلاش کنید"),
+    "rate_limited": ("تعداد درخواست‌ها به UTCMS بیش از حد مجاز است؛ پس از پایان زمان انتظار دوباره تلاش کنید"),
+    "rejected": "UTCMS ثبت پایان حمل را نپذیرفت؛ پس از پایان زمان انتظار دوباره تلاش کنید",
+}
+
+
+def _rejection_detail(job_id: str, rejection: dict[str, Any]) -> dict[str, Any]:
+    """Project a UTCMS finish rejection down to an allowlisted client payload.
+
+    ``record_shipping_rejection`` returns ``{"status", "result", "backoff_until"}``
+    where ``result`` is the verbatim decoded UTCMS body. Passing that straight
+    into HTTPException leaked the whole upstream envelope to the API client
+    (``main.py`` renders a non-str detail with ``str(exc.detail)``), which
+    contradicts UtcmsMobileApiError's own "response bodies are never logged"
+    contract. Only the category, the result code, a mapped Persian message and
+    the cooldown cross the boundary; the raw body stays server-side.
+    """
+    raw = rejection.get("result") if isinstance(rejection.get("result"), dict) else {}
+    status = str(rejection.get("status") or "rejected")
+    logger.error(
+        "utcms_finish_rejected job=%s status=%s result=%r backoff_until=%s",
+        job_id,
+        status,
+        raw,
+        rejection.get("backoff_until"),
+    )
+    code = raw.get("resultCode")
+    return {
+        "status": status,
+        "resultCode": code,
+        "message": _REJECTION_MESSAGES_FA.get(status, _REJECTION_MESSAGES_FA["rejected"]),
+        "backoff_until": rejection.get("backoff_until") or "",
+    }
+
+
+def _origin_witness_backfill(state: Any, fallback_stamp: str) -> dict[str, Any] | None:
+    """Recreate the origin Type-2 witness for a trip that never recorded one.
+
+    Mirrors the Beat task's backfill (``gps_shipping_manager.auto_complete_shipping``):
+    the issuance auto-start path (``waybill_bot_multitenant._finalize_shipping_start``)
+    persists ``status="in_transit"`` from ``init_shipping(gps_list=[])`` without
+    ever appending an origin point, so a manually finished waybill reached
+    ``prepare_shipping_trace`` with a single point and 500'd.
+
+    Returns ``None`` when a non-destination witness already exists. The origin
+    coordinates are required: a (0, 0) anchor must never be submitted to UTCMS.
+    """
+    if any(point.get("Type") != 3 for point in state.gps_list):
+        return None
+    if not state.origin_lat or not state.origin_lng:
+        raise HTTPException(status_code=422, detail="مختصات مبدأ برای ثبت پایان حمل در بارنامه ثبت نشده است")
+    # Recover the start time from the recorded trip start, never backdate it;
+    # a corrupt created_at falls back to "now" rather than bricking the finish.
+    try:
+        stamp = utc_shipping_timestamp(state.created_at) if state.created_at else fallback_stamp
+    except (TypeError, ValueError):
+        logger.warning("shipping_origin_backfill_bad_created_at job=%s value=%r", state.job_id, state.created_at)
+        stamp = fallback_stamp
+    return {
+        "Type": 2,
+        "Latitude": state.origin_lat,
+        "Longitude": state.origin_lng,
+        "Altitude": 1000,
+        "Speed": 0,
+        "Date": stamp,
+        "DateTime": stamp,
+        "ObservedAt": stamp,
+        "Provider": "operator_anchor",
+        "Provenance": "route_anchor",
+    }
+
+
 def _shipping_mutation_lock(handler):
     @wraps(handler)
     async def wrapped(req, user_context):
@@ -267,7 +400,23 @@ async def start_shipping(
         raise HTTPException(status_code=409, detail="ثبت زنده GPS غیرفعال است")
     payload, driver = await _get_job_and_driver(req.job_id, user_context, expected_doc_no=req.doc_no)
     existing = await _load_state_or_503(req.job_id)
-    if existing and existing.status != "ready":
+    # "starting" is the durable fence written immediately before the first
+    # RegisterStartOfShipping POST. A state still sitting at "starting" when a
+    # NEW request arrives means the previous request already finished without
+    # persisting an outcome (process died mid-POST, or its rollback save also
+    # failed) — otherwise the Redis SET-NX completion claim held by that
+    # in-flight request would have 409'd this one in _shipping_mutation_lock
+    # before the handler body ran. Treating it as terminal bricked a paid
+    # waybill forever: /start 409'd here and /finish 409'd on "not in_transit",
+    # with no reset path. Re-entry stays safe because (a) the mutation lock,
+    # not this check, is what prevents two concurrent POSTs, (b) every status
+    # that records an ACKNOWLEDGED start (in_transit / finishing / delivered)
+    # is still refused, (c) the ambiguous "unknown" outcome is still refused
+    # and must go through reconciliation, and (d) a start that silently landed
+    # upstream answers the retry with business rule 4006, which
+    # shipping_acknowledged(start=True) resolves to in_transit rather than
+    # creating a second start.
+    if existing and existing.status not in {"ready", "starting"}:
         raise HTTPException(status_code=409, detail=f"حمل قبلاً در وضعیت {existing.status} ثبت شده است")
     try:
         state = await init_shipping(req.job_id, req.doc_no, payload, persist=False)
@@ -348,12 +497,17 @@ async def start_shipping(
             )
         android_verified = True
     # Build the origin witness, but persist local state only after UTCMS confirms.
+    # The witness records state.origin_lat/lng — the SAME coordinates the wire
+    # payload below sends. Storing req.latitude/longitude here let the recorded
+    # evidence drift up to ~22 m (the _assert_route_anchor tolerance) from what
+    # UTCMS actually received, and that drift then fed the Rule-4012 distance
+    # math at finish time.
     observed_at = utc_shipping_timestamp(datetime.now(UTC))
     state.gps_list.append(
         {
             "Type": 2,
-            "Longitude": req.longitude,
-            "Latitude": req.latitude,
+            "Longitude": state.origin_lng,
+            "Latitude": state.origin_lat,
             "Altitude": req.altitude,
             "Speed": req.speed,
             "Date": observed_at,
@@ -404,8 +558,13 @@ async def start_shipping(
                 raise
         utcms_result = shipping_response(utcms_result)
         if utcms_result is None or not shipping_acknowledged(utcms_result, start=True):
-            if utcms_result is not None and utcms_result.get("resultCode") is not None:
-                mutation_attempted = False  # explicit rejection, no accepted start
+            # Roll the durable fence back to the retryable "ready" ONLY for a
+            # code that proves the start was refused before processing. Any
+            # other code (429, an unrecognized code, a non-int 200.0) might
+            # have been returned AFTER UTCMS accepted the start, so it fails
+            # closed to "unknown" instead of inviting a duplicate start.
+            if utcms_result is not None and _start_rejection_is_preprocessing(utcms_result):
+                mutation_attempted = False  # documented pre-processing rejection
             raise RuntimeError("shipping start was not acknowledged")
 
     except ProxyUnavailableError as exc:
@@ -477,7 +636,9 @@ async def finish_shipping(
     )
     wait = shipping_wait_reason(state)
     if wait:
-        raise HTTPException(status_code=409, detail=wait)
+        # The structured reason stays server-side; the client gets a sentence.
+        logger.info("shipping_finish_waiting job=%s reason=%r", req.job_id, wait)
+        raise HTTPException(status_code=409, detail=_wait_detail(wait))
     # ── Route snapshot recovery (Phase 5): old jobs may predate snapshots ──
     try:
         from app.services.shipping_travel_service import ensure_route_snapshot
@@ -546,12 +707,25 @@ async def finish_shipping(
     # Add the confirmed route destination anchor; no interpolated
     # telemetry is ever submitted to UTCMS.
     observed_at = utc_shipping_timestamp(datetime.now(UTC))
+    # Legacy/auto-started trips reach here with gps_list == [] because the
+    # issuance auto-start persisted status="in_transit" without an origin
+    # witness. Recreate it (same approach as the Beat auto-complete task)
+    # BEFORE the Type-3 destination so the trace stays chronological and
+    # prepare_shipping_trace() gets the two points it requires.
+    origin_witness = _origin_witness_backfill(state, observed_at)
+    if origin_witness is not None:
+        logger.info("shipping_finish_origin_backfilled job=%s", req.job_id)
+        state.gps_list.insert(0, origin_witness)
     if not state.gps_list or state.gps_list[-1].get("Type") != 3:
         state.gps_list.append(
             {
                 "Type": 3,
-                "Longitude": req.longitude,
-                "Latitude": req.latitude,
+                # Submit the waybill's frozen destination anchor, not the
+                # request's (up to ~22 m away under _assert_route_anchor), so
+                # the stored evidence matches both the wire payload and the
+                # coordinates the Android gate applied above.
+                "Longitude": state.dest_lng,
+                "Latitude": state.dest_lat,
                 "Altitude": req.altitude,
                 "Speed": req.speed,
                 "Date": observed_at,
@@ -564,7 +738,20 @@ async def finish_shipping(
 
     if not driver or not driver.utcms_password_encrypted:
         raise HTTPException(status_code=409, detail="اعتبارنامه راننده برای GPS موجود نیست")
-    state.gps_list = prepare_shipping_trace(state.gps_list)
+    try:
+        # Escalate the Rule-4012 distance target exactly as the Beat auto-complete
+        # path does (_escalated_trace_target_km). A short / intra-city route whose
+        # first finish was rejected for <2 km must retry with a longer injected
+        # detour; rebuilding at the default ~2.15 km target re-sends an identical
+        # trace and loops on 4012 until the attempt cap parks it in needs_review.
+        state.gps_list = prepare_shipping_trace(state.gps_list, target_km=_escalated_trace_target_km(state))
+    except ValueError as exc:
+        # A genuine contract violation (bad point type, non-chronological
+        # stamps, out-of-range values) is a 422 with the validation message —
+        # this call sits outside every try block below, so it used to escape
+        # into general_exception_handler as a bare 500.
+        logger.error("shipping_finish_trace_invalid job=%s err=%s", req.job_id, exc)
+        raise HTTPException(status_code=422, detail=f"مسیر GPS پایان حمل معتبر نیست: {exc}") from exc
     mutation_attempted = False
     try:
         proxy_url = get_worker_proxy_url()
@@ -594,7 +781,7 @@ async def finish_shipping(
             raise RuntimeError("shipping completion was not acknowledged")
         if not shipping_acknowledged(history_result):
             rejection = await record_shipping_rejection(state, history_result)
-            raise HTTPException(status_code=409, detail=rejection)
+            raise HTTPException(status_code=409, detail=_rejection_detail(req.job_id, rejection))
         if history_result.get("resultCode") == 4011:
             history_result["mode"] = "self_declared_auto_complete"
         utcms_result = {"history": history_result}
@@ -605,7 +792,15 @@ async def finish_shipping(
     except Exception as exc:
         logger.error("utcms_live_end_shipping_failed", exc_info=True)
         state.status = "unknown" if mutation_attempted else "in_transit"
-        await save_shipping_state(state)
+        # save_shipping_state raises ShippingStatePersistenceError whenever the
+        # DB mirror fails, even if Redis succeeded. Unprotected (unlike the
+        # identical handler in start_shipping) it escaped this block, so the
+        # 502 below never ran and the operator got a bare 500 that masked the
+        # real UTCMS cause. The 502 must always surface.
+        try:
+            await save_shipping_state(state)
+        except Exception:
+            logger.error("shipping_finish_failure_state_persist_failed", exc_info=True)
         raise HTTPException(status_code=502, detail="UTCMS پایان حمل را تأیید نکرد") from exc
 
     state.status = "delivered"

@@ -44,16 +44,25 @@
 ### secretها و رفتارهای امنیتی endpointها
 
 - `OTP_WEBHOOK_SECRET`: توکن مشترک احراز هویت وب‌هوک پیامک (`X-OTP-Webhook-Token`).
-  بدون این مقدار، endpointهای `/api/v1/otp/sms-forwarder` و `/api/v1/otp/webhook`
-  با 503 fail-closed می‌شوند؛ درخواست بدون هدر معتبر با 401 رد می‌شود.
+  بدون این مقدار، endpointهای `/api/v1/otp/sms-forwarder`، `/api/v1/otp/webhook` و
+  `/api/v1/otp/sms-gateway` با 503 fail-closed می‌شوند؛ درخواست بدون هدر معتبر با 401 رد می‌شود.
   مقدار را در هدر اپلیکیشن SecureSMS Forwarder روی گوشی هم ست کنید، وگرنه هیچ
   پیامکی ingest نمی‌شود.
+  - هر payload فورواردر باید شامل `driver_phone` معتبر (`09xxxxxxxxx`) باشد؛ این فیلد مقصد OTP را
+    تعیین می‌کند و بدون آن پیام با 422 رد می‌شود. قالب `/api/v1/otp/securesms-config` به‌روز شده و
+    این فیلد را تولید می‌کند — rule‌های قدیمی فورواردر را حتماً دوباره پیکربندی کنید.
+  - `/api/v1/otp/sms-gateway` مسیر رله‌ی GSM امضاشده است: envelope به شکل
+    `BP1#phone#timestamp#code#signature` با امضای HMAC-SHA256
+    (`hmac(OTP_WEBHOOK_SECRET, "#".join(parts[:4])).hexdigest()[:32]`) و تطبیق فرستنده با گیرنده؛
+    همان هویت تحویلِ فورواردر مستقیم را دارد (dedup مشترک).
+  - رویداد `HEALTH_CHECK` پاسخ `{"status":"ready","protocol":"barpro-otp-v1"}` می‌دهد و هیچ OTP
+    ساختگی ثبت نمی‌کند؛ سقف اندازه‌ی بدنه‌ی درخواست ۱۶ کیلوبایت است (در صورت تجاوز 413).
 - `GET /api/v1/otp/latest` و `POST /api/v1/otp/submit-manual` نیازمند احراز هویت
   کاربر/ادمین هستند؛ محتوای OTP هرگز در لاگ یا پاسخ موفق برنمی‌گردد.
 - `PUBLIC_BASE_URL`: آدرس عمومی همین استقرار با `https://` (مثلاً
   `https://otp.example.com`). برای ساخت URL وب‌هوک در راهنمای
   `/api/v1/otp/securesms-config` استفاده می‌شود؛ اگر خالی باشد راهنما placeholder
-  نشان می‌دهد. IP ثابت قدیمی (`87.107.5.238`) دیگر در کد نیست.
+  نشان می‌دهد. IP ثابت قدیمیِ سرور مرکزی (`<CENTRAL_IP>`) دیگر در کد نیست.
 - `ENABLE_DOCS`: در production مسیرهای `/docs`، `/redoc` و `/openapi.json`
   به‌صورت پیش‌فرض غیرفعال‌اند؛ فقط با `ENABLE_DOCS=true` فعال می‌شوند.
   در محیط غیرproduction همیشه فعال‌اند.

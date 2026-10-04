@@ -4,15 +4,17 @@
 
 | Module | Location | Size | Purpose |
 |--------|----------|------|---------|
-| **Advanced Stealth** | `app/automation/stealth_advanced.py` | 25KB | Anti-detection, WAF bypass, fingerprint spoofing |
+| **Advanced Stealth** | `app/automation/stealth_advanced.py` | 27KB | Anti-detection, WAF bypass, fingerprint spoofing |
 | **Human Interaction** | `app/automation/human_interaction.py` | 18KB | Realistic typing, mouse movement, timing |
-| **Resilience Engine** | `app/core/resilience.py` | 33KB | Exponential backoff, state tracking, graceful degradation |
+| **Resilience Engine** | `app/core/resilience.py` | 13KB | Exponential backoff, state tracking, graceful degradation |
 | **Telemetry System** | `app/core/telemetry.py` | 33KB | Structured logging, evidence collection, client reports |
-| **Resource Optimizer** | `app/automation/resource_optimizer.py` | 23KB | Memory management, lifecycle tracking, leak prevention |
-| **Reporting Schema** | `app/schemas/enterprise_reporting.py` | 22KB | JSON schemas for all data structures |
-| **Usage Examples** | `examples/enterprise_waybill_example.py` | 22KB | Production-ready code examples |
+| **Resource Optimizer** | `app/automation/resource_optimizer.py` | 22KB | Memory management, lifecycle tracking, leak prevention |
+| **Reporting Schema** | `app/schemas/enterprise_reporting.py` | 19KB | JSON schemas for all data structures |
+| **Usage Example (demo only)** | `examples/enterprise_waybill_example.py` | 3.2KB | Read-only `httpx.MockTransport` demo of the resilience interfaces — **not** production example code and it performs no UTCMS or BarPro mutation |
 
-**Total: 8 files, 204KB of enterprise-grade code**
+**Total: 7 files, ~135KB** (measured with `wc -c`; re-measure before quoting these
+numbers — the example was reduced from 680 lines to 84 when the mutation-shaped
+sample code was removed)
 
 ---
 
@@ -249,7 +251,7 @@ ContextLifecycleManager(
 
 ## 📖 Documentation Links
 
-- **Code Examples**: `examples/enterprise_waybill_example.py`
+- **Offline demo** (read-only, `MockTransport`, no mutation): `examples/enterprise_waybill_example.py`
 - **JSON Schemas**: `app/schemas/enterprise_reporting.py`
 
 ---

@@ -45,7 +45,7 @@ Frontend: Next.js 15 (TypeScript, Tailwind, React 19)
 - **Redroid & FakeTraveler Deployed**:
   - Container `barpro-redroid` is active on Central Server (`172.20.0.80:5555`, loopback `127.0.0.1:5555`) with `privileged: false`, `cap_add: [SYS_ADMIN, NET_ADMIN]`, binderfs nodes in `/dev/binderfs/`, and fstab persistence.
   - `cl.coders.faketraveler` and `com.baarnameshahri` installed. Mock location permission granted (`appops set cl.coders.faketraveler android:mock_location allow`).
-  - Squid 1 proxy configured on Redroid (`172.20.0.1:3128`), verified egress IP `87.107.5.238`.
+  - Squid 1 proxy configured on Redroid (`172.20.0.1:3128`), verified egress IP `<CENTRAL_IP>`.
   - Android Bridge controller (`app/android_bridge/controller.py`) implemented and verified.
   - Official APK decompilation revealed React Native + Hermes v94 + custom `SecurityNativeModule` with root, emulator, and mock-location checks. Direct Mobile Transport in Python remains the primary resilient path.
 - **Automated GPS Shipping Lifecycle & Periodic Beat Task (`shipping.auto_complete_due_trips`)**:
@@ -122,6 +122,14 @@ resource budget.
    detailed readiness is admin-only at `/api/v1/admin/readyz`
 10. **Compose is not firewall evidence** — verify UFW/provider firewall and
     `DOCKER-USER` from a non-worker IP after every deployment
+11. **`app/automation/benchmark_payload_adapter.py` is offline operator tooling, not a
+    submission path** — it has no production importer and must not acquire one.
+    `BenchmarkImportDraft.validation_errors == ()` is **not** submit-readiness:
+    `build_benchmark_import_draft` calls `validate_live_waybill_payload` *without*
+    `expected_driver_national_code` / `expected_plate` / `expected_driver_mobile`, so it
+    is a strictly weaker gate than `app/services/waybill_job_service` applies at job
+    creation. A draft must be re-validated against an authorized BarPro driver (and
+    enriched for the chosen transport) before any submission.
 
 ## Deployment Topology
 
@@ -189,12 +197,20 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 | Waybill jobs | `/api/v1/waybill-jobs` and its retry/requeue/timeline/log/screenshot subpaths |
 | Fuel inquiries | `/api/v1/fuel-inquiries` |
 | Clean IP operations | `/api/system/clean-ips`, `/api/system/clean-ips/refresh` (admin only) |
-| GPS shipping lifecycle | `/shipping/start`, `/shipping/step`, `/shipping/finish`, `/shipping/info`, `/shipping/auto-complete` |
+| GPS shipping lifecycle | `POST /shipping/coordinates`, `POST /shipping/start`, `POST /shipping/step` (**returns 410 Gone**), `POST /shipping/finish`, `GET /shipping/status/{job_id}` — all guarded by `require_sensitive_auth` |
 | Realtime | `WS /ws/waybill` with cookie auth and optional task/batch/correlation filters |
+| OTP intake (mobile transport) | `POST /api/v1/otp/sms-forwarder`, `POST /api/v1/otp/sms-gateway` (HMAC-signed `BP1#phone#timestamp#code#signature` envelope), `POST /api/v1/otp/webhook`, `POST /api/v1/otp/submit-manual`, `GET /api/v1/otp/latest`, `GET /api/v1/otp/securesms-config`. Forwarder/gateway require `OTP_WEBHOOK_SECRET` and fail closed (503) without it; 16 KB body cap, a `HEALTH_CHECK` probe, and a mandatory `driver_phone` (`09xxxxxxxxx`) for per-recipient routing. Durable, ordered, replay-safe intake lives in `app/services/otp_delivery.py`. |
 
 Do not use stale paths such as `/api/system/health`, `/ws/jobs/{client_id}` or
 `/ws/admin/stream`. There is no distinct POST cancel contract:
 `DELETE /api/v1/waybill-jobs/{job_id}` permanently deletes a job.
+`/shipping/info` and `/shipping/auto-complete` do **not** exist anywhere in
+`app/` — the router in `app/api/routes/shipping_gps.py` exposes exactly the five
+routes above, and the frontend calls only `/shipping/status/{jobId}`,
+`/shipping/start` and `/shipping/finish`. `POST /shipping/step` is a deliberate
+410: intermediate GPS stays disabled until a live UTCMS ping contract is proven.
+Automatic trip completion is a Celery Beat task
+(`shipping.auto_complete_due_trips`), not an HTTP route.
 
 ### Submission State and Reconciliation
 
@@ -263,8 +279,9 @@ URL/Data URI and has no direct tracking-code column.
 
 ### Automated Shipping Lifecycle & GPS Completion Contract
 
-- **Lifecycle Flow**:
-  `waybill issuance (tracking code) → immediate RegisterStartOfShipping (origin GPS, UTC timestamp) → in_transit state (Redis + DB persistence) → periodic ETA check (every 2 min via shipping.auto_complete_due_trips in Celery Beat) → physical ETA satisfied (now >= estimated_end_at) → RegisterEndOfShipping (2-point GPS trace: origin Type 2 + destination Type 3) → delivered / success`
+- **Lifecycle Flow** (state vocabulary `ready → starting → in_transit → finishing → delivered`, plus `unknown` / `needs_review`):
+  `waybill issuance (tracking code) → post-issuance RegisterStartOfShipping (origin GPS, UTC timestamp); its UTCMS result decides the state — acknowledged / self-declared 4006 → in_transit (origin witness recorded), explicit reject → unknown, raised/ambiguous → in_transit (still sweepable) → periodic ETA check (every 2 min via shipping.auto_complete_due_trips in Celery Beat) → physical ETA satisfied (now >= estimated_end_at) → RegisterEndOfShipping (2-point GPS trace: origin Type 2 + destination Type 3) → delivered / success`
+  - **Durable fences & crash recovery**: `/shipping/start` and the completion POST each write a durable `starting`/`finishing` fence under a dual-key Redis completion claim *before* the mutation. `reclaim_stuck_shipping_fences` (invoked from `get_due_in_transit_jobs`) resets only an *abandoned* fence — older than `COMPLETION_CLAIM_TTL_SECONDS` with no live claim held — back to `in_transit`; it never steals a fence a worker still holds, and fails closed when Redis is unavailable. A missing or future `estimated_end_at` is fail-closed as `waiting_eta` (`shipping_wait_reason`), never treated as "due now" (operator `force=True` is the explicit override on `auto_complete_shipping`).
 - **Active Endpoints vs. Deprecated 404s**:
   - Active: `POST /Document/RegisterStartOfShipping` (takes `DocId`, `Speed=0`, `Altitude=1000`, `Longitude`, `Latitude`, `StartDate`, `havePermission=true`) and `POST /Document/RegisterEndOfShipping` (takes `docId`, `gpsList`).
   - Deprecated / 404: `/Document/StartShippingWithGps` and `/Document/FinishShippingWithGps` return 404 on current UTCMS. Client code automatically falls back to the active endpoints.

@@ -26,7 +26,10 @@ from app.api.routes.multitenant import _parse_history_date_bounds, list_waybill_
 from app.core.jalali import tehran_day_bounds_utc
 from app.models_multitenant import Client, Driver, FuelInquiry, WaybillJob
 from app.schemas.multitenant import TaskFilterRequest
+from app.services import admin_reporting_service as admin_reporting_module
+from app.services.admin_reporting_service import admin_reporting_service
 from app.services.fuel_inquiry_service import fuel_inquiry_service
+from app.services.user_reporting_service import user_reporting_service
 from app.services.waybill_job_service import WaybillJobService
 
 # Tehran day 2026-10-02 == naive UTC [2026-10-01 20:30, 2026-10-02 20:30)
@@ -57,6 +60,72 @@ def test_parse_history_date_bounds_rejects_invalid():
     with pytest.raises(HTTPException) as exc:
         _parse_history_date_bounds("not-a-date", None)
     assert exc.value.status_code == 400
+
+
+def test_tehran_day_bounds_utc_month_and_year_boundaries():
+    """The Tehran shift must cross month/year boundaries, not just day ones."""
+    # 1 Jan 2026 Tehran starts on 31 Dec 2025 at 20:30 UTC (year + month roll).
+    assert tehran_day_bounds_utc(2026, 1, 1) == (datetime(2025, 12, 31, 20, 30), datetime(2026, 1, 1, 20, 30))
+    # 1 Mar 2026 Tehran starts on 28 Feb (2026 is not a Gregorian leap year).
+    assert tehran_day_bounds_utc(2026, 3, 1) == (datetime(2026, 2, 28, 20, 30), datetime(2026, 3, 1, 20, 30))
+    # 1 Mar 2024 Tehran starts on 29 Feb (2024 IS a leap year).
+    assert tehran_day_bounds_utc(2024, 3, 1) == (datetime(2024, 2, 29, 20, 30), datetime(2024, 3, 1, 20, 30))
+    # 31 Dec 2026 Tehran ends inside 31 Dec UTC, so the exclusive bound does
+    # not spill into the next year.
+    assert tehran_day_bounds_utc(2026, 12, 31) == (datetime(2026, 12, 30, 20, 30), datetime(2026, 12, 31, 20, 30))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("20261002", id="compact-basic-iso"),
+        pytest.param("2026-W40-5", id="iso-week-date"),
+        pytest.param("2026-10-02T00:00:00", id="full-datetime"),
+        pytest.param("2026-10-02T00:00:00+09:00", id="tz-aware-datetime"),
+        pytest.param("2026-10-02 00:00:00", id="space-separated-datetime"),
+        pytest.param("2026-13-02", id="impossible-month"),
+        pytest.param("", id="empty-is-falsy-but-explicit"),
+    ],
+)
+def test_parse_history_date_bounds_is_strict_about_the_documented_format(value):
+    """Finding 8: ``fromisoformat`` accepted compact/ISO-week/datetime forms and
+    silently DISCARDED any timezone offset (``.year/.month/.day``), so inputs
+    outside the documented ``YYYY-MM-DD`` contract were reinterpreted instead
+    of rejected."""
+    if value == "":
+        # Falsy values still mean "no filter", which must stay a no-op.
+        assert _parse_history_date_bounds(value, None) == (None, None)
+        return
+    with pytest.raises(HTTPException) as exc:
+        _parse_history_date_bounds(value, None)
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException) as exc:
+        _parse_history_date_bounds(None, value)
+    assert exc.value.status_code == 400
+
+
+def test_parse_history_date_bounds_rejects_reversed_range():
+    """A reversed range used to return an empty page with no hint of why."""
+    with pytest.raises(HTTPException) as exc:
+        _parse_history_date_bounds("2026-10-05", "2026-10-02")
+    assert exc.value.status_code == 400
+    assert "شروع" in exc.value.detail and "پایان" in exc.value.detail
+    # An equal (single-day) range is valid, not reversed.
+    assert _parse_history_date_bounds(DAY, DAY) == (DAY_START_UTC, DAY_END_UTC)
+
+
+async def test_waybill_route_rejects_reversed_date_range(session_factory):
+    async with session_factory() as session:
+        client, _ = await _seed_jobs(session)
+        with pytest.raises(HTTPException) as exc:
+            await list_waybill_jobs(
+                date_from="2026-10-05",
+                date_to="2026-10-02",
+                page=1,
+                user_context={"role": "client", "user": client},
+                session=session,
+            )
+        assert exc.value.status_code == 400
 
 
 @pytest.fixture
@@ -288,3 +357,85 @@ async def test_fuel_inquiry_date_filter_includes_whole_end_day(session_factory):
             date_to=dt_to,
         )
         assert {i.id for i in result.items} == {in_day.id}
+
+
+# ── Reports must agree with /history about where a Tehran day begins/ends ────
+#
+# Finding 7: /history used tehran_day_bounds_utc while EVERY reporting service
+# still did ``fromisoformat(date_to) + timedelta(days=1)`` in naive UTC, so the
+# two surfaces disagreed for the first 3.5 hours of every Tehran day (a job
+# created 2026-10-02 02:00 Tehran = 2026-10-01 22:30 UTC was counted on 10-02
+# in history but 10-01 in reports).
+
+
+async def test_user_report_history_agrees_with_history_page_on_tehran_day(session_factory):
+    async with session_factory() as session:
+        client, jobs = await _seed_jobs(session)
+
+        report = await user_reporting_service.waybill_history(
+            client, session, date_from=DAY, date_to=DAY, page=1, page_size=100
+        )
+        reported = {row["job_id"] for row in report["jobs"]}
+
+        dt_from, dt_to = _parse_history_date_bounds(DAY, DAY)
+        history = await WaybillJobService.list_jobs(
+            {"role": "client", "user": client},
+            session,
+            TaskFilterRequest(date_from=dt_from, date_to=dt_to, page_size=100),
+        )
+
+        # jobs[0] is 00:30 Tehran on the selected day (22:00-ish UTC the day
+        # before) and jobs[2] is 00:30 Tehran on the NEXT day: the naive-UTC
+        # window got both of those exactly backwards.
+        assert reported == {jobs[0].job_id, jobs[1].job_id}
+        assert reported == {job.job_id for job in history.tasks}
+        assert report["total"] == history.total == 2
+
+
+async def test_user_error_details_uses_tehran_day_bounds(session_factory):
+    async with session_factory() as session:
+        client, _ = await _seed_jobs(session)
+        early = _job(client.id, 1, datetime(2026, 10, 1, 21, 0), status="failed")  # 00:30 Tehran 10-02
+        late = _job(client.id, 1, datetime(2026, 10, 2, 21, 0), status="failed")  # 00:30 Tehran 10-03
+        session.add_all([early, late])
+        await session.commit()
+
+        rows = await user_reporting_service.error_details(client, session, date_from=DAY, date_to=DAY)
+        got = {row["job_id"] for row in rows}
+        assert early.job_id in got
+        assert late.job_id not in got
+
+
+async def test_admin_client_detail_uses_tehran_day_bounds(session_factory):
+    async with session_factory() as session:
+        client, jobs = await _seed_jobs(session)
+
+        detail = await admin_reporting_service.client_detail(client.id, session, date_from=DAY, date_to=DAY)
+        # Same two jobs the history page returns for this Tehran day.
+        assert detail["total_jobs"] == 2
+        assert detail["success_jobs"] == 2
+        per_driver = {row["driver_id"]: row for row in detail["driver_breakdown"]}
+        assert per_driver[jobs[0].driver_id]["total_jobs"] == 2
+
+
+async def test_admin_client_detail_still_rejects_malformed_dates(session_factory):
+    async with session_factory() as session:
+        client, _ = await _seed_jobs(session)
+        for kwargs in ({"date_from": "not-a-date"}, {"date_to": "not-a-date"}):
+            with pytest.raises(HTTPException) as exc:
+                await admin_reporting_service.client_detail(client.id, session, **kwargs)
+            assert exc.value.status_code == 422
+
+
+async def test_admin_failure_analysis_uses_tehran_day_bounds(session_factory, monkeypatch):
+    async with session_factory() as session:
+        client, _ = await _seed_jobs(session)
+        early = _job(client.id, 1, datetime(2026, 10, 1, 21, 0), status="failed")  # 00:30 Tehran 10-02
+        late = _job(client.id, 1, datetime(2026, 10, 2, 21, 0), status="failed")  # 00:30 Tehran 10-03
+        session.add_all([early, late])
+        await session.commit()
+
+    monkeypatch.setattr(admin_reporting_module, "async_session_factory", session_factory)
+    report = await admin_reporting_service.failure_analysis(client_id=client.id, date_from=DAY, date_to=DAY)
+    assert report["total_failed"] == 1
+    assert [row["job_id"] for examples in report["examples"].values() for row in examples] == [early.job_id]

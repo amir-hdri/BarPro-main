@@ -77,7 +77,7 @@ JavaScript، اعمال GPS یا رسیدن ترافیک به UTCMS را ثاب�
 
 ### شبکه
 - [x] تنظیم global HTTP proxy روی Redroid با مقدار `172.20.0.1:3128` (Squid 1).
-- [x] راستی‌آزمایی IP خروجی از درون اندروید با `87.107.5.238` (ایستگاه مرکزی).
+- [x] راستی‌آزمایی IP خروجی از درون اندروید با `<CENTRAL_IP>` (ایستگاه مرکزی).
 
 ### UI و provider
 - [x] اعطای دسترسی به FakeTraveler با `appops set cl.coders.faketraveler android:mock_location allow`.

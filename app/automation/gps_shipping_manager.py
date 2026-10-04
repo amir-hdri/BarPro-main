@@ -566,10 +566,36 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 # provide a tenant; scoped lookups NEVER fall back to it, so a tenant can
 # never read another tenant's cached session.
 SHIPPING_STATE_KEY = "utcms:shipping:job:{job_id}"
+# Unified with the manual-mutation lock in shipping_gps._shipping_mutation_lock,
+# so /start, /finish and the Beat auto-complete all contend for ONE key per trip.
 COMPLETION_CLAIM_KEY = "lock:shipping:{job_id}"
-# Beat cadence is 120s; a 10-minute claim TTL bounds a claim left behind by a
-# crashed worker while still covering the slowest UTCMS round-trips.
+# Rolling-deploy compatibility, added 2026-10-03: in Model B the Central node is
+# updated while Workers 2/3 still run the previous image, which claims the OLD
+# key. Acquiring BOTH keys means the two generations cannot both reach
+# RegisterEndOfShipping for the same trip during the cutover.
+# REMOVE this legacy key (and its acquire/release handling) in the release AFTER
+# the whole fleet runs an image containing COMPLETION_CLAIM_KEY.
+LEGACY_COMPLETION_CLAIM_KEY = "utcms:shipping:claim:{job_id}"
+# Beat cadence is 120s; a 15-minute claim TTL bounds a claim left behind by a
+# crashed worker while still covering the slowest UTCMS round-trips. The stuck
+# fence reclaim (reclaim_stuck_shipping_fences) uses the same TTL as its
+# "nobody is working on this any more" threshold.
 COMPLETION_CLAIM_TTL_SECONDS = 900
+
+# A terminal registration that keeps being refused must not retry forever: past
+# this many attempts the trip is parked in a non-looping state for an operator.
+MAX_COMPLETION_ATTEMPTS = 8
+
+# UTCMS codes that mean "not yet, come back later" rather than "what you sent is
+# wrong". They carry their own bounded schedules (rule 4013 -> 5 minutes, 429 ->
+# 10/20/30 minutes capped at 1800s) and are therefore exempt from the attempt
+# cap: a busy portal must not park a healthy trip in needs_review.
+RETRY_LATER_CODES = (4013, 429)
+
+# Shipping-state values that fence a trip while a worker owns its mutation.
+# Neither is terminal: a worker killed mid-mutation leaves one behind, and
+# without a reaper the trip is never completed and never surfaces as failed.
+FENCE_STATUSES = ("finishing", "starting")
 
 # Loop-aware per-driver auth locks, keyed (loop id, tenant scope, national code).
 # asyncio.Lock binds to the loop that first awaits it; awaiting the same lock
@@ -949,6 +975,9 @@ class ShippingState:
     backoff_until: str = ""
     last_error_code: int | str | None = None
     last_error_message: str = ""
+    # Cumulative trace length the NEXT terminal attempt must reach, learned from
+    # the distance UTCMS reports in a rule-4012 rejection (0.0 = contract default).
+    required_distance_km: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -986,6 +1015,7 @@ class ShippingState:
             "backoff_until": self.backoff_until,
             "last_error_code": self.last_error_code,
             "last_error_message": self.last_error_message,
+            "required_distance_km": self.required_distance_km,
         }
 
     @classmethod
@@ -1025,6 +1055,7 @@ class ShippingState:
             backoff_until=str(d.get("backoff_until") or ""),
             last_error_code=d.get("last_error_code"),
             last_error_message=str(d.get("last_error_message") or ""),
+            required_distance_km=float(d.get("required_distance_km") or 0.0),
         )
 
 
@@ -1186,24 +1217,31 @@ async def init_shipping(
 
 
 def shipping_wait_reason(state: ShippingState, now: datetime | None = None) -> dict[str, Any] | None:
-    """Enforce persisted cooldown and physical ETA on every entry point."""
+    """Enforce persisted cooldown and physical ETA on every entry point.
+
+    A MISSING ETA is "not yet due", never "due now". The arrival gate that used
+    to sit in front of the terminal POST is gone, so the ETA is the only
+    client-side trigger left; treating a blank one as satisfied made such an
+    envelope due immediately with nothing left to stop it. Fail closed instead
+    and let an operator force completion explicitly (``force=True``).
+
+    A CORRUPT value is still logged with context and treated as "no wait" — the
+    fail-closed mutation gates and UTCMS rule 4013 are the real backstops, and
+    a typo must not permanently dead-end a real trip. The cooldown is evaluated
+    before the ETA so a corrupt-cooldown diagnostic is never skipped.
+    """
     stamp = now or datetime.now(UTC)
     for field_name, status in (("backoff_until", "backoff"), ("estimated_end_at", "waiting_eta")):
         raw = getattr(state, field_name)
-        # Empty cooldown OR empty ETA means "no wait": a trip with no persisted
-        # ETA is still swept as a failsafe (fail-closed auto_complete + the UTCMS
-        # 4013 backstop downstream), never dead-ended as invalid_estimated_end_at.
         if not raw:
-            continue
+            if field_name == "estimated_end_at":
+                return {"status": "waiting_eta", "reason": "missing_estimated_end_at", "estimated_end_at": ""}
+            continue  # an empty cooldown simply means "no cooldown"
         try:
             deadline = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
             if deadline.tzinfo is None:
                 deadline = deadline.replace(tzinfo=UTC)  # legacy persisted times were UTC
         except (TypeError, ValueError):
-            # A corrupt cooldown/ETA is logged WITH context and treated as "no
-            # wait" (the trip stays eligible), never silently swallowed and never
-            # a permanent dead-end; the fail-closed mutation gates + UTCMS 4013
-            # are the real backstops.
             event = "shipping_backoff_parse_failed" if field_name == "backoff_until" else "shipping_eta_parse_failed"
             logger.warning("%s job=%s field=%s value=%r", event, state.job_id, field_name, raw)
             continue
@@ -1216,12 +1254,82 @@ def shipping_wait_reason(state: ShippingState, now: datetime | None = None) -> d
     return None
 
 
+def _fence_is_abandoned(state: ShippingState, now: datetime) -> bool:
+    """True when a "finishing"/"starting" fence is older than the claim TTL.
+
+    The fence is written immediately before the terminal POST; the claim that
+    goes with it expires after COMPLETION_CLAIM_TTL_SECONDS. A fence still
+    standing after that window therefore belongs to a worker that died, not to
+    one that is working.
+    """
+    if state.status not in FENCE_STATUSES:
+        return False
+    raw = state.last_attempt_at or state.created_at
+    if not raw:
+        return True  # no attempt timestamp at all: nothing can be waiting on it
+    try:
+        stamped = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        logger.warning("shipping_fence_timestamp_parse_failed job=%s value=%r", state.job_id, raw)
+        return True
+    if stamped.tzinfo is None:
+        stamped = stamped.replace(tzinfo=UTC)  # legacy persisted times were UTC
+    return (now - stamped).total_seconds() > COMPLETION_CLAIM_TTL_SECONDS
+
+
+async def reclaim_stuck_shipping_fences(states: list[ShippingState], now: datetime) -> list[ShippingState]:
+    """Return abandoned fences to "in_transit" so they are swept again.
+
+    Without this, a worker OOM-killed between the durable fence and the
+    response leaves Redis on "finishing" for the key's 7-day TTL: the claim
+    expires but nothing resets the status, so the trip is never completed and
+    never surfaces as failed. Only reclaimed when NO claim of either
+    generation is held, so a live mutation is never stolen.
+    """
+    reclaimed: list[ShippingState] = []
+    for state in states:
+        if not _fence_is_abandoned(state, now):
+            continue
+        if await _completion_claim_is_held(state.job_id):
+            continue
+        previous = state.status
+        logger.warning(
+            "shipping_fence_reclaimed job=%s from=%s last_attempt_at=%r",
+            state.job_id,
+            previous,
+            state.last_attempt_at,
+        )
+        state.status = "in_transit"
+        state.last_error_message = f"reclaimed abandoned {previous} fence"[:200]
+        try:
+            await save_shipping_state(state)
+        except Exception:
+            logger.error("shipping_fence_reclaim_persist_failed job=%s", state.job_id, exc_info=True)
+            continue
+        reclaimed.append(state)
+    return reclaimed
+
+
+# The DB fallback scan is bounded so a backlog cannot load every envelope into
+# the worker at once; Redis remains the primary, authoritative source.
+DUE_SCAN_DB_LIMIT = 50
+
+
 async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[ShippingState]:
-    """Find due envelopes, with Redis decisions taking precedence over stale DB mirrors."""
+    """Find due envelopes, with Redis decisions taking precedence over stale DB mirrors.
+
+    ``seen`` is populated BEFORE the dueness filter on purpose: Redis is the
+    authoritative store and the DB envelope is only a fallback for Redis loss,
+    so a Redis decision ("delivered", the fail-closed "unknown", a live
+    "finishing" fence) must never be overridden by a stale DB mirror that still
+    says "in_transit". Abandoned fences are fixed at the source instead, by
+    reclaim_stuck_shipping_fences.
+    """
     now = now_dt or datetime.now(UTC)
     if now.tzinfo is None:
         now = now.replace(tzinfo=UTC)
     due: list[ShippingState] = []
+    fenced: list[ShippingState] = []
     seen: set[str] = set()
 
     def consider(raw: Any) -> None:
@@ -1229,7 +1337,9 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
         if not state.job_id or state.job_id in seen:
             return
         seen.add(state.job_id)
-        if state.status == "in_transit" and shipping_wait_reason(state, now) is None:
+        if state.status in FENCE_STATUSES:
+            fenced.append(state)
+        elif state.status == "in_transit" and shipping_wait_reason(state, now) is None:
             due.append(state)
 
     redis = await _get_redis()
@@ -1259,9 +1369,23 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
 
         async with async_session_factory() as session:
             # Issuance can already be SUCCESS while its shipping envelope is in transit.
-            query = select(WaybillJob).where(
-                cast(WaybillJob.result_json, JSONB)["_shipping_state"]["status"].astext == "in_transit"
-            )
+            #
+            # INDEX NOTE: this is an UNINDEXED JSONB path predicate that runs on
+            # every Beat tick (120s) on a 4 vCPU box shared with Worker 1, so it
+            # is a full sequential scan of waybill_jobs. ``result_json`` is a
+            # JSON column, so the cast below is real and an expression index
+            # must match it exactly:
+            #
+            #   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_shipping_state_status
+            #     ON waybill_jobs ((CAST(result_json AS jsonb) -> '_shipping_state' ->> 'status'))
+            #     WHERE (CAST(result_json AS jsonb) -> '_shipping_state' ->> 'status')
+            #           IN ('in_transit', 'finishing', 'starting');
+            #
+            # Deliberately NOT created here: an index belongs in a reviewed
+            # Alembic revision, not in a runtime import path. Until it exists,
+            # DUE_SCAN_DB_LIMIT bounds the damage.
+            status_expr = cast(WaybillJob.result_json, JSONB)["_shipping_state"]["status"].astext
+            query = select(WaybillJob).where(status_expr.in_(("in_transit", *FENCE_STATUSES))).limit(DUE_SCAN_DB_LIMIT)
             jobs = (await session.exec(query)).all()
             for job in jobs:
                 if job.job_id in seen:
@@ -1274,6 +1398,9 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                     logger.warning("shipping_state_decode_failed job=%s", job.job_id, exc_info=True)
     except Exception:
         logger.warning("shipping_due_db_scan_failed", exc_info=True)
+    for state in await reclaim_stuck_shipping_fences(fenced, now):
+        if shipping_wait_reason(state, now) is None:
+            due.append(state)
     return due
 
 
@@ -1405,24 +1532,47 @@ async def _route_shipping_job_to_reconciliation(
 
 
 async def _acquire_completion_claim(job_id: str) -> str | None:
-    """Acquire the same distributed lock used by manual start/finish; fail closed."""
+    """Acquire the same distributed lock used by manual start/finish; fail closed.
+
+    Both the current and the legacy key are claimed (see
+    LEGACY_COMPLETION_CLAIM_KEY) so a mid-rollout fleet running two image
+    generations still serialises on one trip. Partial acquisition is rolled
+    back, so neither generation can be starved by an orphaned half-claim.
+    """
     r = await _get_redis()
     if not r:
         raise ShippingStatePersistenceError("shipping mutation lock unavailable")
     token = secrets.token_urlsafe(16)
+    held: list[str] = []
     try:
-        acquired = await r.set(
-            COMPLETION_CLAIM_KEY.format(job_id=job_id),
+        for template in (COMPLETION_CLAIM_KEY, LEGACY_COMPLETION_CLAIM_KEY):
+            key = template.format(job_id=job_id)
+            if not await r.set(key, token, ex=COMPLETION_CLAIM_TTL_SECONDS, nx=True):
+                for acquired_key in held:
+                    await _release_claim_key(r, acquired_key, token)
+                logger.info("completion_claim_held job=%s key=%s; skipping duplicate attempt", job_id, key)
+                return None
+            held.append(key)
+    except ShippingStatePersistenceError:
+        raise
+    except Exception as exc:
+        for acquired_key in held:
+            await _release_claim_key(r, acquired_key, token)
+        raise ShippingStatePersistenceError("shipping mutation lock unavailable") from exc
+    return token
+
+
+async def _release_claim_key(redis: Any, key: str, token: str) -> None:
+    """Compare-and-delete one claim key; never raise over a release failure."""
+    try:
+        await redis.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+            1,
+            key,
             token,
-            ex=COMPLETION_CLAIM_TTL_SECONDS,
-            nx=True,
         )
     except Exception as exc:
-        raise ShippingStatePersistenceError("shipping mutation lock unavailable") from exc
-    if not acquired:
-        logger.info("completion_claim_held job=%s; skipping duplicate completion attempt", job_id)
-        return None
-    return token
+        logger.warning("completion_claim_release_failed key=%s err=%s", key, exc)
 
 
 async def _release_completion_claim(job_id: str, token: str) -> None:
@@ -1432,15 +1582,23 @@ async def _release_completion_claim(job_id: str, token: str) -> None:
     r = await _get_redis()
     if r is None:
         return
-    try:
-        await r.eval(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
-            1,
-            COMPLETION_CLAIM_KEY.format(job_id=job_id),
-            token,
-        )
-    except Exception as exc:
-        logger.warning("completion_claim_release_failed job=%s err=%s", job_id, exc)
+    for template in (COMPLETION_CLAIM_KEY, LEGACY_COMPLETION_CLAIM_KEY):
+        await _release_claim_key(r, template.format(job_id=job_id), token)
+
+
+async def _completion_claim_is_held(job_id: str) -> bool:
+    """True when either claim generation still owns this trip's mutation."""
+    r = await _get_redis()
+    if r is None:
+        return True  # fail closed: without Redis we cannot prove nobody holds it
+    for template in (COMPLETION_CLAIM_KEY, LEGACY_COMPLETION_CLAIM_KEY):
+        try:
+            if await r.get(template.format(job_id=job_id)) is not None:
+                return True
+        except Exception:
+            logger.warning("completion_claim_probe_failed job=%s", job_id, exc_info=True)
+            return True
+    return False
 
 
 def _is_missing_start_rejection(result: dict[str, Any]) -> bool:
@@ -1451,8 +1609,140 @@ def _is_missing_start_rejection(result: dict[str, Any]) -> bool:
     return "شروع حمل" in message and "ثبت نشده" in message
 
 
+def _assume_utc_timestamp(value: Any, *, fallback: datetime) -> str:
+    """Normalise a persisted timestamp to the strict UTCMS wire format.
+
+    ``utc_shipping_timestamp`` deliberately hard-raises on a naive value so a
+    Tehran-local time can never be wired as UTC (rule 4013). Legacy envelopes,
+    however, persisted naive strings that WERE UTC — the rest of this module
+    already assumes that (``shipping_wait_reason``, and
+    ``advance_travel_execution`` in shipping_travel_service). Without this
+    helper a single legacy ``created_at`` escapes auto_complete_shipping as a
+    ValueError with NO state saved, so no backoff is recorded and the Beat tick
+    repeats it every 2 minutes forever, burning a Session-Vault login (and a
+    CAPTCHA solve when cold) on each pass.
+    """
+    from app.automation.shipping_contract import utc_shipping_timestamp
+
+    raw = str(value or "").strip()
+    if not raw:
+        return utc_shipping_timestamp(fallback)
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        logger.warning("shipping_timestamp_parse_failed value=%r; using fallback", raw)
+        return utc_shipping_timestamp(fallback)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.replace(tzinfo=UTC)  # legacy persisted times were UTC
+    return utc_shipping_timestamp(parsed)
+
+
+def _escalated_trace_target_km(state: ShippingState) -> float:
+    """Cumulative trace length the next terminal attempt should aim for.
+
+    Rule 4012 is evaluated by UTCMS on ROAD distance, which is shorter than the
+    haversine length of our trace, so re-sending the same 2.15 km trace is
+    rejected identically forever. ``required_distance_km`` carries the target
+    learned from the distance UTCMS reported last time; the contract clamps it
+    up to the documented default, so this can only ever escalate.
+    """
+    from app.automation.shipping_contract import DEFAULT_TRACE_TARGET_KM
+
+    required = float(state.required_distance_km or 0.0)
+    if not math.isfinite(required) or required <= DEFAULT_TRACE_TARGET_KM:
+        return DEFAULT_TRACE_TARGET_KM
+    return min(required, 500.0)  # sanity ceiling: a trace is evidence, not fiction
+
+
+def _is_transient_completion_failure(cause: Any) -> bool:
+    """True for transport blips worth retrying, false for anything ambiguous.
+
+    ``shipping_response`` returns None for 503/502/504/500/408 because none of
+    them is a UTCMS business code — they must not be dressed up as one. They
+    are nevertheless the COMMON failure (see _TRANSIENT_HTTP_STATUSES), so the
+    completion path classifies them here instead and keeps the trip retryable.
+    """
+    if cause is None:
+        return False
+    status = getattr(cause, "status_code", None)
+    if status is not None:
+        return status in _TRANSIENT_HTTP_STATUSES
+    if getattr(cause, "result_code", None) is not None:
+        return False  # an authoritative portal verdict, not a blip
+    from app.core.network import is_retryable_network_error
+
+    return is_retryable_network_error(cause)
+
+
+def _completion_backoff_seconds(attempts: int) -> int:
+    """Bounded exponential cooldown: 5, 10, 20, 40, 60 minutes (capped)."""
+    return min(3600, 300 * 2 ** min(max(0, attempts - 1), 4))
+
+
+async def _record_unconfirmed_completion(
+    state: ShippingState,
+    cause: Any,
+    *,
+    now: datetime,
+    reason: str = "completion_unconfirmed",
+) -> dict[str, Any]:
+    """Persist an UNKNOWN terminal outcome: the POST may already have landed.
+
+    Two outcomes, deliberately distinguished:
+
+    * transient (5xx/timeout/reset) — the trip stays RETRYABLE: status remains
+      "in_transit" behind a bounded cooldown so the Beat sweeper picks it up
+      again, which is what the pre-refactor path achieved by re-raising for
+      Celery. Re-POSTing is safe at the business level: UTCMS answers 4011/4012
+      /4013 for an end already registered, all of which are handled.
+    * anything else — fails CLOSED to "unknown" and is never retried
+      automatically.
+
+    Both persist state (so a Beat tick cannot hot-loop) and route the job
+    through JobStateMachine into reconciling, exactly as the 4011-recovery
+    branch does, so the ambiguity is visible rather than silently orphaned.
+    """
+    state.completion_attempts = max(state.completion_attempts, 1)
+    state.last_attempt_at = now.isoformat()
+    state.last_error_message = str(cause)[:200]
+    retryable = _is_transient_completion_failure(cause)
+    exhausted = state.completion_attempts >= MAX_COMPLETION_ATTEMPTS
+    if retryable and not exhausted:
+        state.status = "in_transit"
+    else:
+        state.status = "unknown"
+    state.backoff_until = (now + timedelta(seconds=_completion_backoff_seconds(state.completion_attempts))).isoformat()
+    routed = "not_routed"
+    try:
+        routed = await _route_shipping_job_to_reconciliation(state.job_id, reason=reason, error=str(cause))
+    except Exception:
+        logger.error("shipping_unconfirmed_routing_failed job=%s", state.job_id, exc_info=True)
+    await save_shipping_state(state)
+    logger.error(
+        "shipping_completion_unconfirmed job=%s retryable=%s attempts=%s backoff_until=%s routed=%s",
+        state.job_id,
+        retryable and not exhausted,
+        state.completion_attempts,
+        state.backoff_until,
+        routed,
+    )
+    return {
+        "status": "unknown",
+        "reason": "completion_attempts_exhausted" if exhausted else reason,
+        "retryable": retryable and not exhausted,
+        "backoff_until": state.backoff_until,
+        "routed_to": routed,
+    }
+
+
 async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, Any]:
-    """Arrival-driven terminal registration (ETA is watchdog, not trigger).
+    """ETA-triggered terminal registration, with UTCMS rule 4013 as the backstop.
+
+    The trigger is the persisted physical ETA (``estimated_end_at``), not a
+    client-side arrival calculation: the travel engine's ARRIVED signal is
+    best-effort and only exists for trips whose Neshan snapshot resolved, while
+    UTCMS evaluates its own clock and refuses an early end with rule 4013. A
+    blank ETA is treated as "not yet due" (see ``shipping_wait_reason``).
 
     The per-trip completion claim (SET NX) guarantees that two overlapping
     Beat runs (2-minute cadence) cannot double-call RegisterEndOfShipping for
@@ -1530,7 +1820,15 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
         check = await verify_android_anchor(expected_lat=state.dest_lat, expected_lng=state.dest_lng)
         if not check.get("verified"):
             return {"status": "waiting_readback", "reason": check.get("reason", "readback_unavailable")}
-    advance_travel_execution(state)
+    # Travel sampling is advisory (progress/telemetry), never a gate on the only
+    # terminal path: build_engine_for_state is guarded internally but start()/
+    # sample()/compute_measured_distance_km are not, and an engine error must
+    # not abort completion and leave the state un-persisted. shipping_gps.py
+    # treats the identical call as best effort.
+    try:
+        advance_travel_execution(state)
+    except Exception:
+        logger.warning("auto_complete_travel_advance_failed job=%s", job_id, exc_info=True)
     proxy_url = get_worker_proxy_url()  # propagate fail-closed egress failures
     client = await get_or_login_client(
         national_code=driver.driver_national_code,
@@ -1541,7 +1839,10 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
     now = datetime.now(UTC)
     from app.automation.shipping_contract import utc_shipping_timestamp
 
-    # Recover a legacy origin only from its recorded start time, never backdate it.
+    # Recover a legacy origin only from its recorded start time, never backdate
+    # it. A legacy envelope may carry a NAIVE created_at, which the strict wire
+    # formatter refuses; assume UTC for it rather than hot-looping the sweep.
+    origin_stamp = _assume_utc_timestamp(state.created_at, fallback=now)
     evidence = [dict(point) for point in state.gps_list if point.get("Type") != 3]
     if not evidence:
         evidence.append(
@@ -1549,7 +1850,7 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
                 "Latitude": state.origin_lat,
                 "Longitude": state.origin_lng,
                 "Type": 2,
-                "Date": state.created_at or utc_shipping_timestamp(now),
+                "Date": origin_stamp,
                 "Provider": "operator_anchor",
                 "Provenance": "route_anchor",
             }
@@ -1566,7 +1867,19 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
             "Provenance": "virtual_observation" if bridge.enabled else "route_anchor",
         }
     )
-    evidence = prepare_shipping_trace(evidence)
+    try:
+        evidence = prepare_shipping_trace(evidence, target_km=_escalated_trace_target_km(state))
+    except ValueError as exc:
+        # A malformed trace fails identically on every retry, so park the trip
+        # behind a cooldown WITH state persisted instead of letting the error
+        # escape un-recorded and repeat on the next tick. Nothing was POSTed,
+        # so there is no ambiguous mutation to reconcile.
+        logger.error("shipping_trace_invalid job=%s err=%s", job_id, exc)
+        state.status = "unknown"
+        state.last_error_message = str(exc)[:200]
+        state.backoff_until = (now + timedelta(seconds=_completion_backoff_seconds(1))).isoformat()
+        await save_shipping_state(state)
+        return {"status": "needs_review", "reason": "invalid_shipping_trace", "error": str(exc)[:200]}
     state.gps_list = evidence
     state.completion_attempts += 1
     state.last_attempt_at = now.isoformat()
@@ -1579,21 +1892,18 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
     except Exception as exc:
         # Classify STRUCTURALLY (never by free-text substring): a genuine
         # business-rule 4011 is the self-declared-end outcome handled below; any
-        # other terminal-POST exception is ambiguous -> fail closed to unknown.
+        # other terminal-POST exception is ambiguous -> unknown, but a transient
+        # transport blip stays retryable (see _record_unconfirmed_completion).
         if _extract_utcms_rule_code(exc) == "4011":
             result = {"resultCode": 4011, "resultMessage": str(exc)}
         else:
-            result = shipping_response(exc)
-            if result is None:
-                state.status = "unknown"
-                state.last_error_message = str(exc)[:200]
-                await save_shipping_state(state)
-                return {"status": "unknown", "reason": "completion_unconfirmed"}
+            parsed = shipping_response(exc)
+            if parsed is None:
+                return await _record_unconfirmed_completion(state, exc, now=now)
+            result = parsed
     result = shipping_response(result)
     if result is None or result.get("resultCode") is None:
-        state.status = "unknown"
-        await save_shipping_state(state)
-        return {"status": "unknown", "reason": "completion_unconfirmed"}
+        return await _record_unconfirmed_completion(state, result, now=now, reason="completion_response_unparseable")
     if _is_missing_start_rejection(result):
         # Rule 4011 "شروع حمل ثبت نشده": the self-declared start was never
         # recorded upstream. Register start once from the origin witness, then
@@ -1607,7 +1917,7 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
                 target_doc_id,
                 longitude=state.origin_lng,
                 latitude=state.origin_lat,
-                start_date=state.created_at or utc_shipping_timestamp(now),
+                start_date=origin_stamp,
                 allow_live_submit=utcms_config.ALLOW_LIVE_SUBMIT,
             )
             retry = shipping_response(
@@ -1632,10 +1942,13 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
             await save_shipping_state(state)
             return {"status": "unknown", "reason": "completion_recovery_failed", "routed_to": routed}
         result = retry
-    # A structured 4011 that is NOT the no-start variant is the self-declared-end
-    # business rule -> delivered; the strict message match in shipping_acknowledged
-    # only needs to guard the non-4011 outcomes.
-    if result.get("resultCode") != 4011 and not shipping_acknowledged(result):
+    # Acknowledgement is evaluated for EVERY code, 4011 included. The previous
+    # `resultCode != 4011 and ...` short-circuit meant shipping_acknowledged was
+    # never asked about the one outcome it exists to validate, so an explicit
+    # refusal ("... تایید نشده است", which UTCMS also returns under 4011) was
+    # recorded as a delivery. /shipping/finish has always called it
+    # unconditionally; the two paths now agree on the same response.
+    if not shipping_acknowledged(result):
         return await record_shipping_rejection(state, result, now=now)
     if result.get("resultCode") == 4011:
         result["mode"] = "self_declared_auto_complete"
@@ -1661,29 +1974,73 @@ async def record_shipping_rejection(
     state: ShippingState, result: dict[str, Any], *, now: datetime | None = None
 ) -> dict[str, Any]:
     """Known rejections are retryable after cooldown; a missing-start result needs review."""
+    from app.automation.shipping_contract import DEFAULT_TRACE_TARGET_KM, shipping_reported_distance_km
+
     stamp = now or datetime.now(UTC)
     code = result.get("resultCode")
     state.last_error_code = code
     state.last_error_message = str(result.get("resultMessage") or "")[:200]
     state.status = "in_transit"
+    route_reason: str | None = None
     if code == 4011:
+        # Rule 4011 that is neither acknowledged nor the no-start variant: the
+        # end was refused outright. Route it like any other unknown outcome so
+        # it reaches reconciliation instead of waiting for someone to notice.
         state.status = "unknown"
         status, seconds = "needs_review", 0
+        route_reason = "shipping_end_rejected_4011"
     elif code == 4012:
-        status, seconds = "waiting_distance_requirement", 300
+        # Escalate: UTCMS measures ROAD distance and tells us its own figure, so
+        # aim for that figure plus a full contract margin. Re-sending the same
+        # 2.15 km trace is rejected identically forever (288 calls/day/trip,
+        # which then trips the 429 breaker).
+        reported = shipping_reported_distance_km(result)
+        base = reported if reported is not None else DEFAULT_TRACE_TARGET_KM * max(1, state.completion_attempts)
+        state.required_distance_km = max(state.required_distance_km, base + DEFAULT_TRACE_TARGET_KM)
+        status = "waiting_distance_requirement"
+        seconds = min(1800, 300 * max(1, state.completion_attempts))
+        logger.warning(
+            "shipping_distance_requirement_escalated job=%s reported_km=%s next_target_km=%.3f attempts=%s",
+            state.job_id,
+            reported,
+            state.required_distance_km,
+            state.completion_attempts,
+        )
     elif code == 4013:
         status, seconds = "waiting_elapsed_time", 300
     elif code == 429:
         status, seconds = "rate_limited", min(1800, 600 * max(1, state.completion_attempts))
     else:
-        status, seconds = "rejected", min(3600, 300 * 2 ** min(max(0, state.completion_attempts - 1), 4))
+        status, seconds = "rejected", _completion_backoff_seconds(state.completion_attempts)
+    if code not in RETRY_LATER_CODES and state.completion_attempts >= MAX_COMPLETION_ATTEMPTS:
+        # A capped trip must stop looping: "unknown" is not swept, so it parks
+        # for an operator instead of burning a login + POST every cooldown.
+        # 4013/429 are exempt because they are UTCMS telling us "not yet" with
+        # its own bounded schedule, not a defect in what we sent.
+        state.status = "unknown"
+        status, seconds = "needs_review", 0
+        route_reason = "completion_attempts_exhausted"
     state.backoff_until = (stamp + timedelta(seconds=seconds)).isoformat() if seconds else ""
+    routed: str | None = None
+    if route_reason is not None:
+        try:
+            routed = await _route_shipping_job_to_reconciliation(
+                state.job_id, reason=route_reason, error=state.last_error_message
+            )
+        except Exception:
+            logger.error("shipping_rejection_routing_failed job=%s", state.job_id, exc_info=True)
+            routed = "not_routed"
     await save_shipping_state(state)
-    return {"status": status, "result": result, "backoff_until": state.backoff_until}
+    response: dict[str, Any] = {"status": status, "result": result, "backoff_until": state.backoff_until}
+    if routed is not None:
+        response["routed_to"] = routed
+    return response
 
 
 __all__ = [
     "DEFAULT_CITY_COORDS",
+    "FENCE_STATUSES",
+    "MAX_COMPLETION_ATTEMPTS",
     "GpsWaypoint",
     "ShippingState",
     "ShippingStatePersistenceError",
@@ -1705,5 +2062,8 @@ __all__ = [
     "is_mobile_authentication_error",
     "load_shipping_state",
     "normalize_city_name",
+    "reclaim_stuck_shipping_fences",
+    "record_shipping_rejection",
     "save_shipping_state",
+    "shipping_wait_reason",
 ]

@@ -1,5 +1,6 @@
 """Verification tests for automated waybill registration and GPS shipping lifecycle."""
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -129,6 +130,10 @@ async def test_auto_complete_shipping_calls_register_end_of_shipping():
         dest_lat=39.11,
         dest_lng=45.06,
         distance_km=25.0,
+        # Physically due: the ETA gate (shipping_wait_reason) is fail-closed on a
+        # missing or future estimated_end_at, so a completion test must present a
+        # satisfied ETA — Beat only ever calls auto_complete_shipping for due trips.
+        estimated_end_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
     )
 
     mock_driver = SimpleNamespace(

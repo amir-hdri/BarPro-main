@@ -23,6 +23,20 @@ This file tracks the completion status of the phases defined in [BarPro_Unified_
 
 ## Detailed Notes & Timestamps
 
+### GPS shipping fences, durable OTP intake & operator-endpoint hardening (2026-10-04)
+- Resumed and completed the prior session's uncommitted GPS-shipping / waybill / OTP hardening
+  pass. New: durable, ordered OTP intake (`app/services/otp_delivery.py`) + signed
+  `POST /api/v1/otp/sms-gateway`; `starting`/`finishing` shipping fences with a reaper
+  (`reclaim_stuck_shipping_fences`); mobile `finish_shipping_with_gps` 404 → `RegisterEndOfShipping`
+  (no fabricated 200); post-issuance auto-start now honors the UTCMS result.
+- Gap-closing fixes this session: strict `YYYY-MM-DD` + reversed-range rejection in
+  `_parse_history_date_bounds`; manual `/shipping/finish` escalates the Rule-4012 distance target;
+  test robustness (the real-Redis OTP contract test and the Android socket tests skip when the
+  environment cannot bind a local socket).
+- Two parallel review agents verified data-integrity invariants hold (no false "delivered", no
+  duplicate submission). Deferred fail-closed items are tracked in `ISSUES.md` (O1–O7), notably the
+  clean-IP egress-policy decision (O1).
+
 ### UI multi-route hardening and live-fleet preflight (2026-08-29)
 - **Commit**: `5d583a1` (`fix(ui): harden multi-route form flows`) pushed to `origin/main`.
 - **Frontend changes**: real sender/receiver mobile validation, ریال value labeling, abort-safe data fetching, shared favorite-location cache, keyboard/ARIA favorite selection, stale-coordinate clearing and unmount-safe polling.

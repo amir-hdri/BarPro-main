@@ -5,10 +5,16 @@ BarPro - Domestic Network & Proxy Testing Suite (For when VPN is OFF)
 Tests direct UTCMS portal connectivity and audits the Clean IP Pool
 from an Iranian IP environment (domestic routing / National Information Network).
 
+READ-ONLY with respect to pool state by default: findings go to a sidecar
+report (runtime/proxies/vpn_off_audit_report.json). Pass --write-pool only if
+you deliberately want this run's probe-only (NOT egress-verified) results to
+replace the live pool files.
+
 Usage:
   .venv/bin/python scripts/test_when_vpn_off.py
   .venv/bin/python scripts/test_when_vpn_off.py --candidates 50 --timeout 4.0
   .venv/bin/python scripts/test_when_vpn_off.py --skip-proxy-scan  # only test direct portal access
+  .venv/bin/python scripts/test_when_vpn_off.py --write-pool       # DESTRUCTIVE: overwrite pool files
 """
 
 import argparse
@@ -138,10 +144,71 @@ def test_direct_utcms_access() -> dict[str, Any]:
         }
 
 
+def _probe_with_reason(
+    candidate: cip.CleanIPRecord,
+    timeout: float,
+) -> tuple[cip.CleanIPRecord, str, cip.CleanIPRecord | None]:
+    """Probe one candidate and report WHY it failed.
+
+    ``probe_single_proxy`` swallows every transport exception and returns None,
+    so wrapping it in try/except produced buckets that could never fire: every
+    candidate landed in SUCCESS or REJECTED, and an operator running this tool
+    to tell "DNS/TLS interception" apart from "UTCMS rejected the IP" always saw
+    zeros for exactly the failure modes the tool exists to diagnose. We therefore
+    call the lower-level transport directly and classify its real exception.
+    """
+    if cip._CURL_CFFI_IMPORT_ERROR is not None:
+        return (candidate, "OTHER", None)
+
+    last_exc: Exception | None = None
+    for attempt in range(1, cip.PROBE_TRANSPORT_ATTEMPTS + 1):
+        try:
+            status_code, elapsed_ms, snippet = cip._probe_via_curl_cffi(candidate, cip.LOGIN_PROBE_URL, timeout)
+        except Exception as exc:  # transport-level: dead proxy, reset, timeout, TLS
+            last_exc = exc
+            continue
+
+        verdict = cip.classify_probe_response(status_code, snippet)
+        if verdict == "healthy":
+            return (candidate, "SUCCESS", cip._mark_probe_healthy(candidate, elapsed_ms))
+        if verdict == "target_unavailable" and attempt < cip.PROBE_TRANSPORT_ATTEMPTS:
+            continue
+        return (candidate, "REJECTED", None)
+
+    msg = str(last_exc or "").lower()
+    if "timed out" in msg or "timeout" in msg:
+        return (candidate, "TIMEOUT", None)
+    if "certificate" in msg or "ssl" in msg:
+        return (candidate, "SSL_ERROR", None)
+    if "connect" in msg or "refused" in msg or "reset" in msg or "proxy" in msg:
+        return (candidate, "CONN_ERROR", None)
+    return (candidate, "OTHER", None)
+
+
+def _write_sidecar_report(verified: list[cip.CleanIPRecord], stats: dict[str, int]) -> str:
+    """Write findings to a clearly-named diagnostic file, NEVER the runtime pool."""
+    report_path = os.path.join(cip.PROXIES_RUNTIME_DIR, "vpn_off_audit_report.json")
+    payload = {
+        "generated_at_epoch": time.time(),
+        "tool": "scripts/test_when_vpn_off.py",
+        "note": (
+            "DIAGNOSTIC OUTPUT ONLY. These records were certified by the login probe but "
+            "NOT egress-verified, so they do not satisfy is_operational_iranian_egress and "
+            "must not be loaded as pool state. Run with --write-pool to overwrite the live pool."
+        ),
+        "stats": stats,
+        "verified": [p.to_dict() for p in verified],
+    }
+    os.makedirs(cip.PROXIES_RUNTIME_DIR, exist_ok=True)
+    cip.atomic_write(report_path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    return report_path
+
+
 def run_domestic_proxy_audit(
     max_candidates: int = 50,
     timeout: float = 4.0,
     concurrency: int = 25,
+    write_pool: bool = False,
 ) -> list[cip.CleanIPRecord]:
     """Harvest candidates and test them using domestic routing."""
     print(f"{BOLD}[3/4] Harvesting candidates across all sources...{RESET}")
@@ -182,25 +249,9 @@ def run_domestic_proxy_audit(
     verified: list[cip.CleanIPRecord] = []
     stats = {"SUCCESS": 0, "TIMEOUT": 0, "CONN_ERROR": 0, "SSL_ERROR": 0, "REJECTED": 0, "OTHER": 0}
 
-    def _probe_worker(c: cip.CleanIPRecord):
-        try:
-            res = cip.probe_single_proxy(c, cip.LOGIN_PROBE_URL, timeout=timeout)
-            if res and res.is_usable:
-                return (c, "SUCCESS", res)
-            return (c, "REJECTED", None)
-        except Exception as exc:
-            msg = str(exc).lower()
-            if "timed out" in msg or "timeout" in msg:
-                return (c, "TIMEOUT", None)
-            if "failed to connect" in msg or "connection refused" in msg or "connect aborted" in msg:
-                return (c, "CONN_ERROR", None)
-            if "certificate" in msg or "ssl" in msg:
-                return (c, "SSL_ERROR", None)
-            return (c, "OTHER", None)
-
     t0 = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-        futures = {executor.submit(_probe_worker, c): c for c in selected}
+        futures = {executor.submit(_probe_with_reason, c, timeout): c for c in selected}
         for _idx, fut in enumerate(concurrent.futures.as_completed(futures), 1):
             c, status, res = fut.result()
             stats[status] = stats.get(status, 0) + 1
@@ -218,9 +269,28 @@ def run_domestic_proxy_audit(
     print(f"  {RED}● SSL / MITM blocked: {stats.get('SSL_ERROR', 0)}{RESET}")
     print(f"  {RED}● Other / Rejected:   {stats.get('REJECTED', 0) + stats.get('OTHER', 0)}{RESET}")
 
-    # Write runtime files if any working proxies were discovered
     if verified:
         verified.sort(key=lambda x: x.latency_ms)
+
+    # The live runtime pool is NEVER touched by default.
+    #
+    # These records come from probe_single_proxy only, so egress_verified=False
+    # and observed_country=None — every one of them FAILS
+    # is_operational_iranian_egress. Writing them over FILE_BEST_TXT /
+    # FILE_WORKING_TXT / FILE_WORKING_JSON on a worker host destroyed the real
+    # verified proxies, supplied zero usable replacements, AND disabled the
+    # self-healing: refreshing the file mtime makes _pool_is_stale() return
+    # False, so _kick_background_refresh() is never called for
+    # CLEAN_IP_POOL_MAX_AGE_SECONDS. atomic_write also chmods 0o600, so a root
+    # run leaves files the uid-10001 container cannot read.
+    if not write_pool:
+        report_path = _write_sidecar_report(verified, stats)
+        print(f"\n{CYAN}Diagnostic report written (runtime pool untouched):{RESET}")
+        print(f"  - {report_path}")
+        print(f"{CYAN}Pass --write-pool to overwrite the live pool files instead.{RESET}")
+        return verified
+
+    if verified:
         os.makedirs(cip.PROXIES_RUNTIME_DIR, exist_ok=True)
         cip.atomic_write(cip.FILE_BEST_TXT, f"{verified[0].url}\n")
         cip.atomic_write(cip.FILE_WORKING_TXT, "\n".join(p.url for p in verified) + "\n")
@@ -228,9 +298,12 @@ def run_domestic_proxy_audit(
             cip.FILE_WORKING_JSON,
             json.dumps([p.to_dict() for p in verified], indent=2, ensure_ascii=False) + "\n",
         )
-        print(f"\n{GREEN}Saved {len(verified)} working proxies to:{RESET}")
+        print(f"\n{YELLOW}--write-pool: overwrote runtime pool with {len(verified)} probe-only records.{RESET}")
+        print(f"{YELLOW}These are NOT egress-verified; run a real screening cycle before relying on them.{RESET}")
         print(f"  - {cip.FILE_WORKING_TXT}")
         print(f"  - {cip.FILE_BEST_TXT}")
+    else:
+        print(f"\n{YELLOW}--write-pool requested but nothing passed; runtime pool left untouched.{RESET}")
 
     return verified
 
@@ -261,6 +334,15 @@ def main():
         help="Only check direct UTCMS portal connectivity without scanning proxies",
     )
     parser.add_argument(
+        "--write-pool",
+        action="store_true",
+        help=(
+            "DESTRUCTIVE: overwrite the live runtime pool files with this run's probe-only "
+            "results. Off by default — these records are NOT egress-verified and will fail "
+            "is_operational_iranian_egress. Without this flag a sidecar report is written instead."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Continue even if non-Iranian IP (VPN) is detected without prompting",
@@ -289,12 +371,18 @@ def main():
             f"{YELLOW}برای تست در شبکه ملی و اینترنت داخلی، لطفاً فیلترشکن را خاموش کرده و مجدداً اسکریپت را اجرا کنید.{RESET}"
         )
         if not args.force:
+            # A non-interactive run (cron, CI, `< /dev/null`) has no stdin to
+            # answer with: treat that as an implicit refusal instead of raising
+            # EOFError out of input() with a traceback.
+            if not sys.stdin.isatty():
+                print(f"\n{RED}تست متوقف شد (ورودی تعاملی موجود نیست). برای ادامه از --force استفاده کنید.{RESET}\n")
+                sys.exit(0)
             try:
                 answer = input("\nآیا می‌خواهید با همین آی‌پی ادامه دهید؟ [y/N]: ").strip().lower()
                 if answer not in ("y", "yes"):
                     print(f"\n{RED}تست متوقف شد. پس از خاموش کردن VPN دوباره امتحان کنید.{RESET}\n")
                     sys.exit(0)
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 print("\n")
                 sys.exit(0)
     else:
@@ -326,6 +414,7 @@ def main():
         max_candidates=args.candidates,
         timeout=args.timeout,
         concurrency=args.workers,
+        write_pool=args.write_pool,
     )
 
     print(f"\n{BOLD}{CYAN}========================================================================{RESET}")

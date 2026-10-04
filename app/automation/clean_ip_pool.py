@@ -117,11 +117,18 @@ PROBE_HEADERS = {
 class CleanIPRecord:
     """Represents a validated clean proxy with performance metrics.
 
-    ``country`` is what the SOURCE DECLARED (may be empty for global mirrors).
+    ``country`` is what the SOURCE DECLARED (may be empty for global mirrors)
+    and is NEVER sufficient evidence on its own.
     ``observed_country`` is what a GeoIP endpoint saw when queried THROUGH the
-    proxy (ground truth) -- but that measurement is frequently IMPOSSIBLE from
-    an Iranian node, so its absence is not evidence of a bad egress. See
-    ``is_operational_iranian_egress``.
+    proxy (ground truth), and ``egress_verified`` records that the measurement
+    actually ran.
+
+    Admission is FAIL-CLOSED: a candidate whose GeoIP check could not run is
+    rejected, exactly like one that measured non-Iranian. UTCMS registration is
+    a sensitive operation, so an unknown egress is treated as a bad egress --
+    absence of evidence IS disqualifying here. See
+    ``has_measured_iranian_egress`` / ``is_operational_iranian_egress``, which
+    implement that policy, and ``run_screening_cycle``, which enforces it.
     """
 
     VALID_PROTOCOLS = ("http", "https", "socks4", "socks5")
@@ -330,6 +337,52 @@ def atomic_write(filepath: str, content: str) -> None:
 # Multi-Source Scrapers (11+ Global Feeds & Custom Sources)
 # ==============================================================================
 
+# Matches an HTML document opener while TOLERATING attributes. A substring test
+# for the literal "<html>" never fires on a real page: a block/error page carries
+# attributes (measured: '<html lang="fa" dir="rtl">'), so the previous guard let
+# every interstitial through.
+_HTML_DOCUMENT_RE = re.compile(r"<\s*(?:!doctype\s+html|html)\b", re.I)
+
+# A plain-text proxy feed is almost entirely "ip:port" lines. Anything below this
+# ratio is an error page, a rate-limit notice or a format change — not a list.
+MIN_PROXY_PARSE_RATIO = 0.5
+
+
+def _looks_like_html_document(raw: str) -> bool:
+    """True when the payload is an HTML page rather than a plain proxy list."""
+    return bool(raw) and _HTML_DOCUMENT_RE.search(raw) is not None
+
+
+def _is_proxy_list_payload(raw: str, origin: str = "feed") -> bool:
+    """Structurally decide whether a plain-text response really is a proxy list.
+
+    Replaces substring scans of the whole body, which were broken in both
+    directions: ``"502" in raw`` discarded a perfectly good page because one
+    harvested proxy listened on port 5020/8502, and ``"<html>" in raw`` never
+    matched an actual block page. Status text is NOT searched — a feed body is
+    judged only by its structure (is it HTML?) and by how much of it parses.
+    """
+    if not raw or not raw.strip():
+        return False
+    if _looks_like_html_document(raw):
+        logger.debug("CleanIPPool: %s returned an HTML document, not a proxy list", origin)
+        return False
+    lines = [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+    if not lines:
+        return False
+    parsed = sum(1 for line in lines if _parse_proxy_line(line) is not None)
+    ratio = parsed / len(lines)
+    if ratio < MIN_PROXY_PARSE_RATIO:
+        logger.debug(
+            "CleanIPPool: %s payload rejected — only %d/%d lines parse as ip:port (%.0f%%)",
+            origin,
+            parsed,
+            len(lines),
+            ratio * 100,
+        )
+        return False
+    return True
+
 
 def fetch_spys_sources() -> list[dict[str, Any]]:
     """Sources 1 & 2: Spys.one / Spys.me text database for HTTP & SOCKS5."""
@@ -392,7 +445,16 @@ def fetch_geonode_api() -> list[dict[str, Any]]:
         return results
     try:
         data = json.loads(raw)
-        for item in data.get("data", []):
+    except Exception as exc:
+        # Feed-level failure (HTML error page, truncated body). Never silent:
+        # "pool mysteriously empty" has to be traceable to the feed that broke.
+        logger.warning("CleanIPPool: Geonode API payload unreadable: %s", exc)
+        return results
+    # Per-ITEM isolation. The previous try/except wrapped the WHOLE loop, so one
+    # malformed upstream entry discarded every record after it — and whether a
+    # feed yielded anything depended on upstream ordering.
+    for item in data.get("data", []) or []:
+        try:
             ip = item.get("ip", "")
             port = item.get("port", "")
             protocols = item.get("protocols", ["http"])
@@ -410,8 +472,8 @@ def fetch_geonode_api() -> list[dict[str, Any]]:
                         "source": "geonode",
                     }
                 )
-    except Exception:
-        pass
+        except Exception as exc:
+            logger.warning("CleanIPPool: skipping malformed Geonode entry (%s): %r", exc, item)
     return results
 
 
@@ -431,31 +493,41 @@ def fetch_monosans_geojson() -> list[dict[str, Any]]:
         return results
     try:
         data = json.loads(raw)
-        if isinstance(data, list):
-            for item in data:
-                geo = item.get("geolocation") or {}
-                country_code = (geo.get("country") or {}).get("iso_code") or item.get("country")
-                if country_code == "IR":
-                    ip = item.get("host") or item.get("ip", "")
-                    port = item.get("port", "")
-                    protocol = item.get("protocol", "http").lower()
-                    asn = item.get("asn") or {}
-                    isp = asn.get("autonomous_system_organization") or item.get("org") or "monosans IR"
-                    city = (geo.get("city") or {}).get("names", {}).get("en") or item.get("city") or "Iran"
-                    if is_valid_public_ip(ip) and is_valid_port(port):
-                        results.append(
-                            {
-                                "protocol": protocol,
-                                "ip": ip,
-                                "port": int(port),
-                                "isp": isp,
-                                "city": city,
-                                "country": "IR",
-                                "source": "monosans",
-                            }
-                        )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("CleanIPPool: monosans payload unreadable: %s", exc)
+        return results
+    if not isinstance(data, list):
+        logger.warning("CleanIPPool: monosans payload is %s, expected a list", type(data).__name__)
+        return results
+    for item in data:
+        # Per-item isolation: ``(geo.get("city") or {}).get("names", {})`` raises
+        # AttributeError the moment upstream publishes ``names`` as a string, and
+        # that single record used to cost the entire feed.
+        try:
+            geo = item.get("geolocation") or {}
+            country_code = (geo.get("country") or {}).get("iso_code") or item.get("country")
+            if country_code != "IR":
+                continue
+            ip = item.get("host") or item.get("ip", "")
+            port = item.get("port", "")
+            protocol = item.get("protocol", "http").lower()
+            asn = item.get("asn") or {}
+            isp = asn.get("autonomous_system_organization") or item.get("org") or "monosans IR"
+            city = (geo.get("city") or {}).get("names", {}).get("en") or item.get("city") or "Iran"
+            if is_valid_public_ip(ip) and is_valid_port(port):
+                results.append(
+                    {
+                        "protocol": protocol,
+                        "ip": ip,
+                        "port": int(port),
+                        "isp": isp,
+                        "city": city,
+                        "country": "IR",
+                        "source": "monosans",
+                    }
+                )
+        except Exception as exc:
+            logger.warning("CleanIPPool: skipping malformed monosans entry (%s): %r", exc, item)
     return results
 
 
@@ -465,7 +537,10 @@ def fetch_proxylist_download() -> list[dict[str, Any]]:
     for ptype in ["http", "https", "socks4", "socks5"]:
         url = f"https://www.proxy-list.download/api/v1/get?type={ptype}&country=IR"
         raw = _safe_fetch(url, timeout=4.0)
-        if not raw or "502" in raw or "503" in raw or "<html>" in raw.lower():
+        # Structural guard only. The previous body substring tests ("502"/"503"
+        # anywhere in the payload) threw away all four protocol pages whenever a
+        # single harvested proxy happened to listen on a port containing "502".
+        if not raw or not _is_proxy_list_payload(raw, origin=f"Proxy-List.download[{ptype}]"):
             continue
         for line in raw.splitlines():
             line = line.strip()
@@ -502,36 +577,44 @@ def fetch_vakhov_github() -> list[dict[str, Any]]:
         return results
     try:
         data = json.loads(raw)
-        if isinstance(data, list):
-            for item in data:
-                country_code = (item.get("country_code") or item.get("code") or "").upper()
-                country_name = (item.get("country_name") or item.get("country") or "").lower()
-                if country_code == "IR" or "iran" in country_name:
-                    ip = item.get("ip") or item.get("host", "")
-                    port = item.get("port", "")
-                    if item.get("socks5") == "1":
-                        protocol = "socks5"
-                    elif item.get("socks4") == "1":
-                        protocol = "socks4"
-                    elif isinstance(item.get("type"), str):
-                        protocol = item.get("type", "http").lower()
-                    else:
-                        protocol = "http"
-                    city = item.get("city") or "Iran"
-                    if is_valid_public_ip(ip) and is_valid_port(port):
-                        results.append(
-                            {
-                                "protocol": protocol,
-                                "ip": ip,
-                                "port": int(port),
-                                "isp": "vakhov GitHub",
-                                "city": city,
-                                "country": "IR",
-                                "source": "vakhov",
-                            }
-                        )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("CleanIPPool: vakhov payload unreadable: %s", exc)
+        return results
+    if not isinstance(data, list):
+        logger.warning("CleanIPPool: vakhov payload is %s, expected a list", type(data).__name__)
+        return results
+    for item in data:
+        # Per-item isolation — see fetch_monosans_geojson for the failure mode.
+        try:
+            country_code = (item.get("country_code") or item.get("code") or "").upper()
+            country_name = (item.get("country_name") or item.get("country") or "").lower()
+            if country_code != "IR" and "iran" not in country_name:
+                continue
+            ip = item.get("ip") or item.get("host", "")
+            port = item.get("port", "")
+            if item.get("socks5") == "1":
+                protocol = "socks5"
+            elif item.get("socks4") == "1":
+                protocol = "socks4"
+            elif isinstance(item.get("type"), str):
+                protocol = item.get("type", "http").lower()
+            else:
+                protocol = "http"
+            city = item.get("city") or "Iran"
+            if is_valid_public_ip(ip) and is_valid_port(port):
+                results.append(
+                    {
+                        "protocol": protocol,
+                        "ip": ip,
+                        "port": int(port),
+                        "isp": "vakhov GitHub",
+                        "city": city,
+                        "country": "IR",
+                        "source": "vakhov",
+                    }
+                )
+        except Exception as exc:
+            logger.warning("CleanIPPool: skipping malformed vakhov entry (%s): %r", exc, item)
     return results
 
 
@@ -547,7 +630,12 @@ def fetch_proxyscrape_apis() -> list[dict[str, Any]]:
     if raw_v4:
         try:
             data = json.loads(raw_v4)
-            for p in data.get("proxies", []):
+        except Exception as exc:
+            logger.warning("CleanIPPool: ProxyScrape v4 payload unreadable: %s", exc)
+            data = {}
+        # Per-item isolation — see fetch_monosans_geojson for the failure mode.
+        for p in data.get("proxies", []) or []:
+            try:
                 ip = p.get("ip", "")
                 port = p.get("port", "")
                 if is_valid_public_ip(ip) and is_valid_port(port):
@@ -562,8 +650,8 @@ def fetch_proxyscrape_apis() -> list[dict[str, Any]]:
                             "source": "proxyscrape_v4",
                         }
                     )
-        except Exception:
-            pass
+            except Exception as exc:
+                logger.warning("CleanIPPool: skipping malformed ProxyScrape v4 entry (%s): %r", exc, p)
 
     # v2 Plain
     url_v2 = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http,socks4,socks5&country=IR"
@@ -666,12 +754,15 @@ def _parse_proxy_line(line: str) -> dict[str, Any] | None:
     ip, port = ip.strip(), port.strip()
     if not is_valid_public_ip(ip) or not is_valid_port(port):
         return None
+    # Country is NOT fabricated here. A bare ``ip:port`` line carries no geography,
+    # and stamping every one "IR"/"Iran" made the ir_declared metric and the
+    # screening tiers tautological while letting an operator-supplied GLOBAL
+    # CLEAN_IP_SOURCE_URL feed look Iranian. Tiering derives from ``source``;
+    # real geography comes from the measured egress check.
     return {
         "protocol": proto.strip().lower(),
         "ip": ip,
         "port": int(port),
-        "city": "Iran",
-        "country": "IR",
     }
 
 
@@ -723,7 +814,22 @@ def _parse_source_feed(raw: str, origin: str, isp: str, source: str) -> list[dic
 
 def fetch_file_or_env_sources() -> list[dict[str, Any]]:
     """Load proxies from configured local file (RPA_PROXY_LIST_FILE / CLEAN_IP_SOURCE_FILE),
-    or standard local verified proxy outputs."""
+    or standard local verified proxy outputs.
+
+    Two paths are deliberately NOT candidates:
+
+    * ``FILE_WORKING_TXT`` — that file is this pool's OWN output (written by
+      ``run_screening_cycle``). Re-ingesting it fed the pool back into itself:
+      the entries returned as ``source="file_source"`` → tier 0, ahead of every
+      fresh candidate, so under ``CLEAN_IP_MAX_CANDIDATES`` pressure the same
+      addresses monopolised the screening budget cycle after cycle and
+      concentrated traffic on a shrinking address set — exactly the WAF-visible
+      pattern the round-robin contract exists to prevent.
+    * any ``~``-relative developer path. A home-directory fallback made
+      ``$HOME/GitHub/...`` an implicitly trusted, top-priority egress source in
+      production (the workers run as root, so ``/root/GitHub/...`` would qualify).
+      Only explicit env vars and RUNTIME_DATA_DIR-relative paths are accepted.
+    """
     results = []
     source_file = os.getenv("CLEAN_IP_SOURCE_FILE") or os.getenv("RPA_PROXY_LIST_FILE")
     candidate_paths: list[str] = []
@@ -733,12 +839,7 @@ def fetch_file_or_env_sources() -> list[dict[str, Any]]:
         # Fallback to search standard locations only when no explicit env file is configured
         candidate_paths.extend(
             [
-                FILE_WORKING_TXT,
-                os.path.join(PROXIES_RUNTIME_DIR, "working_iran_proxies.txt"),
                 os.path.join(os.path.dirname(BASE_RUNTIME_DIR), "data", "verified_iran_proxies.txt"),
-                os.path.join(
-                    os.path.expanduser("~"), "GitHub", "free-proxy-list", "barpro", "verified_iran_proxies.txt"
-                ),
             ]
         )
 
@@ -823,9 +924,42 @@ PROVIDER_HARVEST_TTLS: dict[str, float] = {
 _provider_harvest_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _harvest_cache_lock = threading.Lock()
 
+# An EMPTY harvest is a transient failure, not a result worth caching for an hour.
+# One timed-out _safe_fetch on "GitHub Mirrors" (TTL 3600s — per the note above,
+# raw.githubusercontent.com is the only feed host that resolves from inside Iran)
+# used to cache [] under the SUCCESS TTL. Because tasks.py runs
+# refresh_pool(force=False) every CLEAN_IP_PROBE_INTERVAL_SECONDS (180s), that is
+# ~20 consecutive cycles harvesting zero candidates; run_screening_cycle then
+# wipes the runtime files, get_best_egress_proxy goes fail-closed and every job
+# raises ProxyUnavailableError. _kick_background_refresh also calls
+# refresh_pool(force=False), so it hit the same cache and could not recover.
+EMPTY_HARVEST_TTL_SECONDS = 60.0
+
+# How far past its TTL an expired cache entry may still be replayed when the
+# harvester raises. Without a bound, a permanently dead feed served its last
+# payload forever, spending probe budget against the per-IP WAF handshake
+# throttle on addresses nobody has re-published in days.
+STALE_HARVEST_REPLAY_TTL_MULTIPLIER = 3.0
+
+
+def _harvest_cache_ttl(name: str, items: list[dict[str, Any]]) -> float:
+    """TTL for a just-completed harvest: the provider's own TTL on success,
+    a short retry window when the provider returned nothing."""
+    if not items:
+        return EMPTY_HARVEST_TTL_SECONDS
+    return PROVIDER_HARVEST_TTLS.get(name, 900.0)
+
 
 def clear_harvest_cache() -> None:
-    """Clear in-memory harvester provider cache to force fresh fetches."""
+    """Clear in-memory harvester provider cache to force fresh fetches.
+
+    Deliberately NOT called from CleanIPPoolManager.clear_local_cache: a flapping
+    Squid health check invalidates the worker's proxy choice very often, and
+    wiping all nine providers there forced a full network re-harvest (including
+    multi-MB JSON) per failure — precisely the rate-limit/Cloudflare pressure the
+    TTL table exists to prevent. Harvest-cache clearing belongs to the explicit
+    force path (``refresh_pool(force=True)`` → ``force_refresh_all``).
+    """
     with _harvest_cache_lock:
         _provider_harvest_cache.clear()
 
@@ -853,9 +987,12 @@ def aggregate_all_candidates(force_refresh_all: bool = False) -> list[CleanIPRec
 
     with _harvest_cache_lock:
         for name, fn in harvesters:
-            ttl = PROVIDER_HARVEST_TTLS.get(name, 900.0)
             cached_entry = _provider_harvest_cache.get(name)
-            if not force_refresh_all and cached_entry and (now - cached_entry[0]) < ttl:
+            if (
+                not force_refresh_all
+                and cached_entry
+                and (now - cached_entry[0]) < _harvest_cache_ttl(name, cached_entry[1])
+            ):
                 raw_items.extend(cached_entry[1])
             else:
                 to_fetch.append((name, fn))
@@ -872,9 +1009,25 @@ def aggregate_all_candidates(force_refresh_all: bool = False) -> list[CleanIPRec
                     raw_items.extend(items)
                 except Exception as exc:
                     logger.debug(f"Harvester error: {name}: {exc}")
+                    # Replay the expired payload, but only while it is still
+                    # within a bounded multiple of the provider's TTL. The
+                    # timestamp is intentionally NOT refreshed, so the next cycle
+                    # re-attempts the fetch either way.
                     with _harvest_cache_lock:
-                        if name in _provider_harvest_cache:
-                            raw_items.extend(_provider_harvest_cache[name][1])
+                        stale = _provider_harvest_cache.get(name)
+                        if stale is not None:
+                            max_age = PROVIDER_HARVEST_TTLS.get(name, 900.0) * STALE_HARVEST_REPLAY_TTL_MULTIPLIER
+                            if (time.time() - stale[0]) <= max_age:
+                                raw_items.extend(stale[1])
+                            else:
+                                logger.warning(
+                                    "CleanIPPool: dropping %s cache — last successful harvest was %.0fs ago "
+                                    "(limit %.0fs); the feed appears permanently dead.",
+                                    name,
+                                    time.time() - stale[0],
+                                    max_age,
+                                )
+                                _provider_harvest_cache.pop(name, None)
 
     return list(_dedupe_candidates(raw_items).values())
 
@@ -1215,6 +1368,10 @@ def run_screening_cycle(
 
     verified: list[CleanIPRecord] = []
     probe_timeout = max(1.0, min(timeout, 30.0))
+    # Bound before the shortlist branch: a zero-candidate cycle never enters it,
+    # and the summary log below reads these unconditionally.
+    geo_rejected = 0
+    non_iranian_rejected = 0
 
     def _egress_check(rec: CleanIPRecord) -> CleanIPRecord:
         observed = _verify_egress_country(rec, timeout=max(4.0, probe_timeout))
@@ -1260,17 +1417,23 @@ def run_screening_cycle(
                 except Exception:
                     pass
             verified = [r for r in checked if r.is_operational_iranian_egress]
-            verified.sort(key=lambda x: (not x.has_measured_iranian_egress, x.latency_ms))
+            # Count what was actually REJECTED by the fail-closed geo gate. This
+            # has to be computed from ``checked`` (pre-filter): measuring it on
+            # ``verified`` is always 0, because the filter above already removed
+            # every unverified record.
+            geo_rejected = sum(1 for r in checked if not r.egress_verified)
+            non_iranian_rejected = sum(1 for r in checked if r.egress_verified and r.observed_country != "IR")
+            # Single sort key: measured Iranian egress is now an admission
+            # invariant, so sorting on it again would be a constant-False no-op.
+            verified.sort(key=lambda x: x.latency_ms)
 
     verified = verified[: max(1, max_pool_size)]
 
     duration = round(time.time() - start_time, 2)
-    ir_measured = sum(1 for r in verified if r.has_measured_iranian_egress)
-    geo_unverified = sum(1 for r in verified if not r.egress_verified)
     logger.info(
         f"CleanIPPool: verified {len(verified)} working proxies in {duration}s "
-        f"({ir_measured} with measured Iranian egress, "
-        f"{geo_unverified} admitted with GeoIP unreachable)."
+        f"(all with measured Iranian egress; rejected {geo_rejected} for unverifiable egress "
+        f"and {non_iranian_rejected} for measured non-Iranian egress)."
     )
 
     # Write atomic runtime fallback files
@@ -1389,12 +1552,18 @@ class CleanIPPoolManager:
         return []
 
     def clear_local_cache(self) -> None:
-        """Clear in-memory cache of clean proxies and reset rotation state."""
+        """Clear in-memory cache of clean proxies and reset rotation state.
+
+        Does NOT clear the harvester provider cache: this is called from
+        worker_proxy.clear_proxy_cache, which a flapping Squid health check can
+        trigger repeatedly. Forcing a nine-source network re-harvest per failure
+        is the rate-limit pressure PROVIDER_HARVEST_TTLS exists to avoid. Use
+        refresh_pool(force=True) (or clear_harvest_cache directly) to re-harvest.
+        """
         self._local_cache = []
         self._local_cache_time = 0.0
         self._rr_async = 0
         self._rr_sync = 0
-        clear_harvest_cache()
 
     @staticmethod
     def _protocol_filter(allowed_protocols: Iterable[str] | None) -> set[str] | None:

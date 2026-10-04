@@ -123,9 +123,43 @@ def tehran_day_bounds_utc(gy: int, gm: int, gd: int) -> tuple[datetime, datetime
     The history-page date filters send Gregorian ``YYYY-MM-DD`` days picked in
     the user's (Tehran) timezone; ``created_at`` is stored as naive UTC, so the
     day must be shifted by the Tehran offset before comparing.
+
+    ``TEHRAN_UTC_OFFSET`` is the fixed +03:30 offset. Iran abolished DST in
+    2022, so this is exact for every current-era date. Days before September
+    2022 that fell inside the old DST window are off by one hour; that is a
+    deliberate trade for a dependency-free fixed offset, and it only affects
+    historical reporting, never live filtering.
     """
     start_utc = datetime(gy, gm, gd) - TEHRAN_UTC_OFFSET
     return start_utc, start_utc + timedelta(days=1)
+
+
+def _parse_calendar_day(day: str) -> datetime:
+    """Parse a strict Gregorian ``YYYY-MM-DD`` filter value.
+
+    Deliberately stricter than ``datetime.fromisoformat``, which also accepts
+    ``20261002``, ``2026-W40-5``, full datetimes, and timezone-aware strings
+    whose offset would then be silently discarded. Raises ``ValueError`` on
+    anything else, so callers that already map ``ValueError`` to HTTP 422/400
+    keep working unchanged.
+    """
+    return datetime.strptime(day.strip(), "%Y-%m-%d")
+
+
+def tehran_day_start_utc(day: str) -> datetime:
+    """Naive-UTC instant at which the given Tehran calendar day begins."""
+    parsed = _parse_calendar_day(day)
+    return tehran_day_bounds_utc(parsed.year, parsed.month, parsed.day)[0]
+
+
+def tehran_day_end_utc(day: str) -> datetime:
+    """Naive-UTC *exclusive* upper bound covering the whole Tehran day ``day``.
+
+    Pair with :func:`tehran_day_start_utc` as ``start <= created_at < end`` so
+    the selected end day is fully included.
+    """
+    parsed = _parse_calendar_day(day)
+    return tehran_day_bounds_utc(parsed.year, parsed.month, parsed.day)[1]
 
 
 # ---------------------------------------------------------------------------

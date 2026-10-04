@@ -4,6 +4,65 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-04 — GPS shipping fences, durable OTP intake & operator-endpoint hardening
+
+#### Added
+- **Durable, ordered OTP intake** (`app/services/otp_delivery.py`: `accept_forwarded_otp`,
+  `sms_received_at`, `recipient_phone`). A single Lua transaction performs dedup + ordering +
+  the durable write + pub/sub, so a retry never refreshes an OTP's TTL nor resurrects a
+  consumed code, and an older SMS can never overwrite a newer one (409). 300 s TTL, 30 s
+  clock-skew gate, fail-closed on Redis loss (503 — delivery is never acknowledged before the
+  durable write succeeds). Raw SMS text is never stored nor echoed. Backed by a real-Redis /
+  real-Lua contract test (`tests/test_otp_delivery_contract.py`).
+- **Signed inbound SMS gateway** `POST /api/v1/otp/sms-gateway`: a GSM-relay path
+  authenticated by an HMAC-SHA256 envelope `BP1#phone#timestamp#code#signature`
+  (`sig = hmac(OTP_WEBHOOK_SECRET, "#".join(parts[:4])).hexdigest()[:32]`), sender-matched to
+  the recipient phone. Shares one delivery identity with the direct `sms-forwarder`, so the
+  two paths dedupe against each other.
+
+#### Fixed
+- **OTP forwarder hardening** (`app/api/routes/otp_forwarder.py`): 16 KB body cap (413); a
+  `HEALTH_CHECK` probe returning `{"status":"ready","protocol":"barpro-otp-v1"}`; encrypted
+  envelopes rejected (422); `driver_phone` (`09xxxxxxxxx`) now **required** for recipient
+  routing; fail-closed on Redis loss; and `extract_otp_code` rewritten keyword-anchored so a
+  tracking code, phone number, or bank/discount SMS is never mistaken for an OTP.
+  `submit-manual` no longer attaches a caller phone when `job_id` is set (tenant isolation).
+- **Shipping lifecycle fences** (`app/automation/gps_shipping_manager.py`,
+  `app/api/routes/shipping_gps.py`): durable `starting`/`finishing` fences with a dual-key
+  completion claim and a reaper (`reclaim_stuck_shipping_fences`) that reclaims only abandoned
+  fences (older than the claim TTL, no claim held) and never steals a live mutation; Redis-down
+  fails closed. The Beat end-of-shipping path no longer stamps an explicit UTCMS refusal as
+  `self_declared_auto_complete` — an explicitly-rejected `4011` now routes to `needs_review`,
+  matching the `/finish` endpoint. The ETA gate (`shipping_wait_reason`) is fail-closed on a
+  missing or future `estimated_end_at`.
+- **Mobile bot finish fallback** (`app/automation/utcms_mobile_client.py`): a 404 from
+  `finish_shipping_with_gps` no longer fabricates a `resultCode 200`; it falls back to
+  `RegisterEndOfShipping`, whose trace validator rejects a single-point finish — an
+  unregistered finish is never reported as success.
+- **Issuance auto-start state** (`app/automation/waybill_bot_multitenant.py`): a post-issuance
+  `RegisterStartOfShipping` now honors the UTCMS result (acknowledged → `in_transit`; explicit
+  reject → `unknown`; raised/ambiguous → `in_transit`, still sweepable) and records the origin
+  witness, instead of hard-setting `in_transit` and swallowing exceptions.
+- **History date filters are now strict** (`app/api/routes/multitenant.py`):
+  `_parse_history_date_bounds` rejects any value outside `YYYY-MM-DD` with HTTP 400 (previously
+  `datetime.fromisoformat` silently accepted compact / ISO-week / datetime / tz-aware forms and
+  discarded the time or offset), and rejects a reversed range (`date_from` after `date_to`)
+  instead of returning a silently-empty page.
+- **Manual `/shipping/finish` escalates the Rule-4012 distance target** the same way the Beat
+  auto-complete path does, so an operator finishing a short / intra-city route whose first
+  attempt was rejected for `<2 km` no longer re-sends an identical trace and loops until
+  `needs_review`.
+- **Clean-IP pool**: per-provider harvest caching + HTML/proxy-list payload detection and
+  stricter schema validation; targeted Iranian harvesters tag source country explicitly.
+
+#### Tests
+- New contract suites: `tests/test_otp_delivery_contract.py`,
+  `tests/test_mobile_shipping_start_contract.py`, `tests/test_gps_shipping_batch_g.py`,
+  `tests/test_shipping_backoff_and_contract.py`. The real-Redis OTP contract test and the
+  Android bridge socket tests skip gracefully where the environment forbids binding a local
+  socket (they run fully in CI). Run the suite on the current commit and report its exact
+  result; dated runs are snapshots, not timeless facts.
+
 ### Fixed — Offline audit follow-up
 
 - Replaced the enterprise example's removed exception and workflow helpers with
@@ -233,8 +292,8 @@ All notable changes to the UTCMS Automation System.
 
 - **Dual-Host Mobile Architecture Alignment (`app/core/config.py`, `docs/UTCMS_MOBILE_AND_WAF_AUDIT_REPORT.md`)**:
   Separated CapJS PoW challenge endpoint (`https://cptch.utcms.ir/`) from live business API endpoint (`https://mobservices-barname.utcms.ir/baarnameh_sd/API`). Live wire inspection and server testing confirmed that `cptch.utcms.ir` serves exclusively the CapJS PoW mathematical challenge/redeem service (returning HTTP 404 for ASP.NET endpoints like `UserLoginV2`), while `mobservices-barname.utcms.ir` is the active host for mobile login, documents, and fleet queries.
-- **Live-Fire End-to-End Verification on Central Production Server (`87.107.5.238`)**:
-  Executed real driver authentication flow (`1752641744`) through Iranian Squid proxy (`http://172.20.0.1:3128`) without WAF blocks (0% HTTP 444 / 408):
+- **Live-Fire End-to-End Verification on Central Production Server (`<CENTRAL_IP>`)**:
+  Executed real driver authentication flow (driver national code redacted) through Iranian Squid proxy (`http://172.20.0.1:3128`) without WAF blocks (0% HTTP 444 / 408):
   1. Solved CapJS PoW on `cptch.utcms.ir`.
   2. Authenticated on `mobservices-barname.utcms.ir/baarnameh_sd/API/Account/UserLoginV2` with HTTP 200 OK.
   3. Cached driver bearer token in Redis Session Vault (short TTL, 240s default; refresh token 7000s default), reducing redundant login and CAPTCHA overhead and lowering HTTP 429 login rate-limit risk — not eradicating it (see `docs/archive/ANTIGRAVITY_GPS_VERIFICATION_2026-09-15.md`).

@@ -161,7 +161,10 @@ async def test_get_due_in_transit_jobs_filters_redis_correctly():
         status="delivered",
         estimated_end_at=(now - timedelta(minutes=10)).isoformat(),
     )
-    # Job 4: In transit, empty ETA -> DUE (failsafe)
+    # Job 4: In transit, empty ETA -> NOT DUE (fail-closed). The arrival gate
+    # that used to precede the terminal POST is gone, so the ETA is the only
+    # client-side trigger left; treating a blank one as satisfied made such an
+    # envelope due immediately with nothing to stop it.
     state_no_eta = ShippingState(
         job_id="job-no-eta",
         status="in_transit",
@@ -192,7 +195,7 @@ async def test_get_due_in_transit_jobs_filters_redis_correctly():
 
     due_job_ids = {s.job_id for s in due}
     assert "job-due-1" in due_job_ids
-    assert "job-no-eta" in due_job_ids
+    assert "job-no-eta" not in due_job_ids
     assert "job-waiting-1" not in due_job_ids
     assert "job-delivered-1" not in due_job_ids
 
@@ -560,6 +563,14 @@ async def test_auto_complete_shipping_handles_4011_exception_and_updates_db():
     assert state.status == "unknown"
     assert state.status != "delivered"
     assert state.last_error_message
+    # Re-added guard (the audit found this assertion had been deleted rather
+    # than the orphan-state defect it exposed being fixed): a failed completion
+    # must stay recorded WITH a bounded cooldown, never be left with no backoff
+    # and no reconciliation routing, which get_due_in_transit_jobs can never
+    # sweep again.
+    assert state.backoff_until, "a failed completion must persist a bounded cooldown"
+    assert result["backoff_until"] == state.backoff_until
+    assert result["routed_to"]
 
     # 2. Database WaybillJob is NOT marked success.
     assert mock_job.status != "success"
@@ -676,6 +687,11 @@ async def test_auto_complete_shipping_raises_on_non_4011_exception():
     assert result["status"] == "unknown"
     assert state.status == "unknown"
     assert state.status != "delivered"
+    # Re-added guard (see the note in the 4011-exception test above): the
+    # outcome is recorded with a cooldown and routed, not orphaned.
+    assert state.backoff_until, "a failed completion must persist a bounded cooldown"
+    assert result["retryable"] is False
+    assert result["routed_to"]
 
 
 @pytest.mark.asyncio
@@ -735,3 +751,234 @@ async def test_auto_complete_shipping_handles_4011_no_start_shipping():
     assert mock_job.result_json["end_shipping"]["resultCode"] == 200
     assert state.status == "delivered"
     mock_client.register_start_of_shipping.assert_awaited_once()
+
+
+# ==============================================================================
+# 6. Regression tests for the audited auto-complete defects
+# ==============================================================================
+
+
+def _completion_fixtures(job_id: str, *, job_status: str = "in_transit", **state_kwargs):
+    """Build the (state, driver, job, session) quartet the completion path needs."""
+    state = ShippingState(
+        job_id=job_id,
+        doc_no="1349757758",
+        doc_id="226164459",
+        status="in_transit",
+        origin_lat=39.22,
+        origin_lng=45.03,
+        dest_lat=39.11,
+        dest_lng=45.06,
+        distance_km=25.0,
+        **state_kwargs,
+    )
+    driver = SimpleNamespace(id=1, driver_national_code="4929889601", utcms_password_encrypted="enc-pwd")
+    job = SimpleNamespace(
+        job_id=job_id,
+        driver_id=1,
+        status=job_status,
+        document_id="226164459",
+        result_json={},
+        updated_at=None,
+        last_error=None,
+    )
+    session = AsyncMock()
+    exec_res = Mock()
+    exec_res.first.return_value = job
+    session.exec.return_value = exec_res
+    session.get.return_value = driver
+    return state, driver, job, session
+
+
+def _completion_patches(state, session, client):
+    return (
+        patch("app.automation.gps_shipping_manager.load_shipping_state", AsyncMock(return_value=state)),
+        patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
+        patch("app.automation.gps_shipping_manager.get_or_login_client", AsyncMock(return_value=client)),
+        patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pwd"),
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(session)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_rejected_4011_is_never_recorded_as_a_delivery():
+    """FINDING 1 (critical): UTCMS also returns rule 4011 to REFUSE a terminal
+    registration ("... تایید نشده است"). The old guard short-circuited on
+    ``resultCode != 4011``, so shipping_acknowledged was never asked about the
+    one outcome it exists to validate and the refusal was stored as a delivery.
+    """
+    state, _driver, job, session = _completion_fixtures("job-4011-refused")
+    client = AsyncMock(spec=UtcmsMobileClient)
+    client.register_end_of_shipping.return_value = {
+        "resultCode": 4011,
+        "resultMessage": "پایان حمل بر اساس خوداظهاری تایید نشده است",
+    }
+
+    a, b, c, d, e = _completion_patches(state, session, client)
+    with a, b, c, d, e:
+        result = await auto_complete_shipping("job-4011-refused", force=True)
+
+    assert result["status"] == "needs_review"
+    assert result["result"]["resultCode"] == 4011
+    # The trip is NOT delivered and the delivery witness is NOT written.
+    assert state.status != "delivered"
+    assert state.status == "unknown"
+    assert "end_shipping" not in (job.result_json or {})
+    assert "completed_at" not in (job.result_json or {})
+    assert job.status != "success"
+    # FINDING 11: the refusal is routed through JobStateMachine, not left for an
+    # operator to spot the 409.
+    assert "routed_to" in result
+    assert (job.result_json or {}).get("shipping_completion", {}).get("reason") == "shipping_end_rejected_4011"
+
+
+@pytest.mark.asyncio
+async def test_acknowledged_4011_is_still_delivered():
+    """The companion of the test above: a genuine self-declared end still lands."""
+    state, _driver, job, session = _completion_fixtures("job-4011-ack")
+    client = AsyncMock(spec=UtcmsMobileClient)
+    client.register_end_of_shipping.return_value = {
+        "resultCode": 4011,
+        "resultMessage": "پایان حمل بر اساس خوداظهاری تایید شد",
+    }
+
+    a, b, c, d, e = _completion_patches(state, session, client)
+    with a, b, c, d, e:
+        result = await auto_complete_shipping("job-4011-ack", force=True)
+
+    assert result["status"] == "delivered"
+    assert result["result"]["mode"] == "self_declared_auto_complete"
+    assert state.status == "delivered"
+    assert job.result_json["end_shipping"]["resultCode"] == 4011
+    # Never promoted through the issuance status (JobStateMachine owns that).
+    assert job.status == "in_transit"
+
+
+@pytest.mark.asyncio
+async def test_transient_terminal_post_failure_stays_retryable_with_backoff():
+    """FINDING 2: shipping_response() returns None for 503/502/504/500/408, and
+    the old code turned that into a terminal orphan — status "unknown" with NO
+    backoff and NO reconciliation routing, which get_due_in_transit_jobs then
+    never sweeps again. These are the COMMON failures (_TRANSIENT_HTTP_STATUSES).
+    """
+    from app.automation.utcms_mobile_client import UtcmsMobileApiError
+
+    state, _driver, job, session = _completion_fixtures("job-transient-503", job_status="success")
+    client = AsyncMock(spec=UtcmsMobileClient)
+    client.register_end_of_shipping.side_effect = UtcmsMobileApiError("upstream unavailable", status_code=503)
+
+    a, b, c, d, e = _completion_patches(state, session, client)
+    with a, b, c, d, e:
+        result = await auto_complete_shipping("job-transient-503", force=True)
+
+    assert result["status"] == "unknown"
+    assert result["retryable"] is True
+    # Retryable: the sweeper must be able to pick this trip up again.
+    assert state.status == "in_transit"
+    assert state.backoff_until, "a transient completion failure must persist a bounded cooldown"
+    assert result["backoff_until"] == state.backoff_until
+    # Routed through JobStateMachine so the ambiguity is visible, exactly as the
+    # 4011-recovery branch does (success -> needs_review -> reconciling).
+    assert result["routed_to"] == "reconciling"
+    assert job.result_json["shipping_completion"]["status"] == "unknown"
+    # Never silently delivered.
+    assert state.status != "delivered"
+    assert "end_shipping" not in (job.result_json or {})
+
+
+@pytest.mark.asyncio
+async def test_transient_failure_is_swept_again_once_the_cooldown_expires():
+    """The retryable state from FINDING 2 really is re-selected by the sweeper."""
+    now = datetime.now(UTC)
+    state = ShippingState(
+        job_id="job-transient-resweep",
+        status="in_transit",
+        estimated_end_at=(now - timedelta(minutes=30)).isoformat(),
+        backoff_until=(now - timedelta(seconds=1)).isoformat(),
+        completion_attempts=1,
+    )
+    mock_redis = AsyncMock()
+    mock_redis.scan.return_value = (0, ["utcms:shipping:job:job-transient-resweep"])
+    mock_redis.get.return_value = json.dumps(state.to_dict())
+    mock_session = AsyncMock()
+    mock_exec_res = Mock()
+    mock_exec_res.all.return_value = []
+    mock_session.exec.return_value = mock_exec_res
+
+    with (
+        patch("app.automation.gps_shipping_manager._get_redis", AsyncMock(return_value=mock_redis)),
+        patch("app.core.database.async_session_factory", lambda: FakeAsyncSessionContext(mock_session)),
+    ):
+        due = await get_due_in_transit_jobs(now_dt=now)
+
+    assert [s.job_id for s in due] == ["job-transient-resweep"]
+
+
+@pytest.mark.asyncio
+async def test_non_transient_terminal_post_failure_fails_closed_but_persists_backoff():
+    """The distinction FINDING 2 asks to preserve: an ambiguous non-transient
+    failure is NOT auto-retried, but it still persists state and a cooldown so
+    the Beat tick cannot hot-loop it.
+    """
+    state, _driver, job, session = _completion_fixtures("job-ambiguous", job_status="success")
+    client = AsyncMock(spec=UtcmsMobileClient)
+    client.register_end_of_shipping.side_effect = RuntimeError("unexpected parser explosion")
+
+    a, b, c, d, e = _completion_patches(state, session, client)
+    with a, b, c, d, e:
+        result = await auto_complete_shipping("job-ambiguous", force=True)
+
+    assert result["status"] == "unknown"
+    assert result["retryable"] is False
+    assert state.status == "unknown"  # not swept again
+    assert state.backoff_until, "even a fail-closed outcome must record a cooldown"
+    assert result["routed_to"] == "reconciling"
+
+
+@pytest.mark.asyncio
+async def test_legacy_naive_created_at_does_not_abort_completion():
+    """FINDING 3: utc_shipping_timestamp hard-raises on a naive timestamp, so a
+    legacy envelope (created_at persisted without a zone) made
+    auto_complete_shipping raise ValueError with NO state saved — no backoff
+    recorded, the Beat tick repeating every 2 minutes forever, and a
+    Session-Vault login (plus a cold CAPTCHA solve) burned on every pass.
+    """
+    state, _driver, job, session = _completion_fixtures(
+        "job-legacy-naive",
+        created_at="2026-09-28T15:50:00",  # naive: legacy persisted UTC
+    )
+    client = AsyncMock(spec=UtcmsMobileClient)
+    client.register_end_of_shipping.return_value = {"resultCode": 200, "resultMessage": "ثبت شد"}
+
+    a, b, c, d, e = _completion_patches(state, session, client)
+    with a, b, c, d, e:
+        result = await auto_complete_shipping("job-legacy-naive", force=True)
+
+    assert result["status"] == "delivered"
+    gps_list = client.register_end_of_shipping.await_args.kwargs["gps_list"]
+    # The naive value is assumed UTC and wired in the strict UTCMS format.
+    assert gps_list[0]["Date"] == "2026-09-28T15:50:00.000Z"
+    assert gps_list[0]["DateTime"] == gps_list[0]["Date"]
+    assert gps_list[-1]["Date"].endswith(".000Z")
+
+
+@pytest.mark.asyncio
+async def test_invalid_trace_records_backoff_instead_of_escaping_unpersisted():
+    """FINDING 3 (second half): a trace the contract refuses must not escape
+    un-persisted; it parks behind a cooldown so the sweep stops hot-looping.
+    """
+    state, _driver, job, session = _completion_fixtures("job-bad-trace")
+    # A destination timestamp that precedes the origin breaks chronology.
+    state.created_at = "2030-01-01T00:00:00+00:00"
+    client = AsyncMock(spec=UtcmsMobileClient)
+
+    a, b, c, d, e = _completion_patches(state, session, client)
+    with a, b, c, d, e:
+        result = await auto_complete_shipping("job-bad-trace", force=True)
+
+    assert result["status"] == "needs_review"
+    assert result["reason"] == "invalid_shipping_trace"
+    assert state.backoff_until, "an invalid trace must persist a cooldown"
+    assert state.status == "unknown"
+    # The terminal POST was never attempted, so nothing is ambiguous upstream.
+    client.register_end_of_shipping.assert_not_awaited()

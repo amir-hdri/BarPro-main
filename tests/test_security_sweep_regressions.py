@@ -39,7 +39,7 @@ def test_otp_values_never_logged_in_multitenant_bot() -> None:
     assert '": %s", k, otp_code' not in src
     assert 'answer=%s", issue_cap_token' not in src
     # The surviving log lines mention the event, not the secret.
-    assert 'logger.info("Received OTP from Redis (%s)", k)' in src
+    assert 'logger.info("Received a current OTP for the mobile document")' in src
     assert 'logger.info("Submitting IssueDocumentByOtp for docId=%s", document_id)' in src
 
 

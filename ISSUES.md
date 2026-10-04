@@ -1,7 +1,24 @@
 # BarPro — وضعیت مشکلات (Issues)
-**آخرین بروزرسانی: 2026-08-26 (v2.9.7 — بازسازی Pipeline استخر IP پاک)**
+**آخرین بروزرسانی: 2026-10-04 (v2.9.17-unreleased — fence چرخه حمل، OTP پایدار، سخت‌سازی endpointهای اپراتور)**
 
 > مرجع وضعیت سامانه و محدودیت‌های مشاهده‌شده: [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md)
+
+## 🆕 2026-10-04 — موارد باز پس از بازبینی عمیق (ثبت‌شده برای تصمیم/پیگیری)
+
+> این موارد در بازبینی عمیق diff (دو ایجنت بازبینی موازی) شناسایی شدند. هیچ‌کدام یکپارچگی داده را
+> نقض نمی‌کنند — همه fail-closed هستند (نهایتاً strand یا پیام گمراه‌کننده، نه success کاذب یا ثبت
+> تکراری). رگرسیون‌های مسدودکننده‌ی تست در همین نشست رفع و commit شدند؛ موارد زیر عمداً باز نگه
+> داشته شده‌اند.
+
+| # | مورد | شدت | فایل | وضعیت |
+|---|------|------|------|-------|
+| O1 | **تصمیم سیاستِ egress استخر Clean IP** — گیت سخت‌گیر «measured Iranian egress» (`is_operational_iranian_egress = is_usable and egress_verified and observed_country=="IR"`) هم‌اکنون روی `main` کامیت شده است. طبق تحلیل زنده‌ی 2026-08-28 (memory `clean-ip-pool-geo-gate-emptied-pool.md`)، دسترسیِ UTCMS و دسترسیِ GeoIP خارجی از egress ایران **anti-correlated** هستند، پس این گیت می‌تواند استخر را در پروداکشن خالی و تنها مسیر failover را قطع کند. تست‌های فعلی `_verify_egress_country` را mock می‌کنند و این رگرسیون را نمی‌گیرند. از زمان آن یادداشت کار عمدی روی IR-tagging انجام شده. **تصمیم با کاربر:** نگه‌داشتن گیت سخت، یا بازگرداندن «admit unmeasurable، رد فقط measured non-IR، رتبه‌بندی measured-IR اول». **تصمیم ۲۰۲۶-۱۰-۰۴:** فعلاً تغییری لازم نیست — کاربر یک IP اختصاصی اضافه برای سرور تهیه می‌کند و اتکای اصلیِ egress روی استخر Clean IP نیست؛ گیت فعلی حفظ می‌شود (بدون تغییر کد). | HIGH | `app/automation/clean_ip_pool.py` | بسته با تصمیم استقراری (IP اختصاصی اضافه)؛ بدون تغییر کد |
+| O2 | `/shipping/start` در استثنای مبهم (raised) وضعیت را `unknown` می‌گذارد که sweep/reclaim نمی‌شود؛ مسیر صدور (issuance) همان حالت را `in_transit` نگه می‌دارد. رد صریحِ غیر-4006 نیز اکنون به‌جای `ready` به `unknown` می‌رود (fail-closed ولی بدون self-service recovery). | MEDIUM | `app/api/routes/shipping_gps.py` | باز — ticket |
+| O3 | `/shipping/finish` در خطای transient (5xx/timeout/reset) به `unknown` می‌رود (strand)، درحالی‌که مسیر Beat آن را `in_transit` قابل‌retry نگه می‌دارد. | LOW | `app/api/routes/shipping_gps.py` | باز — ticket |
+| O4 | تریپ‌های legacy با `estimated_end_at` خالی روی `/shipping/finish` به 409 دائمی می‌خورند (بدون override) و پیام «۱ دقیقه دیگر» گمراه‌کننده است؛ تریپ‌های جدید همیشه ETA دارند. | MEDIUM | `app/api/routes/shipping_gps.py` | باز — ticket |
+| O5 | `_parse_calendar_day` (strptime سخت) در ۵ نقطه‌ی گزارش‌گیری ادمین wrap نشده و ورودی نامعتبر → HTTP 500 (فرانت‌اند `YYYY-MM-DD` می‌فرستد، ریسک واقعی پایین). | LOW | `app/services/admin_reporting_service.py` | باز — ticket |
+| O6 | aggregateهای «امروز / N روز اخیر» داشبورد هنوز مرز روز را naive-UTC حساب می‌کنند (۳.۵h اختلاف با روز تهران که در فیلتر `date_from/date_to` اعمال شد). | LOW | `app/services/user_reporting_service.py` | باز — ticket |
+| O7 | **هماهنگی استقرار:** `driver_phone` اکنون روی فورواردر OTP اجباری است؛ ruleهای SecureSMS موجود که فقط `{from, content, timestamp}` می‌فرستند باید دوباره پیکربندی شوند وگرنه OTP با 422 drop می‌شود. | — | `app/api/routes/otp_forwarder.py` | اقدام استقرار |
 
 ## 🆕 2026-08-26 — ریشه‌یابی زنده: چرا Clean IP Extractor جواب نمی‌داد (v2.9.7)
 

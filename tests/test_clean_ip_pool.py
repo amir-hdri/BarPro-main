@@ -1,4 +1,7 @@
+import contextlib
+import importlib.util
 import json
+import logging
 import os
 import time
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -1218,3 +1221,508 @@ def test_verify_egress_country_uses_ipwho_is_fallback():
         country = cip._verify_egress_country(candidate, timeout=5.0)
 
     assert country == "IR"
+
+
+# ---------------------------------------------------------------------------
+# Harvest cache: an EMPTY harvest is a failure, not an hour-long answer
+# ---------------------------------------------------------------------------
+
+ALL_HARVESTER_ATTRS = (
+    "fetch_spys_sources",
+    "fetch_freeproxy_world",
+    "fetch_geonode_api",
+    "fetch_monosans_geojson",
+    "fetch_proxylist_download",
+    "fetch_vakhov_github",
+    "fetch_proxyscrape_apis",
+    "fetch_github_sources",
+    "fetch_file_or_env_sources",
+)
+
+# "GitHub Mirrors" carries the longest success TTL (3600s) AND, per the module's
+# own note, raw.githubusercontent.com is the only feed host that still resolves
+# from inside Iran — so it is the exact provider whose cached [] starved the pool.
+_LONG_TTL_PROVIDER = "GitHub Mirrors"
+_LONG_TTL_ATTR = "fetch_github_sources"
+_CANDIDATE = {"protocol": "http", "ip": "185.100.47.106", "port": 8080}
+
+
+@contextlib.contextmanager
+def _only_harvester(attr_name: str, replacement):
+    """Patch every harvester to return [] except `attr_name`, which gets `replacement`."""
+    with contextlib.ExitStack() as stack:
+        for name in ALL_HARVESTER_ATTRS:
+            stack.enter_context(
+                patch.object(cip, name, replacement if name == attr_name else MagicMock(return_value=[]))
+            )
+        yield
+
+
+def _rewind_cache(provider: str, seconds: float) -> float:
+    """Age a cached harvest entry without touching its payload."""
+    timestamp, items = cip._provider_harvest_cache[provider]
+    cip._provider_harvest_cache[provider] = (timestamp - seconds, items)
+    return timestamp - seconds
+
+
+def test_empty_harvest_is_not_cached_under_the_long_success_ttl():
+    """One transient _safe_fetch failure must not starve the pool for an hour.
+
+    tasks.py runs refresh_pool(force=False) every CLEAN_IP_PROBE_INTERVAL_SECONDS
+    (180s). Caching [] under the 3600s success TTL meant ~20 consecutive cycles
+    harvesting zero candidates — run_screening_cycle then wipes the runtime files
+    and every job raises ProxyUnavailableError. _kick_background_refresh calls the
+    same non-forced path, so it could not recover either.
+    """
+    cip.clear_harvest_cache()
+    harvester = MagicMock(side_effect=[[], [_CANDIDATE], [_CANDIDATE]])
+
+    with _only_harvester(_LONG_TTL_ATTR, harvester):
+        assert cip.aggregate_all_candidates() == []
+        assert harvester.call_count == 1
+
+        # 2 minutes later: far inside the 3600s SUCCESS TTL, but well past the
+        # short failure TTL an empty result must be held under.
+        assert 120.0 > cip.EMPTY_HARVEST_TTL_SECONDS
+        assert 120.0 < cip.PROVIDER_HARVEST_TTLS[_LONG_TTL_PROVIDER]
+        _rewind_cache(_LONG_TTL_PROVIDER, 120.0)
+
+        recovered = cip.aggregate_all_candidates(force_refresh_all=False)
+        assert harvester.call_count == 2, "an empty harvest must be retried on the next cycle"
+        assert [c.ip for c in recovered] == ["185.100.47.106"]
+
+        # ...and a NON-empty harvest still gets the full provider TTL: the point
+        # is not to disable caching, only to stop caching failures.
+        _rewind_cache(_LONG_TTL_PROVIDER, 120.0)
+        still_cached = cip.aggregate_all_candidates(force_refresh_all=False)
+        assert harvester.call_count == 2, "a successful harvest must stay cached for its TTL"
+        assert [c.ip for c in still_cached] == ["185.100.47.106"]
+
+    cip.clear_harvest_cache()
+
+
+def test_stale_harvest_replay_is_bounded_then_dropped():
+    """A permanently dead feed must stop serving its last payload forever.
+
+    The expired entry is still replayed on a harvester exception (that part is
+    deliberate), but only within a bounded multiple of the provider TTL —
+    otherwise probe budget is burned against the per-IP WAF handshake throttle on
+    addresses nobody has re-published in days.
+    """
+    cip.clear_harvest_cache()
+    ttl = cip.PROVIDER_HARVEST_TTLS[_LONG_TTL_PROVIDER]
+    harvester = MagicMock(side_effect=[[_CANDIDATE], RuntimeError("feed dead"), RuntimeError("feed dead")])
+
+    with _only_harvester(_LONG_TTL_ATTR, harvester):
+        assert [c.ip for c in cip.aggregate_all_candidates()] == ["185.100.47.106"]
+
+        # Just past the TTL but inside the bounded replay window -> replayed.
+        aged_to = _rewind_cache(_LONG_TTL_PROVIDER, ttl + 10)
+        assert [c.ip for c in cip.aggregate_all_candidates()] == ["185.100.47.106"]
+        assert harvester.call_count == 2
+        # A replay must NOT refresh the timestamp, or the feed is never retried.
+        assert cip._provider_harvest_cache[_LONG_TTL_PROVIDER][0] == aged_to
+
+        # Beyond the bound -> entry dropped, nothing replayed.
+        _rewind_cache(_LONG_TTL_PROVIDER, ttl * cip.STALE_HARVEST_REPLAY_TTL_MULTIPLIER)
+        assert cip.aggregate_all_candidates() == []
+        assert harvester.call_count == 3
+        assert _LONG_TTL_PROVIDER not in cip._provider_harvest_cache
+
+    cip.clear_harvest_cache()
+
+
+def test_clear_local_cache_does_not_force_a_full_network_reharvest():
+    """worker_proxy.clear_proxy_cache runs on every failed Squid health check
+    (e.g. a fuel inquiry against a flapping Squid). Wiping all nine providers
+    there forced a full re-harvest per failure — the exact rate-limit and
+    Cloudflare pressure PROVIDER_HARVEST_TTLS was added to prevent."""
+    cip.clear_harvest_cache()
+    harvester = MagicMock(return_value=[_CANDIDATE])
+
+    with _only_harvester(_LONG_TTL_ATTR, harvester):
+        cip.aggregate_all_candidates()
+        assert harvester.call_count == 1
+
+        clear_proxy_cache()  # -> clean_ip_pool.clean_ip_pool.clear_local_cache()
+
+        cip.aggregate_all_candidates()
+        assert harvester.call_count == 1, "harvest cache must survive a proxy-choice invalidation"
+
+        # The explicit force path is still the way to re-harvest.
+        cip.aggregate_all_candidates(force_refresh_all=True)
+        assert harvester.call_count == 2
+
+    cip.clear_harvest_cache()
+
+
+# ---------------------------------------------------------------------------
+# Block-page detection must be STRUCTURAL, not a body substring scan
+# ---------------------------------------------------------------------------
+
+
+def test_proxylist_download_rejects_block_page_carrying_attributes():
+    """A literal "<html>" test never fires: a real page carries attributes.
+
+    This page contains no "502"/"503" substring either, so the old guard passed
+    it straight into the line parser — which happily lifted the upstream address
+    echoed in the error body and served it as a harvested proxy. Only the
+    STRUCTURAL check rejects it.
+    """
+    page = (
+        '<!DOCTYPE html>\n<html lang="fa" dir="rtl">\n<head><title>Blocked</title></head>\n'
+        "<body>upstream unavailable\n185.100.47.106:8080\n</body>\n</html>"
+    )
+    assert "<html>" not in page.lower()  # why the old guard was dead
+    assert "502" not in page and "503" not in page  # and why nothing else caught it
+
+    with patch.object(cip, "_safe_fetch", return_value=page):
+        assert cip.fetch_proxylist_download() == []
+
+
+def test_proxylist_download_keeps_proxies_whose_port_contains_502():
+    """Scanning the WHOLE body for "502"/"503" discarded all four protocol
+    pages whenever one harvested proxy happened to listen on port 5020."""
+    body = "185.100.47.106:5020\n5.56.132.26:8502\n46.209.30.11:1503\n"
+    assert "502" in body and "503" in body  # why the old guard was destructive
+    with patch.object(cip, "_safe_fetch", return_value=body):
+        results = cip.fetch_proxylist_download()
+
+    assert {r["port"] for r in results} == {5020, 8502, 1503}
+    # http + https + socks4 + socks5 pages x 3 rows
+    assert len(results) == 12
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("185.100.47.106:8080\n5.56.132.26:3128\n", True),
+        ("# generated\n185.100.47.106:8080\n", True),  # comments are not counted against the ratio
+        ('<html lang="fa" dir="rtl">x</html>', False),
+        ("<!DOCTYPE html><body>nope</body>", False),
+        ("Too many requests\nplease retry later\nsee the docs\n", False),
+        ("", False),
+        ("   \n\n", False),
+    ],
+)
+def test_is_proxy_list_payload_gates_on_structure_and_parse_ratio(raw, expected):
+    assert cip._is_proxy_list_payload(raw, origin="unit") is expected
+
+
+# ---------------------------------------------------------------------------
+# Per-item isolation: one malformed upstream entry costs ONE entry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("order", ["bad_first", "bad_last"])
+def test_monosans_malformed_entry_costs_only_that_entry(order):
+    """`names` published as a string makes
+    ``(geo.get("city") or {}).get("names", {}).get("en")`` raise AttributeError.
+    With the try/except around the whole loop, that one record discarded the
+    entire feed — and the yield depended on upstream ORDERING."""
+    good = {
+        "host": "185.100.47.106",
+        "port": 8080,
+        "protocol": "http",
+        "geolocation": {"country": {"iso_code": "IR"}, "city": {"names": {"en": "Tehran"}}},
+    }
+    bad = {
+        "host": "5.56.132.26",
+        "port": 3128,
+        "protocol": "http",
+        "geolocation": {"country": {"iso_code": "IR"}, "city": {"names": "Tehran"}},
+    }
+    payload = [bad, good] if order == "bad_first" else [good, bad]
+
+    with patch.object(cip, "_safe_fetch", return_value=json.dumps(payload)):
+        results = cip.fetch_monosans_geojson()
+
+    assert [r["ip"] for r in results] == ["185.100.47.106"]
+
+
+@pytest.mark.parametrize("order", ["bad_first", "bad_last"])
+def test_geonode_malformed_entry_costs_only_that_entry(order):
+    """An empty ``protocols`` list makes ``protocols[0]`` raise IndexError."""
+    good = {"ip": "185.100.47.106", "port": 8080, "protocols": ["http"]}
+    bad = {"ip": "5.56.132.26", "port": 3128, "protocols": []}
+    payload = {"data": [bad, good] if order == "bad_first" else [good, bad]}
+
+    with patch.object(cip, "_safe_fetch", return_value=json.dumps(payload)):
+        results = cip.fetch_geonode_api()
+
+    assert [r["ip"] for r in results] == ["185.100.47.106"]
+
+
+@pytest.mark.parametrize("order", ["bad_first", "bad_last"])
+def test_vakhov_malformed_entry_costs_only_that_entry(order):
+    """A numeric ``country_code`` makes ``.upper()`` raise AttributeError."""
+    good = {"ip": "185.100.47.106", "port": 8080, "country_code": "IR", "type": "http"}
+    bad = {"ip": "5.56.132.26", "port": 3128, "country_code": 364, "type": "http"}
+    payload = [bad, good] if order == "bad_first" else [good, bad]
+
+    with patch.object(cip, "_safe_fetch", return_value=json.dumps(payload)):
+        results = cip.fetch_vakhov_github()
+
+    assert [r["ip"] for r in results] == ["185.100.47.106"]
+
+
+@pytest.mark.parametrize("order", ["bad_first", "bad_last"])
+def test_proxyscrape_v4_malformed_entry_costs_only_that_entry(order):
+    """``ip_data`` published as a list makes ``(... or {}).get(...)`` raise."""
+    good = {"ip": "185.100.47.106", "port": 8080, "protocol": "http"}
+    bad = {"ip": "5.56.132.26", "port": 3128, "protocol": "http", "ip_data": ["Tehran"]}
+    payload = {"proxies": [bad, good] if order == "bad_first" else [good, bad]}
+
+    def _fetch(url, timeout=6.0):
+        return json.dumps(payload) if "/v4/" in url else None
+
+    with patch.object(cip, "_safe_fetch", side_effect=_fetch):
+        results = cip.fetch_proxyscrape_apis()
+
+    assert [r["ip"] for r in results] == ["185.100.47.106"]
+
+
+@pytest.mark.parametrize(
+    "harvester",
+    ["fetch_monosans_geojson", "fetch_vakhov_github", "fetch_geonode_api", "fetch_proxyscrape_apis"],
+)
+def test_feed_level_failure_is_logged_never_silently_swallowed(harvester, caplog):
+    """AGENTS.md records `except: pass` as a FIXED pitfall. A feed that stops
+    being parseable must be traceable, not turn into a silent empty pool."""
+    with patch.object(cip, "_safe_fetch", return_value="{ not json"):
+        with caplog.at_level(logging.WARNING, logger="app.automation.clean_ip_pool"):
+            assert getattr(cip, harvester)() == []
+
+    assert any("unreadable" in record.getMessage() for record in caplog.records), caplog.text
+
+
+# ---------------------------------------------------------------------------
+# The pool must not feed itself, and must not trust a developer's $HOME
+# ---------------------------------------------------------------------------
+
+
+def _isolate_file_sources(monkeypatch, tmp_path):
+    """Neutralise env overrides and the RUNTIME_DATA_DIR-relative default."""
+    for var in ("CLEAN_IP_SOURCE_FILE", "RPA_PROXY_LIST_FILE", "CLEAN_IP_SOURCE_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(cip, "BASE_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+
+def test_pool_output_file_is_never_reingested_as_a_source(monkeypatch, tmp_path):
+    """run_screening_cycle WRITES FILE_WORKING_TXT. Harvesting it back fed the
+    pool into itself: re-ingested entries returned as source="file_source" ->
+    tier 0, ahead of every fresh candidate, so under CLEAN_IP_MAX_CANDIDATES
+    pressure the same addresses monopolised the screening budget cycle after
+    cycle and concentrated traffic on a shrinking address set."""
+    _isolate_file_sources(monkeypatch, tmp_path)
+    own_output = tmp_path / "working_iran_proxies.txt"
+    own_output.write_text("http://185.100.47.106:8080\nhttp://5.56.132.26:3128\n", encoding="utf-8")
+
+    monkeypatch.setattr(cip, "FILE_WORKING_TXT", str(own_output))
+    monkeypatch.setattr(cip, "PROXIES_RUNTIME_DIR", str(tmp_path))
+
+    assert fetch_file_or_env_sources() == []
+
+
+def test_home_directory_is_never_an_implicitly_trusted_proxy_source(monkeypatch, tmp_path):
+    """.env.example ships CLEAN_IP_SOURCE_FILE/RPA_PROXY_LIST_FILE empty, so the
+    `~`-relative fallback was the PRODUCTION default. The workers run as root, so
+    any file at /root/GitHub/free-proxy-list/... became a top-priority
+    (tier-0, implicitly trusted) egress source."""
+    _isolate_file_sources(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    planted = home / "GitHub" / "free-proxy-list" / "barpro"
+    planted.mkdir(parents=True)
+    (planted / "verified_iran_proxies.txt").write_text("http://185.100.47.106:8080\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+    assert os.path.expanduser("~") == str(home)  # the fallback really would resolve here
+    assert fetch_file_or_env_sources() == []
+
+
+# ---------------------------------------------------------------------------
+# Country is never fabricated for a bare ip:port line
+# ---------------------------------------------------------------------------
+
+
+def test_parse_proxy_line_does_not_fabricate_an_iranian_country():
+    """Previously ANY line from any file/custom-URL feed came back stamped
+    country="IR"/city="Iran" — contradicting the _dedupe_candidates contract
+    ("Country is only kept when a source explicitly declares it; there is NO
+    'IR' default") and making the ir_declared metric tautological."""
+    parsed = _parse_proxy_line("socks5://8.8.8.8:1080")
+    assert parsed is not None
+    assert (parsed["protocol"], parsed["ip"], parsed["port"]) == ("socks5", "8.8.8.8", 1080)
+    assert not parsed.get("country")
+    assert not parsed.get("city")
+
+
+def test_global_operator_feed_is_not_relabelled_iranian(monkeypatch, tmp_path):
+    """An operator-supplied GLOBAL feed must not be labelled Iranian; the geo
+    gate is what decides country, from a measurement."""
+    source = tmp_path / "global_feed.txt"
+    source.write_text("http://8.8.8.8:8080\n", encoding="utf-8")
+    monkeypatch.setenv("CLEAN_IP_SOURCE_FILE", str(source))
+    monkeypatch.delenv("CLEAN_IP_SOURCE_URL", raising=False)
+
+    results = fetch_file_or_env_sources()
+    assert [r["ip"] for r in results] == ["8.8.8.8"]
+    assert not results[0].get("country")
+
+    record = _dedupe_candidates(results)["http://8.8.8.8:8080"]
+    assert record.country == ""
+    assert record.city is None
+    assert record.source == "file_source"
+
+
+def test_file_source_keeps_top_screening_priority_without_a_declared_country():
+    """Tiering must derive from `source`, so dropping the fabricated country
+    does not demote legitimately configured local feeds."""
+    file_cand = CleanIPRecord(url="http://8.8.8.8:8080", ip="8.8.8.8", port=8080, source="file_source", country="")
+    mirror_cand = CleanIPRecord(url="http://1.1.1.1:8080", ip="1.1.1.1", port=8080, source="github_mirror", country="")
+    probed: list[CleanIPRecord] = []
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[mirror_cand, file_cand]),
+        patch.object(cip, "probe_single_proxy", side_effect=lambda c, *a, **k: probed.append(c) or c),
+        patch.object(cip, "_verify_egress_country", return_value="IR"),
+        patch.object(cip, "atomic_write"),
+    ):
+        cip.run_screening_cycle(max_candidates=1, max_pool_size=10)
+
+    assert [c.ip for c in probed] == ["8.8.8.8"]
+
+
+# ---------------------------------------------------------------------------
+# Screening telemetry must report what is actually true (gate unchanged)
+# ---------------------------------------------------------------------------
+
+
+def test_screening_log_reports_geo_rejections_not_phantom_admissions(caplog):
+    """The old message claimed "N admitted with GeoIP unreachable", computed
+    AFTER the fail-closed filter had removed exactly those records — so it was
+    always 0 and actively misled the next investigation."""
+    rec = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080, country="IR")
+    rec.latency_ms = 10.0
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[rec]),
+        patch.object(cip, "probe_single_proxy", return_value=rec),
+        patch.object(cip, "_verify_egress_country", return_value=None),
+        patch.object(cip, "atomic_write"),
+        caplog.at_level(logging.INFO, logger="app.automation.clean_ip_pool"),
+    ):
+        assert cip.run_screening_cycle(max_pool_size=10) == []
+
+    messages = " ".join(record.getMessage() for record in caplog.records)
+    assert "admitted with GeoIP unreachable" not in messages
+    assert "rejected 1 for unverifiable egress" in messages
+
+
+def test_screening_zero_candidates_still_logs_cleanly():
+    """Guards the rejection counters being bound before the shortlist branch."""
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[]),
+        patch.object(cip, "atomic_write"),
+    ):
+        assert cip.run_screening_cycle(max_pool_size=10) == []
+
+
+# ---------------------------------------------------------------------------
+# The VPN-off diagnostic must never overwrite live pool state by default
+# ---------------------------------------------------------------------------
+
+
+def _load_vpn_off_script():
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts/test_when_vpn_off.py")
+    spec = importlib.util.spec_from_file_location("_barpro_vpn_off_diagnostic", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_vpn_off_diagnostic_does_not_touch_runtime_pool_by_default(tmp_path):
+    """The diagnostic built records from probe_single_proxy only, so
+    egress_verified=False / observed_country=None — every written record FAILS
+    is_operational_iranian_egress. Overwriting the pool files destroyed the real
+    verified proxies, supplied zero usable replacements, AND disabled the
+    self-healing (a fresh mtime makes _pool_is_stale() False, so
+    _kick_background_refresh is never called for CLEAN_IP_POOL_MAX_AGE_SECONDS)."""
+    script = _load_vpn_off_script()
+    probed = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+    probed.latency_ms = 50.0
+    assert probed.is_operational_iranian_egress is False  # why writing it is destructive
+
+    written: list[str] = []
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[probed]),
+        patch.object(script, "_probe_with_reason", return_value=(probed, "SUCCESS", probed)),
+        patch.object(cip, "PROXIES_RUNTIME_DIR", str(tmp_path)),
+        patch.object(cip, "atomic_write", side_effect=lambda p, c: written.append(p)),
+    ):
+        verified = script.run_domestic_proxy_audit(max_candidates=1, timeout=1.0, concurrency=1)
+
+    assert [r.url for r in verified] == [probed.url]
+    assert cip.FILE_BEST_TXT not in written
+    assert cip.FILE_WORKING_TXT not in written
+    assert cip.FILE_WORKING_JSON not in written
+    # Findings still land somewhere obvious — just not in runtime pool state.
+    assert written == [os.path.join(str(tmp_path), "vpn_off_audit_report.json")]
+
+
+def test_vpn_off_diagnostic_writes_pool_only_on_explicit_opt_in(tmp_path):
+    script = _load_vpn_off_script()
+    probed = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+    probed.latency_ms = 50.0
+    written: list[str] = []
+
+    with (
+        patch.object(cip, "aggregate_all_candidates", return_value=[probed]),
+        patch.object(script, "_probe_with_reason", return_value=(probed, "SUCCESS", probed)),
+        patch.object(cip, "PROXIES_RUNTIME_DIR", str(tmp_path)),
+        patch.object(cip, "atomic_write", side_effect=lambda p, c: written.append(p)),
+    ):
+        script.run_domestic_proxy_audit(max_candidates=1, timeout=1.0, concurrency=1, write_pool=True)
+
+    assert cip.FILE_BEST_TXT in written
+    assert cip.FILE_WORKING_TXT in written
+    assert cip.FILE_WORKING_JSON in written
+
+
+def test_vpn_off_diagnostic_buckets_real_transport_failures():
+    """TIMEOUT / CONN_ERROR / SSL_ERROR were unreachable: probe_single_proxy
+    catches every exception and returns None, so the wrapper's `except` never
+    fired and an operator always saw zeros for exactly the failure modes the
+    tool exists to distinguish."""
+    script = _load_vpn_off_script()
+    candidate = CleanIPRecord(url="http://185.100.47.106:8080", ip="185.100.47.106", port=8080)
+
+    cases = {
+        "TIMEOUT": TimeoutError("Operation timed out after 4000 ms"),
+        "SSL_ERROR": RuntimeError("SSL_connect: certificate verify failed"),
+        "CONN_ERROR": RuntimeError("Failed to connect to proxy: connection refused"),
+    }
+    for expected, exc in cases.items():
+        with (
+            patch.object(cip, "_CURL_CFFI_IMPORT_ERROR", None),
+            patch.object(cip, "_probe_via_curl_cffi", side_effect=exc),
+        ):
+            _, bucket, result = script._probe_with_reason(candidate, timeout=1.0)
+        assert bucket == expected, f"{exc} should bucket as {expected}"
+        assert result is None
+
+    # A UTCMS rejection is still REJECTED, not a transport bucket.
+    with (
+        patch.object(cip, "_CURL_CFFI_IMPORT_ERROR", None),
+        patch.object(cip, "_probe_via_curl_cffi", return_value=(403, 20.0, "")),
+    ):
+        assert script._probe_with_reason(candidate, timeout=1.0)[1] == "REJECTED"
+
+    with (
+        patch.object(cip, "_CURL_CFFI_IMPORT_ERROR", None),
+        patch.object(cip, "_probe_via_curl_cffi", return_value=(200, 33.0, "<html>ok</html>")),
+    ):
+        assert script._probe_with_reason(candidate, timeout=1.0)[1] == "SUCCESS"

@@ -1,5 +1,23 @@
 """Offline import of the separately hosted benchmark bot's saved model.
 
+.. warning::
+
+   **This module is offline operator/benchmark tooling. It is NOT part of the
+   live submission path and must not be wired into one.** Nothing in
+   ``app/api``, ``app/services``, ``app/workers`` or ``app/automation`` imports
+   it; it exists so an operator can review a third-party benchmark record as a
+   BarPro-shaped draft.
+
+   **An empty ``validation_errors`` is NOT submit-readiness.**
+   :func:`build_benchmark_import_draft` calls
+   :func:`~app.automation.multitenant_payload_adapter.validate_live_waybill_payload`
+   *without* ``expected_driver_national_code`` / ``expected_plate`` /
+   ``expected_driver_mobile``, so the driver and plate cross-checks that job
+   creation applies are deliberately absent. The gate here is strictly weaker
+   than the one in :mod:`app.services.waybill_job_service`. A draft must be
+   re-validated against an authorized BarPro driver, and enriched for the
+   chosen transport, before it may be submitted.
+
 This is not the UTCMS mobile DTO and is not a transport. Only the documented
 business model is converted; account credentials, statuses and scheduling
 instructions from the surrounding record never enter a BarPro draft.
@@ -16,6 +34,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from app.automation.multitenant_payload_adapter import validate_live_waybill_payload
+from app.schemas.multitenant import _normalize_plate
 
 BASE_MODEL_KEYS = (
     "sender_national_code",
@@ -129,6 +148,43 @@ def _positive_number(value: str, label: str) -> Decimal:
     return number
 
 
+def _positive_whole_number(value: str, label: str) -> Decimal:
+    """Reject a fractional value instead of rounding it, then drop ``.0``.
+
+    UTCMS treats fares and declared cargo values as whole Rials and the cargo
+    count as a whole number of items. A fractional amount is upstream data
+    corruption, not something to repair: downstream adapters guard with
+    ``str(...).isdigit()`` and forward anything else verbatim, so a value like
+    ``"5000000.50"`` would reach ``#txtkeraye`` and draw the UTCMS 4025
+    fare rejection with no local signal. ``to_integral_value()`` also strips
+    the trailing zero of an integral ``Decimal("2.0")``, which ``format(...,
+    "f")`` would otherwise preserve.
+    """
+    number = _positive_number(value, label)
+    if number != number.to_integral_value():
+        raise ValueError(f"Benchmark {label} must be a whole number")
+    return number.to_integral_value()
+
+
+def _plate(model: Mapping[str, str]) -> str:
+    """Assemble the plate and canonicalize it with the BarPro schema helper.
+
+    ``plack_char`` arrives unnormalized (e.g. Arabic ``ي`` instead of ``ی``),
+    which would otherwise be stored verbatim in the draft and fail an exact
+    comparison against a stored BarPro plate. An unparseable plate is kept raw
+    on purpose so ``validate_live_waybill_payload`` still surfaces it through
+    ``validation_errors`` rather than raising.
+    """
+    raw = (
+        f"{_digits(model['plack_2'])}{model['plack_char'].strip()}"
+        f"{_digits(model['plack_3'])}ایران{_digits(model['plack_region'])}"
+    )
+    try:
+        return _normalize_plate(raw)
+    except ValueError:
+        return raw
+
+
 def _coordinates(model: Mapping[str, str], prefix: str) -> dict[str, float]:
     try:
         lat = float(_digits(model[f"{prefix}_lat"]))
@@ -154,6 +210,10 @@ def build_benchmark_import_draft(
     authorize a BarPro driver, run normal submission validation and enrich any
     fields required by the chosen transport (e.g. mobile postal codes/IDs).
     No driver account, job state, retry, OTP or shipment action is imported.
+
+    ``validation_errors`` is advisory only: the driver/plate cross-checks are
+    not applied here, so an empty tuple does not mean the draft may be
+    submitted. See the module docstring.
     """
     if not origin_province.strip() or not destination_province.strip():
         raise ValueError("Both provinces must be supplied explicitly for benchmark import")
@@ -163,9 +223,7 @@ def build_benchmark_import_draft(
     weight = _positive_number(model["load_weight"], "weight")
     if weight_unit == "kg":
         weight /= Decimal(1000)
-    count = _positive_number(model["load_count"], "count")
-    if count != count.to_integral_value():
-        raise ValueError("Benchmark load count must be an integer")
+    count = _positive_whole_number(model["load_count"], "load count")
 
     def party(prefix: str) -> dict[str, str]:
         first = model[f"{prefix}_firstname"].strip()
@@ -199,15 +257,12 @@ def build_benchmark_import_draft(
             "packaging": model["box"].strip(),
             "weight": format(weight, "f"),
             "count": format(count, "f"),
-            "value": format(_positive_number(model["load_price"], "cargo value"), "f"),
+            "value": format(_positive_whole_number(model["load_price"], "cargo value"), "f"),
         },
-        "financial": {"cost": format(_positive_number(model["cost"], "fare"), "f")},
+        "financial": {"cost": format(_positive_whole_number(model["cost"], "fare"), "f")},
         "vehicle": {
             "driver_national_code": _digits(model["driver_national_code"]),
-            "plate": (
-                f"{_digits(model['plack_2'])}{model['plack_char'].strip()}"
-                f"{_digits(model['plack_3'])}ایران{_digits(model['plack_region'])}"
-            ),
+            "plate": _plate(model),
         },
     }
     return BenchmarkImportDraft(
