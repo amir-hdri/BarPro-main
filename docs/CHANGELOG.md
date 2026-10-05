@@ -57,6 +57,12 @@ All notable changes to the UTCMS Automation System.
   parameter (`?driver_phone=...`), custom header (`X-Driver-Phone`), or JSON body field,
   simplifying setup for third-party Android forwarding apps. Form-data parsing preserves path-based
   driver phone even when form data lacks phone fields.
+- **Client clock drift recovery** (`app/api/routes/otp_forwarder.py`): webhook intake catches
+  future timestamp errors caused by fast Android client clocks and automatically falls back to
+  authoritative server `now`, ensuring valid OTP codes are never rejected due to phone clock skew.
+- **Broadened Iranian and UTCMS OTP regexes** (`app/api/routes/otp_forwarder.py`: `extract_otp_code`):
+  expanded keyword detection to capture `کد صدور`, `کد یکبار مصرف`, `کد امنیتی`, `رمز تایید`, and
+  `کد مجوز` while strictly maintaining security blocks against banking and promo SMS.
 - **Stale pending job self-pruning** (`app/services/otp_wakeup_consumer.py`:
   `resolve_single_flight_pending_phone`): automatically cleans up dead/expired members from Redis set
   `rpa:otp:active_pending_jobs` when only one valid job retains a live `rpa:job:pending_doc` cache,

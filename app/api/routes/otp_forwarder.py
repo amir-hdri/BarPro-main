@@ -79,9 +79,9 @@ def extract_otp_code(text: str) -> str | None:
     if any(phrase in clean for phrase in ("رمز دوم", "کد تخفیف", "برداشت از حساب", "خرید اینترنتی")):
         return None
     keyword = (
-        r"کد\s*(?:تایید|تأیید|ورود|فعالسازی|فعال\s*سازی|احراز|اعتبار)"
-        r"|رمز\s*(?:یک\s*بار\s*مصرف|ورود|موقت|اعتبار)"
-        r"|(?:verification|security|login)\s*(?:otp\s*)?code|otp(?:\s*code)?"
+        r"کد\s*(?:تایید|تأیید|ورود|فعالسازی|فعال\s*سازی|احراز|اعتبار|یک\s*بار\s*مصرف|یکبار\s*مصرف|امنیتی|مجوز|صدور)"
+        r"|رمز\s*(?:یک\s*بار\s*مصرف|یکبار\s*مصرف|ورود|موقت|اعتبار|تایید|تأیید)"
+        r"|(?:verification|security|login|auth)\s*(?:otp\s*)?code|otp(?:\s*code)?"
     )
     for pattern in (
         rf"(?:{keyword})[^0-9]{{0,60}}(?<![0-9])([0-9]{{4,8}})(?![0-9])",
@@ -374,13 +374,29 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
         except Exception as fallback_exc:
             logger.debug("single_flight_attribution_attempt_failed: %s", fallback_exc)
 
-    stored = await accept_forwarded_otp(
-        code=otp_code,
-        sender=sender,
-        text=content,
-        phone=phone,
-        timestamp=timestamp,
-    )
+    try:
+        stored = await accept_forwarded_otp(
+            code=otp_code,
+            sender=sender,
+            text=content,
+            phone=phone,
+            timestamp=timestamp,
+        )
+    except HTTPException as exc:
+        if exc.detail == "SMS timestamp is in the future; check device clock":
+            logger.warning(
+                "sms_forwarder_timestamp_skew_fallback_to_now",
+                extra={"extra_fields": {"phone": phone, "raw_timestamp": str(timestamp), "reason": exc.detail}},
+            )
+            stored = await accept_forwarded_otp(
+                code=otp_code,
+                sender=sender,
+                text=content,
+                phone=phone,
+                timestamp=None,
+            )
+        else:
+            raise
 
     # Log metadata only — never the code itself.
     logger.info(

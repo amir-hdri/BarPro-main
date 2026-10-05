@@ -37,6 +37,19 @@ def test_extract_otp_code_persian_messages():
     msg7 = "در تاریخ 1404/06/30 کد تایید شما 33221 می باشد"
     assert extract_otp_code(msg7) == "33221"
 
+    # Expanded Iranian / UTCMS keyword variations
+    msg8 = "کد صدور بارنامه: 77889"
+    assert extract_otp_code(msg8) == "77889"
+
+    msg9 = "کد یکبار مصرف جهت صدور بارنامه: 99112"
+    assert extract_otp_code(msg9) == "99112"
+
+    msg10 = "کد امنیتی ورود: 33445"
+    assert extract_otp_code(msg10) == "33445"
+
+    msg11 = "رمز تایید صدور: 66554"
+    assert extract_otp_code(msg11) == "66554"
+
 
 def test_clean_phone_number():
     assert clean_phone_number("09123612956") == "09123612956"

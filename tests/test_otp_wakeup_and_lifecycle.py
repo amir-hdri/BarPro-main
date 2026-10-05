@@ -721,3 +721,42 @@ async def test_webhook_preserves_path_phone_with_form_body():
             mock_accept.assert_called_once()
             call_kwargs = mock_accept.call_args.kwargs
             assert call_kwargs.get("phone") == path_phone
+
+
+@pytest.mark.asyncio
+async def test_webhook_recovers_gracefully_from_phone_clock_skew():
+    """Verify webhook falls back to server now when phone timestamp has drift, without dropping OTP."""
+    from app.api.routes import otp_forwarder
+    from app.core.config import utcms_config
+
+    fake_redis = MemoryRedis()
+    app = FastAPI()
+    app.include_router(otp_forwarder.router)
+    secret = "a-very-long-and-secure-test-secret-32-chars-minimum"
+    path_phone = "09121112233"
+
+    # Device timestamp is 90 seconds ahead (past the 30s max skew, which raises 422 in sms_received_at)
+    drifting_timestamp = time.time() + 90
+
+    with (
+        patch("app.api.routes.otp_forwarder.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.services.otp_wakeup_consumer.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch.object(utcms_config, "OTP_WEBHOOK_SECRET", secret),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                f"/api/v1/otp/sms-forwarder/{path_phone}",
+                json={
+                    "text": "کد صدور بارنامه: 43215",
+                    "sender": "20001111",
+                    "timestamp": drifting_timestamp,
+                },
+                headers={"X-OTP-Webhook-Token": secret},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "success"
+            assert "code" not in resp.json()
+            stored_raw = await fake_redis.get(otp_phone_key(path_phone))
+            assert stored_raw is not None
+            stored = json.loads(stored_raw)
+            assert stored["code"] == "43215"
