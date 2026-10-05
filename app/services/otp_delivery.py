@@ -55,10 +55,22 @@ def sms_received_at(value: Any, *, now: float) -> float:
             raise ValueError
     except (TypeError, ValueError, OverflowError) as exc:
         raise HTTPException(status_code=422, detail="Invalid SMS timestamp") from exc
+    # Compensate for Iranian DST shift glitch (±1 hour / 3600s) on unpatched Android devices.
+    # Iran permanently abolished DST in 1402, but some legacy phone kernels or outdated
+    # time-zone databases still shift clocks by ±1 hour.
     if timestamp > now + MAX_CLOCK_SKEW_SECONDS:
-        raise HTTPException(status_code=422, detail="SMS timestamp is in the future; check device clock")
-    if now - timestamp >= OTP_TTL_SECONDS:
-        raise HTTPException(status_code=410, detail="SMS OTP has expired")
+        adjusted = timestamp - 3600.0
+        if (now - adjusted) < OTP_TTL_SECONDS and adjusted <= now + MAX_CLOCK_SKEW_SECONDS:
+            timestamp = adjusted
+        else:
+            raise HTTPException(status_code=422, detail="SMS timestamp is in the future; check device clock")
+    elif now - timestamp >= OTP_TTL_SECONDS:
+        adjusted = timestamp + 3600.0
+        if (now - adjusted) < OTP_TTL_SECONDS and adjusted <= now + MAX_CLOCK_SKEW_SECONDS:
+            timestamp = adjusted
+        else:
+            raise HTTPException(status_code=410, detail="SMS OTP has expired")
+
     return min(timestamp, now)
 
 

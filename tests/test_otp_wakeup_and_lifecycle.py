@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
+from app.api.routes import otp_forwarder
 from app.automation.otp_keys import (
     OTP_ACTIVE_PENDING_JOBS_SET,
     consume_scoped_otp,
@@ -19,6 +23,7 @@ from app.automation.otp_keys import (
     reserve_otp_issue_lease,
 )
 from app.automation.waybill_enhanced import fetch_scoped_otp
+from app.core.config import utcms_config
 from app.models_multitenant import TaskStatus, WaybillJob
 from app.services.otp_wakeup_consumer import (
     process_otp_stream_events,
@@ -333,3 +338,122 @@ async def test_redis_stream_event_processing():
 
         assert processed == 1
         mock_resolve.assert_called_once_with(phone=driver_phone, code=otp_code)
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_otp_attribution_rejected_when_multiple_jobs_pending():
+    """When multiple jobs are pending without a specified phone, reject with AMBIGUOUS_OTP."""
+    fake_redis = MemoryRedis()
+    await fake_redis.sadd(OTP_ACTIVE_PENDING_JOBS_SET, "job_1", "job_2")
+
+    # 1. resolve_single_flight_pending_phone returns "AMBIGUOUS"
+    with patch("app.services.otp_wakeup_consumer.redis_manager.get", AsyncMock(return_value=fake_redis)):
+        resolved = await resolve_single_flight_pending_phone()
+        assert resolved == "AMBIGUOUS"
+
+    # 2. HTTP Webhook without driver_phone returns 422 AMBIGUOUS_OTP
+    app = FastAPI()
+    app.include_router(otp_forwarder.router)
+    secret = "test-secret-at-least-32-bytes-long"
+
+    with (
+        patch("app.api.routes.otp_forwarder.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.services.otp_wakeup_consumer.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch.object(utcms_config, "OTP_WEBHOOK_SECRET", secret),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/otp/sms-forwarder",
+                json={"text": "کد تایید صدور بارنامه: 54321", "sender": "20007777"},
+                headers={"X-OTP-Webhook-Token": secret},
+            )
+            assert resp.status_code == 422
+            assert "AMBIGUOUS_OTP" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_full_e2e_http_webhook_to_job_completion():
+    """Full E2E test: HTTP webhook -> Redis streams/intake -> auto-completion -> SUCCESS in DB."""
+    fake_redis = MemoryRedis()
+    job_id = "job-e2e-real-flow-999"
+    document_id = "22998877"
+    driver_phone = "09121113355"
+    otp_code = "65432"
+    secret = "test-secret-at-least-32-bytes-long"
+
+    mock_job = WaybillJob(
+        id=999,
+        job_id=job_id,
+        driver_national_code="0012345678",
+        status=TaskStatus.UNKNOWN.value,
+        error_category="otp_required",
+        result_json={"document_id": document_id},
+        payload_json={"vehicle": {"driver_mobile": driver_phone}},
+        last_error=f"سند با شناسه {document_id} ایجاد شد",
+        created_at=datetime.now(UTC).replace(tzinfo=None),
+        updated_at=datetime.now(UTC).replace(tzinfo=None),
+    )
+
+    # Pending session in Redis
+    session_data = {
+        "doc_id": document_id,
+        "token": "cached_utcms_token_xyz",
+        "username": "driver_user",
+        "job_id": job_id,
+        "driver_phone": driver_phone,
+    }
+    fake_redis.store[f"rpa:job:pending_doc:{job_id}"] = json.dumps(session_data)
+    fake_redis.store[otp_pending_phone_key(driver_phone)] = job_id
+    await fake_redis.sadd(OTP_ACTIVE_PENDING_JOBS_SET, job_id)
+
+    mock_db = MagicMock()
+    mock_db.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=mock_job)))
+    mock_db.commit = AsyncMock()
+    mock_db.refresh = AsyncMock()
+    mock_db.add = MagicMock()
+    mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+    mock_db.__aexit__ = AsyncMock(return_value=None)
+
+    app = FastAPI()
+    app.include_router(otp_forwarder.router)
+
+    with (
+        patch("app.api.routes.otp_forwarder.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.services.otp_delivery.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.services.otp_wakeup_consumer.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.core.redis_client.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.services.otp_wakeup_consumer.async_session_factory", return_value=mock_db),
+        patch.object(utcms_config, "OTP_WEBHOOK_SECRET", secret),
+        patch("app.automation.utcms_mobile_client.UtcmsMobileClient.issue_document_by_otp") as mock_issue,
+        patch("app.automation.utcms_mobile_client.UtcmsMobileClient.extract_tracking_code", return_value="1359998888"),
+    ):
+        mock_issue.return_value = {"meta": {"message": "Success"}, "obj": {"docNo": "1359998888"}}
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/otp/sms-forwarder",
+                json={
+                    "phone": driver_phone,
+                    "text": f"کد تایید صدور بارنامه شما: {otp_code}",
+                    "sender": "20007777",
+                },
+                headers={"X-OTP-Webhook-Token": secret},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["success"] is True
+
+            # Yield control to let background task run
+            await asyncio.sleep(0.05)
+
+            # Verify completion
+            assert mock_job.status == TaskStatus.SUCCESS.value
+            assert mock_job.result_json["tracking_code"] == "1359998888"
+            assert mock_job.mutation_status == "confirmed"
+            mock_issue.assert_called_once_with(document_id, otp_code, allow_live_submit=True)
+
+            # Verify cleanup
+            assert await fake_redis.get(otp_phone_key(driver_phone)) is None
+            assert await fake_redis.get(f"rpa:job:pending_doc:{job_id}") is None
+            active = await fake_redis.smembers(OTP_ACTIVE_PENDING_JOBS_SET)
+            assert job_id not in active
+

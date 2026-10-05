@@ -183,6 +183,28 @@ def test_source_timestamp_expiry_and_clock_skew():
         assert exc.value.status_code == status
 
 
+def test_iran_dst_clock_skew_tolerance():
+    """Unpatched Android devices in Iran shift clocks by ±1 hour (3600s). Verify compensation."""
+    now = 1_800_000_000.0
+    # Device clock 1 hour ahead (future +3600s - 10s received delay = +3590s)
+    future_dst = now + 3600 - 10
+    assert sms_received_at(future_dst, now=now) == now - 10
+
+    # Device clock 1 hour behind (past -3600s - 15s received delay = -3615s)
+    past_dst = now - 3600 - 15
+    assert sms_received_at(past_dst, now=now) == now - 15
+
+    # Genuinely expired (e.g. 2 hours old or 10 min old without DST offset)
+    with pytest.raises(HTTPException) as exc1:
+        sms_received_at(now - 700, now=now)
+    assert exc1.value.status_code == 410
+
+    # Genuinely future (e.g. tomorrow or +2 hours)
+    with pytest.raises(HTTPException) as exc2:
+        sms_received_at(now + 7200, now=now)
+    assert exc2.value.status_code == 422
+
+
 async def test_signed_gateway_and_http_share_delivery_identity(delivery_api):
     client, redis = delivery_api
     payload = sms()

@@ -47,20 +47,27 @@ async def resolve_single_flight_pending_phone() -> str | None:
         redis = await redis_manager.get()
         if redis and hasattr(redis, "smembers"):
             active_jobs = await redis.smembers(OTP_ACTIVE_PENDING_JOBS_SET)
-            if active_jobs and len(active_jobs) == 1:
-                single_job_id = list(active_jobs)[0]
-                if isinstance(single_job_id, bytes):
-                    single_job_id = single_job_id.decode()
-                cached_raw = await redis.get(f"rpa:job:pending_doc:{single_job_id}")
-                if cached_raw:
-                    data = json.loads(cached_raw)
-                    phone = normalize_phone_for_otp_key(data.get("driver_phone"))
-                    if re.fullmatch(r"09[0-9]{9}", phone):
-                        logger.info(
-                            "single_flight_attribution_resolved_from_redis",
-                            extra={"extra_fields": {"job_id": single_job_id, "phone": phone}},
-                        )
-                        return phone
+            if active_jobs:
+                if len(active_jobs) > 1:
+                    logger.warning(
+                        "single_flight_attribution_ambiguous_redis",
+                        extra={"extra_fields": {"count": len(active_jobs)}},
+                    )
+                    return "AMBIGUOUS"
+                if len(active_jobs) == 1:
+                    single_job_id = list(active_jobs)[0]
+                    if isinstance(single_job_id, bytes):
+                        single_job_id = single_job_id.decode()
+                    cached_raw = await redis.get(f"rpa:job:pending_doc:{single_job_id}")
+                    if cached_raw:
+                        data = json.loads(cached_raw)
+                        phone = normalize_phone_for_otp_key(data.get("driver_phone"))
+                        if re.fullmatch(r"09[0-9]{9}", phone):
+                            logger.info(
+                                "single_flight_attribution_resolved_from_redis",
+                                extra={"extra_fields": {"job_id": single_job_id, "phone": phone}},
+                            )
+                            return phone
     except Exception as exc:
         logger.warning("single_flight_redis_check_failed: %s", exc)
 
@@ -86,6 +93,13 @@ async def resolve_single_flight_pending_phone() -> str | None:
                 has_doc = bool(res_dict.get("document_id") or (j.last_error and "شناسه" in j.last_error))
                 if has_doc or j.error_category == "otp_required":
                     otp_candidates.append(j)
+
+            if len(otp_candidates) > 1:
+                logger.warning(
+                    "single_flight_attribution_ambiguous_db",
+                    extra={"extra_fields": {"count": len(otp_candidates)}},
+                )
+                return "AMBIGUOUS"
 
             if len(otp_candidates) == 1:
                 target = otp_candidates[0]

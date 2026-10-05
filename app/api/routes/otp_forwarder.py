@@ -335,8 +335,15 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
             from app.services.otp_wakeup_consumer import resolve_single_flight_pending_phone
 
             single_phone = await resolve_single_flight_pending_phone()
+            if single_phone == "AMBIGUOUS":
+                raise HTTPException(
+                    status_code=422,
+                    detail="AMBIGUOUS_OTP: Multiple pending waybills awaiting OTP; driver_phone is required to disambiguate",
+                )
             if single_phone:
                 phone = single_phone
+        except HTTPException:
+            raise
         except Exception as fallback_exc:
             logger.debug("single_flight_attribution_attempt_failed: %s", fallback_exc)
 
