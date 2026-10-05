@@ -1605,7 +1605,10 @@ def _is_missing_start_rejection(result: dict[str, Any]) -> bool:
     """Rule 4011 variant where the self-declared start was never registered upstream."""
     if result.get("resultCode") != 4011:
         return False
-    message = str(result.get("resultMessage") or "").replace("‌", "").replace("ي", "ی")
+    # ZWNJ («ثبت‌نشده») must fold to the same spaced form as the documented
+    # marker, otherwise the no-start variant slips past and is never recovered.
+    message = str(result.get("resultMessage") or "").replace("‌", " ").replace("ي", "ی").replace("ك", "ک")
+    message = " ".join(message.split())
     return "شروع حمل" in message and "ثبت نشده" in message
 
 
@@ -1676,7 +1679,7 @@ def _is_transient_completion_failure(cause: Any) -> bool:
 
 def _completion_backoff_seconds(attempts: int) -> int:
     """Bounded exponential cooldown: 5, 10, 20, 40, 60 minutes (capped)."""
-    return min(3600, 300 * 2 ** min(max(0, attempts - 1), 4))
+    return int(min(3600, 300 * 2 ** min(max(0, attempts - 1), 4)))
 
 
 async def _record_unconfirmed_completion(
