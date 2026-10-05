@@ -393,4 +393,3 @@ if celery_app is not None:
         from app.services.otp_wakeup_consumer import process_otp_stream_events
 
         return _run_async(process_otp_stream_events(batch_size=10))
-

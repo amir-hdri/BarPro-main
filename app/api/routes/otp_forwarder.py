@@ -186,9 +186,7 @@ async def receive_sms_gateway(request: Request) -> dict[str, Any]:
 @router.post("/sms-forwarder/{path_driver_phone}", summary="Webhook with path-based driver phone")
 @router.post("/webhook", summary="Alias webhook for SMS Forwarders")
 @router.post("/webhook/{path_driver_phone}", summary="Alias webhook with path-based driver phone")
-async def receive_sms_forwarder_webhook(
-    request: Request, path_driver_phone: str | None = None
-) -> dict[str, Any]:
+async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str | None = None) -> dict[str, Any]:
     """
     Accepts incoming SMS from SecureSMS Forwarder or any SMS forwarding Android app.
     Supports JSON payloads, form-encoded data, query parameters, headers, or raw text.

@@ -609,5 +609,3 @@ async def test_submit_otp_uses_worker_proxy():
         assert res.status == TaskStatus.SUCCESS.value
         assert captured_kwargs.get("proxy_url") == "http://squid-proxy:3128"
         assert captured_kwargs.get("token") == "test-token"
-
-
