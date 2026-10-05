@@ -873,22 +873,60 @@ class WaybillAutomationBot:
 
                     redis = await redis_manager.get()
                     if redis is not None:
-                        # Cache pending document session for operator manual submit if needed
+                        driver_phone = str(normalized_payload.get("vehicle", {}).get("driver_mobile") or "").strip()
+                        # Cache pending document session for operator manual submit or webhook auto-completion
                         if document_id and job_id:
                             session_cache = {
                                 "document_id": str(document_id),
+                                "doc_id": str(document_id),
                                 "token": getattr(auth, "token", ""),
                                 "username": username,
+                                "job_id": job_id,
+                                "driver_phone": driver_phone,
+                                "client_id": client_id,
+                                "created_at": time.time(),
                             }
                             await redis.set(f"rpa:job:pending_doc:{job_id}", json.dumps(session_cache), ex=3600)
+                            from app.automation.otp_keys import (
+                                OTP_ACTIVE_PENDING_JOBS_SET,
+                                normalize_phone_for_otp_key,
+                                otp_pending_phone_key,
+                            )
+
+                            if hasattr(redis, "sadd"):
+                                await redis.sadd(OTP_ACTIVE_PENDING_JOBS_SET, job_id)
+                            clean_p = normalize_phone_for_otp_key(driver_phone)
+                            pending_p_key = otp_pending_phone_key(clean_p)
+                            if pending_p_key:
+                                await redis.set(pending_p_key, job_id, ex=3600)
 
                         if not otp_code:
-                            driver_phone = str(normalized_payload.get("vehicle", {}).get("driver_mobile") or "").strip()
                             # Tenant-isolation (C1): scoped keys only — job-scoped,
                             # then phone-scoped. The unscoped global key is retired;
                             # without job/phone context we fail closed (no OTP).
                             deadline = time.monotonic() + min(300, max(0, utcms_config.UTCMS_OTP_WAIT_TIMEOUT_SECONDS))
                             while time.monotonic() < deadline:
+                                # Check if job was already completed in background by event-driven wake-up
+                                if job_id:
+                                    completed_raw = await redis.get(f"rpa:job:completed_otp:{job_id}")
+                                    if completed_raw:
+                                        completed_info = json.loads(completed_raw)
+                                        otp_tracking = completed_info.get("tracking_code")
+                                        if otp_tracking:
+                                            result["status"] = TaskStatus.SUCCESS.value
+                                            result["mutation_status"] = "dispatched"
+                                            result["tracking_code"] = str(otp_tracking)
+                                            result["result"] = build_tracking_received_result(
+                                                str(otp_tracking),
+                                                document_id=document_id,
+                                                transport="mobile",
+                                            )
+                                            result["steps"].append(
+                                                {"step": "mobile_issue_by_otp_wakeup", "status": "success"}
+                                            )
+                                            await _finalize_shipping_start(str(otp_tracking), document_id)
+                                            return result
+
                                 found = await fetch_scoped_otp(
                                     redis, job_id=job_id, driver_phone=driver_phone, wait_start=otp_requested_at
                                 )
@@ -901,28 +939,53 @@ class WaybillAutomationBot:
                     logger.warning("Redis OTP lookup failed: %s", redis_exc)
 
                 if otp_code and document_id:
-                    logger.info("Submitting IssueDocumentByOtp for docId=%s", document_id)
-                    try:
-                        issue_res = await client.issue_document_by_otp(
-                            str(document_id), str(otp_code), allow_live_submit=True
-                        )
-                        otp_tracking = client.extract_tracking_code(issue_res) or (
-                            issue_res.get("obj", {}).get("docNo") if isinstance(issue_res.get("obj"), dict) else None
-                        )
-                        if otp_tracking:
-                            result["status"] = TaskStatus.SUCCESS.value
-                            result["mutation_status"] = "dispatched"
-                            result["tracking_code"] = str(otp_tracking)
-                            result["result"] = build_tracking_received_result(
-                                str(otp_tracking),
-                                document_id=document_id,
-                                transport="mobile",
+                    from app.automation.otp_keys import (
+                        consume_scoped_otp,
+                        release_otp_issue_lease,
+                        reserve_otp_issue_lease,
+                    )
+
+                    lease = await reserve_otp_issue_lease(redis, job_id, ttl_seconds=30) if (redis and job_id) else True
+                    if not lease:
+                        await asyncio.sleep(2)
+                        completed_raw = await redis.get(f"rpa:job:completed_otp:{job_id}") if redis else None
+                        if completed_raw:
+                            completed_info = json.loads(completed_raw)
+                            otp_tracking = completed_info.get("tracking_code")
+                            if otp_tracking:
+                                result["status"] = TaskStatus.SUCCESS.value
+                                result["tracking_code"] = str(otp_tracking)
+                                return result
+                    else:
+                        try:
+                            logger.info("Submitting IssueDocumentByOtp for docId=%s", document_id)
+                            issue_res = await client.issue_document_by_otp(
+                                str(document_id), str(otp_code), allow_live_submit=True
                             )
-                            result["steps"].append({"step": "mobile_issue_by_otp", "status": "success"})
-                            await _finalize_shipping_start(str(otp_tracking), document_id)
-                            return result
-                    except Exception as issue_exc:
-                        logger.warning("IssueDocumentByOtp call failed: %s", issue_exc)
+                            otp_tracking = client.extract_tracking_code(issue_res) or (
+                                issue_res.get("obj", {}).get("docNo")
+                                if isinstance(issue_res.get("obj"), dict)
+                                else None
+                            )
+                            if otp_tracking:
+                                result["status"] = TaskStatus.SUCCESS.value
+                                result["mutation_status"] = "dispatched"
+                                result["tracking_code"] = str(otp_tracking)
+                                result["result"] = build_tracking_received_result(
+                                    str(otp_tracking),
+                                    document_id=document_id,
+                                    transport="mobile",
+                                )
+                                result["steps"].append({"step": "mobile_issue_by_otp", "status": "success"})
+                                await _finalize_shipping_start(str(otp_tracking), document_id)
+                                if redis:
+                                    await consume_scoped_otp(redis, job_id=job_id, driver_phone=driver_phone)
+                                return result
+                        except Exception as issue_exc:
+                            logger.warning("IssueDocumentByOtp call failed: %s", issue_exc)
+                        finally:
+                            if redis and job_id:
+                                await release_otp_issue_lease(redis, job_id)
 
                 result.update(
                     status=TaskStatus.UNKNOWN.value,

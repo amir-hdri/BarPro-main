@@ -227,10 +227,26 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
                 if key in json_data and isinstance(json_data[key], (str, int)):
                     sender = str(json_data[key])
                     break
-            for key in ("driver_phone", "target", "phone", "phone_number"):
+            for key in (
+                "driver_phone",
+                "driver_mobile",
+                "target",
+                "target_phone",
+                "recipient",
+                "recipient_phone",
+                "sim_number",
+            ):
                 if key in json_data and isinstance(json_data[key], (str, int)):
                     phone = str(json_data[key])
                     break
+            if not phone:
+                for key in ("phone", "phone_number", "mobile"):
+                    if key in json_data and isinstance(json_data[key], (str, int)):
+                        val = str(json_data[key])
+                        clean_val = normalize_phone_for_otp_key(val)
+                        if re.fullmatch(r"09[0-9]{9}", clean_val) and val != sender:
+                            phone = val
+                            break
     except HTTPException:
         raise
     except Exception as exc:
@@ -249,7 +265,17 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
                 if key in form_data:
                     sender = str(form_data[key])
                     break
-            phone = str(form_data.get("driver_phone") or form_data.get("target") or "")
+            phone = str(
+                form_data.get("driver_phone")
+                or form_data.get("driver_mobile")
+                or form_data.get("target")
+                or form_data.get("target_phone")
+                or ""
+            )
+            if not phone:
+                form_phone = str(form_data.get("phone") or form_data.get("mobile") or "")
+                if re.fullmatch(r"09[0-9]{9}", normalize_phone_for_otp_key(form_phone)) and form_phone != sender:
+                    phone = form_phone
             timestamp = form_data.get("timestamp")
         except Exception as exc:
             logger.debug("otp_webhook_form_parse_failed", extra={"extra_fields": {"error": str(exc)}})
@@ -264,7 +290,17 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
             if key in request.query_params:
                 sender = request.query_params[key]
                 break
-        phone = request.query_params.get("driver_phone") or request.query_params.get("target") or ""
+        phone = (
+            request.query_params.get("driver_phone")
+            or request.query_params.get("driver_mobile")
+            or request.query_params.get("target")
+            or request.query_params.get("target_phone")
+            or ""
+        )
+        if not phone:
+            q_phone = request.query_params.get("phone") or request.query_params.get("mobile") or ""
+            if re.fullmatch(r"09[0-9]{9}", normalize_phone_for_otp_key(q_phone)) and q_phone != sender:
+                phone = q_phone
         timestamp = request.query_params.get("timestamp")
 
     # 4. Fallback to raw body text
@@ -292,6 +328,17 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
             "sender": sender,
             "content_length": len(content),
         }
+
+    if not phone:
+        # Fallback: if exactly one pending waybill job is awaiting OTP in the system, attribute to it.
+        try:
+            from app.services.otp_wakeup_consumer import resolve_single_flight_pending_phone
+
+            single_phone = await resolve_single_flight_pending_phone()
+            if single_phone:
+                phone = single_phone
+        except Exception as fallback_exc:
+            logger.debug("single_flight_attribution_attempt_failed: %s", fallback_exc)
 
     stored = await accept_forwarded_otp(
         code=otp_code,

@@ -64,12 +64,15 @@ async def fetch_scoped_otp(
                 continue
             otp_entry = json.loads(raw_data)
             recv_at = float(otp_entry.get("received_at", 0) or 0)
-            expires_at = float(otp_entry.get("expires_at", recv_at + 300))
+            ingested_at = float(otp_entry.get("ingested_at", 0) or 0)
+            # Use server ingestion timestamp if present to eliminate client clock skew
+            ref_time = ingested_at if ingested_at > 0 else recv_at
+            expires_at = float(otp_entry.get("expires_at", ref_time + 300))
         except Exception as redis_err:
             logger.warning("redis_otp_check_failed: %s", redis_err)
             continue
-        # Accept OTP if received within 15s before wait_start or during waiting
-        if recv_at < (wait_start - 15.0) or expires_at <= time.time() or recv_at > time.time() + 30:
+        # Accept OTP if ingested/received within 15s before wait_start or during waiting
+        if ref_time < (wait_start - 15.0) or expires_at <= time.time() or ref_time > time.time() + 30:
             continue
         candidate_code = str(otp_entry.get("code", "")).strip()
         if re.fullmatch(r"[0-9]{4,8}", candidate_code):
@@ -5463,6 +5466,13 @@ class EnhancedWaybillManager:
                 tracking_code = otp_state.get("tracking_code")
                 if not tracking_code and doc_id:
                     tracking_code = await self._fetch_tracking_code_by_document_id(doc_id)
+                if r:
+                    try:
+                        from app.automation.otp_keys import consume_scoped_otp
+
+                        await consume_scoped_otp(r, job_id=job_id, driver_phone=driver_phone)
+                    except Exception:
+                        pass
                 return {
                     "success": True,
                     "handled": True,
@@ -6932,9 +6942,7 @@ class EnhancedWaybillManager:
                 "submit_captcha_auto_solve_failed", extra={"extra_fields": {"mode": utcms_config.CAPTCHA_MODE}}
             )
             track_captcha_failure("auto_solve_failed", phase="submit", strategy="auto")
-            raise WaybillError(
-                "حل خودکار کپچای ثبت نهایی ناموفق بود. " "فایل مدل CNN یا کیفیت تصویر کپچا را بررسی کنید."
-            )
+            raise WaybillError("حل خودکار کپچای ثبت نهایی ناموفق بود. فایل مدل CNN یا کیفیت تصویر کپچا را بررسی کنید.")
 
         if utcms_config.HEADLESS:
             raise WaybillError("کپچا برای ثبت نهایی لازم است. در حالت HEADLESS مقدار UTCMS_CAPTCHA_VALUE تنظیم شود.")

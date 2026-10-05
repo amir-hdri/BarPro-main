@@ -29,6 +29,7 @@ end
 redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
 redis.call('SET', KEYS[2], '1', 'EX', ARGV[4])
 redis.call('PUBLISH', ARGV[5], ARGV[1])
+pcall(redis.call, 'XADD', 'rpa:otp:stream', 'MAXLEN', '~', 1000, '*', 'payload', ARGV[1], 'phone', KEYS[1], 'message_id', KEYS[2])
 return 1
 """
 
@@ -105,6 +106,14 @@ async def accept_forwarded_otp(
         raise HTTPException(status_code=503, detail="OTP storage unavailable; retry delivery") from exc
     if result == -1:
         raise HTTPException(status_code=409, detail="A newer OTP has already been received")
+
+    try:
+        from app.services.otp_wakeup_consumer import trigger_job_completion_on_otp_received
+
+        trigger_job_completion_on_otp_received(phone=phone, code=code)
+    except Exception:
+        pass
+
     return {
         "success": True,
         "status": "success",
