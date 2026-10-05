@@ -55,7 +55,20 @@ All notable changes to the UTCMS Automation System.
 - **Multi-channel driver phone attribution** (`app/api/routes/otp_forwarder.py`): incoming SMS
   can attribute the driver phone via path parameter (`/sms-forwarder/{driver_phone}`), query
   parameter (`?driver_phone=...`), custom header (`X-Driver-Phone`), or JSON body field,
-  simplifying setup for third-party Android forwarding apps.
+  simplifying setup for third-party Android forwarding apps. Form-data parsing preserves path-based
+  driver phone even when form data lacks phone fields.
+- **Stale pending job self-pruning** (`app/services/otp_wakeup_consumer.py`:
+  `resolve_single_flight_pending_phone`): automatically cleans up dead/expired members from Redis set
+  `rpa:otp:active_pending_jobs` when only one valid job retains a live `rpa:job:pending_doc` cache,
+  preventing phantom ambiguity false positives.
+- **Resilient state machine transition on OTP issue** (`app/services/waybill_job_service.py`):
+  `submit_otp` safely transitions jobs from `unknown` / `needs_review` through `reconciling` to
+  `success`, and `waiting_retry` / `retrying` through `in_progress` to `success`, preventing
+  `StateTransitionError` when completing jobs parked in review or retry states.
+- **Automated start-of-shipping lifecycle initiation on OTP issue** (`app/services/waybill_job_service.py`):
+  immediately upon issuing document via OTP, `submit_otp` invokes `init_shipping` and calls
+  `register_start_of_shipping` with origin coordinates and 2-point trace witness, queuing the trip
+  for automated destination arrival completion by Celery Beat.
 - **Celery periodic stream consumer task** (`app/workers/tasks.py`: `sweep_otp_stream`,
   `app/workers/celery_app.py`): scheduled every 5 seconds (`schedule(5.0)`) on `rpa_scheduler`
   (`RPA_SCHEDULER_QUEUE`) with 4-second expiry to drain and acknowledge Redis Stream events

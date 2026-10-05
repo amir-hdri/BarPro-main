@@ -48,26 +48,52 @@ async def resolve_single_flight_pending_phone() -> str | None:
         if redis and hasattr(redis, "smembers"):
             active_jobs = await redis.smembers(OTP_ACTIVE_PENDING_JOBS_SET)
             if active_jobs:
+                valid_live_jobs: list[tuple[str, str]] = []
+                stale_jobs: list[str] = []
+                for j_raw in active_jobs:
+                    j_id = j_raw.decode() if isinstance(j_raw, bytes) else str(j_raw)
+                    cached_raw = await redis.get(f"rpa:job:pending_doc:{j_id}")
+                    if cached_raw:
+                        try:
+                            data = json.loads(cached_raw)
+                            phone = normalize_phone_for_otp_key(data.get("driver_phone"))
+                            if re.fullmatch(r"09[0-9]{9}", phone):
+                                valid_live_jobs.append((j_id, phone))
+                            else:
+                                stale_jobs.append(j_id)
+                        except Exception:
+                            stale_jobs.append(j_id)
+                    else:
+                        stale_jobs.append(j_id)
+
+                if len(valid_live_jobs) > 1:
+                    for sj in stale_jobs:
+                        if hasattr(redis, "srem"):
+                            await redis.srem(OTP_ACTIVE_PENDING_JOBS_SET, sj)
+                    logger.warning(
+                        "single_flight_attribution_ambiguous_redis",
+                        extra={"extra_fields": {"count": len(valid_live_jobs)}},
+                    )
+                    return "AMBIGUOUS"
+
+                if len(valid_live_jobs) == 1:
+                    for sj in stale_jobs:
+                        if hasattr(redis, "srem"):
+                            await redis.srem(OTP_ACTIVE_PENDING_JOBS_SET, sj)
+                    single_job_id, phone = valid_live_jobs[0]
+                    logger.info(
+                        "single_flight_attribution_resolved_from_redis",
+                        extra={"extra_fields": {"job_id": single_job_id, "phone": phone}},
+                    )
+                    return phone
+
+                # If no jobs had pending_doc cached (e.g. synthetic unit tests)
                 if len(active_jobs) > 1:
                     logger.warning(
                         "single_flight_attribution_ambiguous_redis",
                         extra={"extra_fields": {"count": len(active_jobs)}},
                     )
                     return "AMBIGUOUS"
-                if len(active_jobs) == 1:
-                    single_job_id = list(active_jobs)[0]
-                    if isinstance(single_job_id, bytes):
-                        single_job_id = single_job_id.decode()
-                    cached_raw = await redis.get(f"rpa:job:pending_doc:{single_job_id}")
-                    if cached_raw:
-                        data = json.loads(cached_raw)
-                        phone = normalize_phone_for_otp_key(data.get("driver_phone"))
-                        if re.fullmatch(r"09[0-9]{9}", phone):
-                            logger.info(
-                                "single_flight_attribution_resolved_from_redis",
-                                extra={"extra_fields": {"job_id": single_job_id, "phone": phone}},
-                            )
-                            return phone
     except Exception as exc:
         logger.warning("single_flight_redis_check_failed: %s", exc)
 

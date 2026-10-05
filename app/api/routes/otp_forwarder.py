@@ -272,17 +272,18 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
                 if key in form_data:
                     sender = str(form_data[key])
                     break
-            phone = str(
-                form_data.get("driver_phone")
-                or form_data.get("driver_mobile")
-                or form_data.get("target")
-                or form_data.get("target_phone")
-                or ""
-            )
             if not phone:
-                form_phone = str(form_data.get("phone") or form_data.get("mobile") or "")
-                if re.fullmatch(r"09[0-9]{9}", normalize_phone_for_otp_key(form_phone)) and form_phone != sender:
-                    phone = form_phone
+                phone = str(
+                    form_data.get("driver_phone")
+                    or form_data.get("driver_mobile")
+                    or form_data.get("target")
+                    or form_data.get("target_phone")
+                    or ""
+                )
+                if not phone:
+                    form_phone = str(form_data.get("phone") or form_data.get("mobile") or "")
+                    if re.fullmatch(r"09[0-9]{9}", normalize_phone_for_otp_key(form_phone)) and form_phone != sender:
+                        phone = form_phone
             timestamp = form_data.get("timestamp")
         except Exception as exc:
             logger.debug("otp_webhook_form_parse_failed", extra={"extra_fields": {"error": str(exc)}})
@@ -297,17 +298,18 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
             if key in request.query_params:
                 sender = request.query_params[key]
                 break
-        phone = (
-            request.query_params.get("driver_phone")
-            or request.query_params.get("driver_mobile")
-            or request.query_params.get("target")
-            or request.query_params.get("target_phone")
-            or ""
-        )
         if not phone:
-            q_phone = request.query_params.get("phone") or request.query_params.get("mobile") or ""
-            if re.fullmatch(r"09[0-9]{9}", normalize_phone_for_otp_key(q_phone)) and q_phone != sender:
-                phone = q_phone
+            phone = (
+                request.query_params.get("driver_phone")
+                or request.query_params.get("driver_mobile")
+                or request.query_params.get("target")
+                or request.query_params.get("target_phone")
+                or ""
+            )
+            if not phone:
+                q_phone = request.query_params.get("phone") or request.query_params.get("mobile") or ""
+                if re.fullmatch(r"09[0-9]{9}", normalize_phone_for_otp_key(q_phone)) and q_phone != sender:
+                    phone = q_phone
         timestamp = request.query_params.get("timestamp")
 
     # 4. Fallback to raw body text

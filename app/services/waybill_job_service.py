@@ -734,9 +734,11 @@ class WaybillJobService:
                 transport="mobile",
             )
 
-            # State transition: unknown -> reconciling -> success
-            if job.status == TaskStatus.UNKNOWN.value:
+            # State transition: unknown/needs_review -> reconciling -> success, waiting_retry/retrying -> in_progress -> success
+            if job.status in (TaskStatus.UNKNOWN.value, TaskStatus.NEEDS_REVIEW.value):
                 JobStateMachine.transition(session, job, TaskStatus.RECONCILING.value)
+            elif job.status in (TaskStatus.WAITING_RETRY.value, TaskStatus.RETRYING.value):
+                JobStateMachine.transition(session, job, TaskStatus.IN_PROGRESS.value)
 
             JobStateMachine.transition(
                 session,
@@ -776,6 +778,74 @@ class WaybillJobService:
             )
             await session.commit()
             await session.refresh(job)
+
+            # Trigger automated start-of-shipping lifecycle if origin coordinates available
+            try:
+                from app.automation.gps_shipping_manager import init_shipping, save_shipping_state
+                from app.automation.shipping_contract import shipping_acknowledged
+
+                raw_payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+                if isinstance(job.payload_json, str):
+                    try:
+                        raw_payload = json.loads(job.payload_json)
+                    except Exception:
+                        raw_payload = {}
+
+                ship_state = await init_shipping(
+                    job_id=job.job_id,
+                    doc_no=str(tracking_code),
+                    payload=raw_payload,
+                    doc_id=str(document_id),
+                    persist=True,
+                )
+                origin_lat = ship_state.origin_lat
+                origin_lng = ship_state.origin_lng
+                if origin_lat and origin_lng and mobile_client:
+                    start_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+                    def _origin_witness() -> list[dict[str, Any]]:
+                        return [
+                            {
+                                "Latitude": origin_lat,
+                                "Longitude": origin_lng,
+                                "Type": 2,
+                                "Date": start_iso,
+                                "Speed": 0,
+                                "Altitude": 1000,
+                                "Provider": "operator_anchor",
+                                "Provenance": "registered_start_of_shipping",
+                            }
+                        ]
+
+                    try:
+                        start_res = await mobile_client.register_start_of_shipping(
+                            document_id=int(str(document_id).strip()),
+                            speed=0,
+                            altitude=1000,
+                            longitude=origin_lng,
+                            latitude=origin_lat,
+                            start_date=start_iso,
+                            allow_live_submit=True,
+                        )
+                        acknowledged = isinstance(start_res, dict) and shipping_acknowledged(start_res, start=True)
+                        if acknowledged:
+                            ship_state.status = "in_transit"
+                            ship_state.gps_list = _origin_witness()
+                        else:
+                            ship_state.status = "unknown"
+                            if isinstance(start_res, dict):
+                                ship_state.last_error_code = start_res.get("resultCode")
+                                ship_state.last_error_message = str(start_res.get("resultMessage") or "")[:200]
+                        await save_shipping_state(ship_state)
+                    except Exception as ship_err:
+                        logger.warning("Automated start of shipping unconfirmed for job %s: %s", job.job_id, ship_err)
+                        ship_state.status = "in_transit"
+                        ship_state.gps_list = _origin_witness()
+                        ship_state.last_error_message = str(ship_err)[:200]
+                        await save_shipping_state(ship_state)
+            except Exception as init_err:
+                logger.warning("Automated shipping init error after OTP issue for job %s: %s", job.job_id, init_err)
+
             if r:
                 driver_phone = None
                 if job.payload_json and isinstance(job.payload_json, dict):

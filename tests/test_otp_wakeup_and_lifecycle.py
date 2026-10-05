@@ -609,3 +609,115 @@ async def test_submit_otp_uses_worker_proxy():
         assert res.status == TaskStatus.SUCCESS.value
         assert captured_kwargs.get("proxy_url") == "http://squid-proxy:3128"
         assert captured_kwargs.get("token") == "test-token"
+
+
+@pytest.mark.asyncio
+async def test_single_flight_attribution_prunes_stale_jobs():
+    """Verify single-flight attribution automatically prunes expired/stale jobs from Redis set."""
+    fake_redis = MemoryRedis()
+    live_phone = "09129876543"
+    await fake_redis.sadd(OTP_ACTIVE_PENDING_JOBS_SET, "job_stale", "job_live")
+    # Only job_live has active pending session
+    fake_redis.store["rpa:job:pending_doc:job_live"] = json.dumps({"driver_phone": live_phone, "doc_id": "887766"})
+
+    with patch("app.services.otp_wakeup_consumer.redis_manager.get", AsyncMock(return_value=fake_redis)):
+        resolved = await resolve_single_flight_pending_phone()
+        assert resolved == live_phone
+        active_set = await fake_redis.smembers(OTP_ACTIVE_PENDING_JOBS_SET)
+        assert "job_stale" not in active_set
+        assert "job_live" in active_set
+
+
+@pytest.mark.asyncio
+async def test_submit_otp_succeeds_from_needs_review_status():
+    """Verify submit_otp transitions legally from needs_review -> reconciling -> success."""
+    from app.services.waybill_job_service import WaybillJobService
+
+    fake_redis = MemoryRedis()
+    job_id = "job-needs-review-1"
+    session_data = {
+        "doc_id": "776655",
+        "token": "tok-review",
+        "username": "driver2",
+        "job_id": job_id,
+        "driver_phone": "09125556677",
+    }
+    fake_redis.store[f"rpa:job:pending_doc:{job_id}"] = json.dumps(session_data)
+
+    mock_job = WaybillJob(
+        id=2,
+        job_id=job_id,
+        client_id=1,
+        driver_national_code="0098765432",
+        status=TaskStatus.NEEDS_REVIEW.value,
+        result_json={"document_id": "776655"},
+        payload_json={"vehicle": {"driver_mobile": "09125556677"}},
+        created_at=datetime.now(UTC).replace(tzinfo=None),
+        updated_at=datetime.now(UTC).replace(tzinfo=None),
+    )
+
+    mock_db = MagicMock()
+    mock_db.exec = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=mock_job)))
+    mock_db.commit = AsyncMock()
+    mock_db.refresh = AsyncMock()
+    mock_db.add = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.token = "tok-review"
+    mock_client.issue_document_by_otp = AsyncMock(return_value={"obj": {"docNo": "1359990000"}})
+    mock_client.extract_tracking_code = MagicMock(return_value="1359990000")
+    mock_client.register_start_of_shipping = AsyncMock(return_value={"resultCode": 200})
+
+    with (
+        patch("app.core.redis_client.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://squid-proxy:3128"),
+        patch("app.automation.utcms_mobile_client.UtcmsMobileClient", return_value=mock_client),
+    ):
+        res = await WaybillJobService.submit_otp(
+            user_context={"role": "master_admin"},
+            job_id=job_id,
+            session=mock_db,
+            otp_code="54321",
+        )
+        assert res.status == TaskStatus.SUCCESS.value
+        assert mock_job.status == TaskStatus.SUCCESS.value
+
+
+@pytest.mark.asyncio
+async def test_webhook_preserves_path_phone_with_form_body():
+    """Verify webhook retains path driver phone even when form data has no phone field."""
+    from app.api.routes import otp_forwarder
+    from app.core.config import utcms_config
+
+    fake_redis = MemoryRedis()
+    app = FastAPI()
+    app.include_router(otp_forwarder.router)
+    secret = "a-very-long-and-secure-test-secret-32-chars-minimum"
+    path_phone = "09121112233"
+
+    with (
+        patch("app.api.routes.otp_forwarder.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch("app.services.otp_wakeup_consumer.redis_manager.get", AsyncMock(return_value=fake_redis)),
+        patch.object(utcms_config, "OTP_WEBHOOK_SECRET", secret),
+        patch("app.api.routes.otp_forwarder.accept_forwarded_otp", new_callable=AsyncMock) as mock_accept,
+    ):
+        mock_accept.return_value = {
+            "status": "accepted",
+            "code": "8877",
+            "phone": path_phone,
+            "sender": "20001111",
+            "message_id": "msg-123",
+            "deduplicated": False,
+        }
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                f"/api/v1/otp/sms-forwarder/{path_phone}",
+                data={"text": "کد تایید: 8877", "from": "20001111"},
+                headers={"X-OTP-Webhook-Token": secret},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "accepted"
+            mock_accept.assert_called_once()
+            call_kwargs = mock_accept.call_args.kwargs
+            assert call_kwargs.get("phone") == path_phone

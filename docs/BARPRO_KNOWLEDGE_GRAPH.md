@@ -25,8 +25,10 @@
 - CODE-VERIFIED: انتساب چندکاناله شماره راننده در وب‌هوک (`app/api/routes/otp_forwarder.py`): پشتیبانی همزمان از مسیر URL (`/sms-forwarder/{driver_phone}`)، پارامتر پرس‌وجو (`?driver_phone=...`)، هدر HTTP (`X-Driver-Phone`) و بدنه JSON، جهت تسهیل بی‌نقص کانفیگ در انواع اپ‌های فورواردر اندروید (`test_path_based_driver_phone_webhook`, `test_query_param_driver_phone_webhook`, `test_header_driver_phone_webhook`).
 - CODE-VERIFIED: تسک دوره‌ای سلری `barpro.otp.sweep_stream` در `app/workers/celery_app.py` و `tasks.py` با زمان‌بندی هر ۵ ثانیه (`schedule(5.0)`) بر روی صف `rpa_scheduler` (`RPA_SCHEDULER_QUEUE`) با انقضای ۴ ثانیه، جهت تخلیه و تایید مداوم رویدادهای جریان ردیس بدون ایجاد تأخیر در صف‌های کاری (`test_sweep_otp_stream_celery_task`).
 - CODE-VERIFIED: فیلد `allow_otp_flow: bool = Field(default=True)` در اسکیمای `WaybillJobCreate` و `WaybillBatchItemCreate` (`app/schemas/multitenant.py`) جهت فعال‌سازی پیش‌فرض جریان OTP برای بیدارسازی خودکار بارنامه‌های شبانه.
+- CODE-VERIFIED: پاکسازی خودکار بارهای منقضی از مجموعه ردیس (`rpa:otp:active_pending_jobs` در `resolve_single_flight_pending_phone`) و ممانعت از بازنویسی شماره تلفن مسیر در ورودی فرم، خطاهای کاذب ابهام فانتوم را ریشه‌کن کرد (`test_single_flight_attribution_prunes_stale_jobs`, `test_webhook_preserves_path_phone_with_form_body`).
+- CODE-VERIFIED: ماشین حالت صدور با OTP (`WaybillJobService.submit_otp`) جهت پشتیبانی ایمن از وضعیت‌های معلق `needs_review` و `unknown` (از مسیر میانی `reconciling`) و همچنین `waiting_retry` (از مسیر `in_progress`) ارتقا یافت و بلافاصله پس از صدور، چرخه حمل GPS خودکار (`init_shipping` + `register_start_of_shipping`) را فعال می‌نماید (`test_submit_otp_succeeds_from_needs_review_status`).
 - CODE-VERIFIED: ابزار شبیه‌ساز فورواردر پیامک `scripts/sms_forwarder_simulator.py` برای ارسال وب‌هوک‌های تستی استاندارد و گیت‌وی امضاشده HMAC بدون وابستگی به سخت‌افزار فیزیکی موبایل.
-- TEST-VERIFIED: ۸۴ تست مرتبط در `tests/test_otp_wakeup_and_lifecycle.py`، `tests/test_otp_delivery_contract.py`، `tests/test_otp_forwarder.py` و پکیج‌های متصل با موفقیت کامل پاس شدند (آزمون E2E کامل HTTP تا تغییر وضعیت دیتابیس).
+- TEST-VERIFIED: تمامی ۸۹ تست زنجیره OTP و ایزولاسیون مستاجران (`tests/test_otp*` و `tests/test_tenant*`) به همراه ۲۹۰ تست هسته بارنامه و حمل با موفقیت کامل (۱۰۰٪ سبز) پاس شدند.
 
 ## OTP پایدار + fence چرخه حمل — 2026-10-04 (CODE-VERIFIED)
 
