@@ -49,12 +49,28 @@ def _require_webhook_auth(request: Request) -> None:
 
     Fail-closed: if ``OTP_WEBHOOK_SECRET`` is not configured the endpoint
     refuses every request instead of accepting unauthenticated OTP injections.
+    Supports token via X-OTP-Webhook-Token, X-Webhook-Token, X-Webhook-Secret,
+    Authorization Bearer, or query parameter (for Android clients).
     """
     secret = (getattr(utcms_config, "OTP_WEBHOOK_SECRET", "") or "").strip()
     if not secret:
         logger.error("otp_webhook_rejected: OTP_WEBHOOK_SECRET is not configured")
         raise HTTPException(status_code=503, detail="OTP webhook is not configured")
-    token = request.headers.get(WEBHOOK_TOKEN_HEADER, "")
+    token = (
+        request.headers.get(WEBHOOK_TOKEN_HEADER, "")
+        or request.headers.get("X-Webhook-Token", "")
+        or request.headers.get("X-Webhook-Secret", "")
+    )
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+    if not token and hasattr(request, "scope") and "query_string" in request.scope:
+        try:
+            token = request.query_params.get("token", "") or request.query_params.get("secret", "")
+        except Exception:
+            token = ""
+
     if not token or not hmac.compare_digest(token.encode(), secret.encode()):
         logger.warning("otp_webhook_rejected: invalid or missing webhook token")
         raise HTTPException(status_code=401, detail="Invalid webhook token")
@@ -79,7 +95,7 @@ def extract_otp_code(text: str) -> str | None:
     if any(phrase in clean for phrase in ("رمز دوم", "کد تخفیف", "برداشت از حساب", "خرید اینترنتی")):
         return None
     keyword = (
-        r"کد\s*(?:تایید|تأیید|ورود|فعالسازی|فعال\s*سازی|احراز|اعتبار|یک\s*بار\s*مصرف|یکبار\s*مصرف|امنیتی|مجوز|صدور)"
+        r"کد\s*(?:تایید|تأیید|ورود|فعالسازی|فعال\s*سازی|احراز|اعتبار|یک\s*بار\s*مصرف|یکبار\s*مصرف|امنیتی|مجوز|صدور|ثبت)"
         r"|رمز\s*(?:یک\s*بار\s*مصرف|یکبار\s*مصرف|ورود|موقت|اعتبار|تایید|تأیید)"
         r"|(?:verification|security|login|auth)\s*(?:otp\s*)?code|otp(?:\s*code)?"
     )
@@ -224,13 +240,29 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
                 return {"success": True, "status": "ready", "protocol": "barpro-otp-v1"}
             if event != "SMS_RECEIVED" or json_data.get("encrypted") is True:
                 raise HTTPException(status_code=422, detail="Unsupported OTP event or encrypted envelope")
-            timestamp = json_data.get("timestamp")
+            timestamp = (
+                json_data.get("timestamp")
+                or json_data.get("time")
+                or json_data.get("date")
+                or json_data.get("sms_date")
+                or json_data.get("sms_timestamp")
+            )
             # Check various possible field names used by forwarders
-            for key in ("content", "text", "msg", "message", "body", "sms", "data"):
+            for key in ("content", "text", "msg", "message", "body", "sms", "data", "smsBody", "messageBody"):
                 if key in json_data and isinstance(json_data[key], str):
                     content = json_data[key]
                     break
-            for key in ("from", "sender", "phone", "mobile", "origin", "address"):
+            for key in (
+                "from",
+                "sender",
+                "phone",
+                "mobile",
+                "origin",
+                "address",
+                "address_from",
+                "phoneNumber",
+                "caller",
+            ):
                 if key in json_data and isinstance(json_data[key], (str, int)):
                     sender = str(json_data[key])
                     break
@@ -242,6 +274,10 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
                 "recipient",
                 "recipient_phone",
                 "sim_number",
+                "receiver",
+                "receiver_phone",
+                "my_phone",
+                "self_phone",
             ):
                 if key in json_data and isinstance(json_data[key], (str, int)):
                     phone = str(json_data[key])
@@ -264,27 +300,51 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
     if not content:
         try:
             form_data = await request.form()
-            for key in ("content", "text", "msg", "message", "body", "sms"):
+            for key in ("content", "text", "msg", "message", "body", "sms", "smsBody", "messageBody"):
                 if key in form_data:
                     content = str(form_data[key])
                     break
-            for key in ("from", "sender", "phone", "mobile", "origin"):
+            for key in (
+                "from",
+                "sender",
+                "phone",
+                "mobile",
+                "origin",
+                "address",
+                "address_from",
+                "phoneNumber",
+                "caller",
+            ):
                 if key in form_data:
                     sender = str(form_data[key])
                     break
             if not phone:
-                phone = str(
-                    form_data.get("driver_phone")
-                    or form_data.get("driver_mobile")
-                    or form_data.get("target")
-                    or form_data.get("target_phone")
-                    or ""
-                )
+                for key in (
+                    "driver_phone",
+                    "driver_mobile",
+                    "target",
+                    "target_phone",
+                    "recipient",
+                    "recipient_phone",
+                    "sim_number",
+                    "receiver",
+                    "receiver_phone",
+                    "my_phone",
+                    "self_phone",
+                ):
+                    if key in form_data:
+                        phone = str(form_data[key])
+                        break
                 if not phone:
                     form_phone = str(form_data.get("phone") or form_data.get("mobile") or "")
                     if re.fullmatch(r"09[0-9]{9}", normalize_phone_for_otp_key(form_phone)) and form_phone != sender:
                         phone = form_phone
-            timestamp = form_data.get("timestamp")
+            timestamp = (
+                form_data.get("timestamp")
+                or form_data.get("time")
+                or form_data.get("date")
+                or form_data.get("sms_date")
+            )
         except Exception as exc:
             logger.debug("otp_webhook_form_parse_failed", extra={"extra_fields": {"error": str(exc)}})
 
@@ -456,6 +516,19 @@ async def submit_manual_otp(
         if r:
             payload_json = json.dumps(stored, ensure_ascii=False)
             await r.set(otp_job_key(req.job_id), payload_json, ex=DEFAULT_OTP_TTL)
+        try:
+            from app.services.otp_wakeup_consumer import trigger_job_completion_on_otp_received
+
+            trigger_job_completion_on_otp_received(phone=req.phone, code=code, job_id=req.job_id)
+        except Exception as trigger_err:
+            logger.debug("manual_otp_wakeup_trigger_failed: %s", trigger_err)
+    elif req.phone:
+        try:
+            from app.services.otp_wakeup_consumer import trigger_job_completion_on_otp_received
+
+            trigger_job_completion_on_otp_received(phone=req.phone, code=code)
+        except Exception as trigger_err:
+            logger.debug("manual_otp_wakeup_trigger_failed: %s", trigger_err)
 
     logger.info(
         "manual_otp_submitted",
@@ -467,6 +540,34 @@ async def submit_manual_otp(
         "message": "Manual OTP received and stored in Redis",
         "job_id": req.job_id,
         "received_at": stored.get("received_at"),
+    }
+
+
+@router.get("/ping", summary="Quick connectivity heartbeat for Android forwarders")
+async def ping_otp_service() -> dict[str, Any]:
+    """Lightweight ping endpoint allowing Android forwarders to verify connectivity."""
+    return {
+        "status": "ok",
+        "service": "barpro-otp-forwarder",
+        "timestamp": time.time(),
+    }
+
+
+@router.get("/health", summary="Health check for OTP intake and storage")
+async def health_otp_service(request: Request) -> dict[str, Any]:
+    """Check OTP service readiness and Redis storage connectivity."""
+    redis_ok = False
+    try:
+        redis = await redis_manager.get()
+        if redis and hasattr(redis, "ping"):
+            redis_ok = bool(await redis.ping())
+    except Exception:
+        redis_ok = False
+    return {
+        "status": "healthy" if redis_ok else "degraded",
+        "redis_connected": redis_ok,
+        "protocol": "barpro-otp-v1",
+        "timestamp": time.time(),
     }
 
 

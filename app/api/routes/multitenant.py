@@ -622,6 +622,7 @@ async def requeue_waybill_job(
 
 
 @router.post("/waybill-jobs/{job_id}/submit-otp", response_model=WaybillJobResponse)
+@router.post("/waybill-jobs/{job_id}/otp", response_model=WaybillJobResponse)
 async def submit_waybill_job_otp(
     job_id: str,
     request: WaybillSubmitOtpRequest,

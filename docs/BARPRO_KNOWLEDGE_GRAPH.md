@@ -12,6 +12,18 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## سازگاری جامع فورواردر اندروید، دیکود منعطف JSON و فالبک کد ملی راننده — 2026-10-06 (CODE-VERIFIED)
+
+- CODE-VERIFIED: تابع هلپر `_safe_json_dict` در `app/services/otp_wakeup_consumer.py` به منظور پارس امن فیلدهای `result_json` و `payload_json`، چه در قالب `dict` و چه در قالب رشته متنی JSON (`str`) پیاده‌سازی شد؛ این قابلیت از ارزیابی تهی دیکشنری در شرایط ناسازگاری درایورهای پایگاه‌داده جلوگیری می‌نماید (`test_safe_json_dict`).
+- CODE-VERIFIED: پشتیبانی از تکمیل مستقیم بارنامه با شناسه `job_id` در `resolve_and_complete_pending_job_for_otp`؛ در صورتی که رویداد استریم ردیس یا ثبت دستی دارای `job_id` باشد، بارنامه مستقیماً و بدون وابستگی انحصاری به شماره تلفن راننده تکمیل و صادر می‌شود (`test_resolve_and_complete_by_job_id_direct`).
+- CODE-VERIFIED: فالبک جستجوی راننده از روی کد ملی و شماره موبایل پی‌لود در `WaybillJobService.submit_otp`. در صورتی که `job.driver_id` مقداردهی نشده باشد اما در پی‌لود بارنامه اطلاعات راننده موجود باشد، سیستم راننده متناظر مستاجر را در پایگاه‌داده یافته و پیوند می‌دهد (`test_driver_fallback_by_national_code_in_submit_otp`).
+- CODE-VERIFIED: احراز هویت چندگانه وب‌هوک برای کلاینت‌های اندروید در `_require_webhook_auth` (`otp_forwarder.py`): پشتیبانی از هدرهای `Authorization: Bearer <token>`، `X-Webhook-Token`، `X-Webhook-Secret` و پارامتر پرس‌وجو `?token=<secret>` علاوه بر هدر اصلی `X-OTP-Webhook-Token` (`test_webhook_auth_via_bearer_and_query_token`).
+- CODE-VERIFIED: توسعه مپینگ فیلدهای اپلیکیشن‌های فورواردر اندروید (`receive_sms_forwarder_webhook` در `otp_forwarder.py`): پشتیبانی از کلیدهای `smsBody`، `messageBody`، `address_from`، `phoneNumber`، `receiver`، `receiver_phone`، `time`، `date` و گسترش کلیدواژه‌های استخراج کد به «کد ثبت» (`test_forwarder_android_field_aliases`).
+- CODE-VERIFIED: اندپوینت‌های تست ارتباط و سلامت فورواردر `GET /api/v1/otp/ping` و `GET /api/v1/otp/health` برای اعتبارسنجی اتصال شبکه اپلیکیشن‌های اندروید پیش از ارسال پیامک (`test_otp_ping_and_health_endpoints`).
+- CODE-VERIFIED: آلیاس روت صدور بارنامه `@router.post("/waybill-jobs/{job_id}/otp")` در کنار روت موجود `/submit-otp` (`app/api/routes/multitenant.py`) جهت تضمین سازگاری با کلیه کلاینت‌ها (`test_waybill_job_otp_route_alias`).
+- CODE-VERIFIED: بیدارسازی و صدور فوری در ثبت دستی کد (`submit_manual_otp` در `otp_forwarder.py`): اتصال مستقیم به `trigger_job_completion_on_otp_received` جهت تسریع در فرآیند صدور بارهای معلق در اپراتوری دستی (`test_manual_otp_submission_triggers_wakeup`).
+- TEST-VERIFIED: تمامی ۹۸ تست زنجیره OTP و ایزولاسیون مستاجران (`tests/test_otp*` و `tests/test_tenant*`) با موفقیت ۱۰۰٪ سبز پاس شدند.
+
 ## چرخه کامل OTP، انتساب تک‌پرواز، بیدارسازی رویدادمحور و قفل اجاره (Lease) — 2026-10-05 (CODE-VERIFIED)
 
 - CODE-VERIFIED: سرویس مصرف‌کننده رویدادمحور `app/services/otp_wakeup_consumer.py` متصل به جریان پایدار Redis Streams (`rpa:otp:stream`) با گروه مشتریان `barpro_otp_group` و تایید اتمیک `XACK`. تابع `resolve_and_complete_pending_job_for_otp` بلافاصله پس از دریافت کد، اسناد معلق در وضعیت `WAITING_OTP` یا `UNKNOWN (otp_required)` را شناسایی کرده و صدور قطعی را انجام می‌دهد؛ بحران پیامک دیررس ثانیه ۱۲۵ (Late SMS Race Condition) پس از تایم‌اوت کارگر به طور قطعی حل شد (`test_late_sms_125_second_auto_completion`).

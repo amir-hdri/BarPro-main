@@ -4,7 +4,28 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
-### 2026-10-05 — Registration proof: two witnesses + batched confirmation
+### 2026-10-06 — Universal Android forwarder compatibility, resilient JSON decoding & driver national code fallback
+
+#### Added
+- **Resilient JSON parsing helper** (`app/services/otp_wakeup_consumer.py`: `_safe_json_dict`):
+  safely handles both Python dicts and JSON strings in `result_json` and `payload_json`, preventing
+  empty-dict fallback when database drivers or older jobs return stringified payloads.
+- **Direct job completion by ID** (`app/services/otp_wakeup_consumer.py`: `resolve_and_complete_pending_job_for_otp`):
+  accepts an explicit `job_id` parameter to complete pending jobs directly without relying solely on phone matching.
+- **Driver national code fallback** (`app/services/waybill_job_service.py`: `submit_otp`):
+  when `job.driver_id` is null, automatically resolves and sets the tenant's driver via `driver_national_code`
+  or `phone` from `payload_json`, eliminating false 400 errors.
+- **Universal Android forwarder field & auth mapping** (`app/api/routes/otp_forwarder.py`):
+  accepts webhook authentication via `Authorization: Bearer <token>`, `X-Webhook-Token`, `X-Webhook-Secret`,
+  or query parameter `?token=<secret>`. Broadened payload mapping to recognize `smsBody`, `messageBody`,
+  `address_from`, `phoneNumber`, `receiver`, `receiver_phone`, `time`, `date`, and «کد ثبت بارنامه».
+- **Forwarder connectivity probes** (`app/api/routes/otp_forwarder.py`):
+  added lightweight `GET /api/v1/otp/ping` and `GET /api/v1/otp/health` endpoints for Android forwarder apps
+  to verify network routing and service readiness.
+- **Waybill OTP route alias** (`app/api/routes/multitenant.py`):
+  added `@router.post("/waybill-jobs/{job_id}/otp")` as an alias to `/submit-otp`.
+- **Manual OTP auto-completion** (`app/api/routes/otp_forwarder.py`: `submit_manual_otp`):
+  triggers background job auto-completion when manual OTP is submitted with `job_id` or `phone`.
 
 #### Changed
 - **Registration proof reduced to two witnesses** (`AGENTS.md` §2, `CRITICAL_RULES.md` §0,

@@ -675,8 +675,49 @@ class WaybillJobService:
                     except Exception:
                         logger.debug("cached_otp_token_parse_failed", exc_info=True)
 
+            driver = None
             if not mobile_client or not mobile_client.token:
                 driver = await session.get(Driver, job.driver_id) if job.driver_id else None
+                if not driver:
+                    # Fallback: attempt to find driver by national code or phone in payload
+                    p = job.payload_json if isinstance(job.payload_json, dict) else {}
+                    if isinstance(job.payload_json, str):
+                        try:
+                            p = json.loads(job.payload_json)
+                        except Exception:
+                            p = {}
+                    nat_code = (
+                        p.get("driver_national_code")
+                        or (p.get("driver", {}).get("national_code") if isinstance(p.get("driver"), dict) else None)
+                        or (
+                            p.get("vehicle", {}).get("driver_national_code")
+                            if isinstance(p.get("vehicle"), dict)
+                            else None
+                        )
+                    )
+                    phone = (
+                        p.get("driver_phone")
+                        or (p.get("driver", {}).get("phone") if isinstance(p.get("driver"), dict) else None)
+                        or (p.get("vehicle", {}).get("driver_mobile") if isinstance(p.get("vehicle"), dict) else None)
+                    )
+                    if nat_code:
+                        stmt = select(Driver).where(Driver.driver_national_code == str(nat_code))
+                        if getattr(job, "client_id", None):
+                            stmt = stmt.where(Driver.client_id == job.client_id)
+                        driver = (await session.exec(stmt)).first()
+                    if not driver and phone:
+                        from app.automation.otp_keys import normalize_phone_for_otp_key
+
+                        clean_p = normalize_phone_for_otp_key(phone)
+                        stmt = select(Driver).where(Driver.phone == str(clean_p))
+                        if getattr(job, "client_id", None):
+                            stmt = stmt.where(Driver.client_id == job.client_id)
+                        driver = (await session.exec(stmt)).first()
+
+                    if driver and not job.driver_id:
+                        job.driver_id = driver.id
+                        session.add(job)
+
                 if not driver:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -848,8 +889,19 @@ class WaybillJobService:
 
             if r:
                 driver_phone = None
-                if job.payload_json and isinstance(job.payload_json, dict):
-                    driver_phone = job.payload_json.get("vehicle", {}).get("driver_mobile")
+                p_dict = job.payload_json if isinstance(job.payload_json, dict) else {}
+                if isinstance(job.payload_json, str):
+                    try:
+                        p_dict = json.loads(job.payload_json)
+                    except Exception:
+                        p_dict = {}
+                driver_phone = (
+                    p_dict.get("vehicle", {}).get("driver_mobile")
+                    or (p_dict.get("driver", {}).get("phone") if isinstance(p_dict.get("driver"), dict) else None)
+                    or p_dict.get("driver_phone")
+                )
+                if not driver_phone and driver:
+                    driver_phone = driver.phone
                 await consume_scoped_otp(r, job_id=job.job_id, driver_phone=driver_phone)
             return WaybillJobResponse.model_validate(job)
         finally:

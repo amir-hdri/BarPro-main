@@ -27,11 +27,29 @@ OTP_STREAM_KEY = "rpa:otp:stream"
 OTP_STREAM_GROUP = "barpro_otp_group"
 
 
-def trigger_job_completion_on_otp_received(phone: str, code: str) -> None:
-    """Non-blocking background launcher when an OTP is accepted by the webhook."""
+def _safe_json_dict(val: Any) -> dict[str, Any]:
+    """Safely decode JSON string or return dict; returns empty dict on any failure."""
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
+
+
+def trigger_job_completion_on_otp_received(
+    phone: str | None = None,
+    code: str = "",
+    job_id: str | None = None,
+) -> None:
+    """Non-blocking background launcher when an OTP is accepted by the webhook or manual intake."""
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(resolve_and_complete_pending_job_for_otp(phone=phone, code=code))
+        loop.create_task(resolve_and_complete_pending_job_for_otp(phone=phone, code=code, job_id=job_id))
     except RuntimeError:
         # No running event loop (e.g. called from synchronous context or during test teardown)
         pass
@@ -108,6 +126,8 @@ async def resolve_single_flight_pending_phone() -> str | None:
                         TaskStatus.NEEDS_REVIEW.value,
                         TaskStatus.RECONCILING.value,
                         TaskStatus.PENDING.value,
+                        TaskStatus.WAITING_RETRY.value,
+                        TaskStatus.RETRYING.value,
                     ]
                 ),
                 col(WaybillJob.updated_at) >= cutoff,
@@ -115,7 +135,7 @@ async def resolve_single_flight_pending_phone() -> str | None:
             candidates = (await session.exec(statement)).all()
             otp_candidates = []
             for j in candidates:
-                res_dict = j.result_json if isinstance(j.result_json, dict) else {}
+                res_dict = _safe_json_dict(j.result_json)
                 has_doc = bool(res_dict.get("document_id") or (j.last_error and "شناسه" in j.last_error))
                 if has_doc or j.error_category == "otp_required":
                     otp_candidates.append(j)
@@ -129,8 +149,14 @@ async def resolve_single_flight_pending_phone() -> str | None:
 
             if len(otp_candidates) == 1:
                 target = otp_candidates[0]
-                payload = target.payload_json if isinstance(target.payload_json, dict) else {}
-                driver_mobile = payload.get("vehicle", {}).get("driver_mobile")
+                payload = _safe_json_dict(target.payload_json)
+                driver_mobile = (
+                    payload.get("vehicle", {}).get("driver_mobile")
+                    or payload.get("driver", {}).get("phone")
+                    or payload.get("driver", {}).get("mobile")
+                    or payload.get("driver_phone")
+                    or payload.get("driver_mobile")
+                )
                 if not driver_mobile and target.driver_id:
                     driver = await session.get(Driver, target.driver_id)
                     if driver:
@@ -148,7 +174,11 @@ async def resolve_single_flight_pending_phone() -> str | None:
     return None
 
 
-async def resolve_and_complete_pending_job_for_otp(phone: str, code: str) -> dict[str, Any] | None:
+async def resolve_and_complete_pending_job_for_otp(
+    phone: str | None = None,
+    code: str = "",
+    job_id: str | None = None,
+) -> dict[str, Any] | None:
     """Find a pending waybill job waiting for this driver's OTP and complete it immediately.
 
     This resolves the 125-second late SMS condition: even if the Celery worker
@@ -156,13 +186,13 @@ async def resolve_and_complete_pending_job_for_otp(phone: str, code: str) -> dic
     will wake up the workflow, issue the document via IssueDocumentByOtp,
     mark the job SUCCESS, and consume the OTP keys.
     """
-    clean_phone = normalize_phone_for_otp_key(phone)
-    if not clean_phone:
+    clean_phone = normalize_phone_for_otp_key(phone) if phone else None
+    if not clean_phone and not job_id:
         return None
 
     redis = await redis_manager.get()
-    pending_job_id: str | None = None
-    if redis:
+    pending_job_id: str | None = job_id
+    if not pending_job_id and redis and clean_phone:
         pending_key = otp_pending_phone_key(clean_phone)
         if pending_key:
             raw_id = await redis.get(pending_key)
@@ -174,7 +204,7 @@ async def resolve_and_complete_pending_job_for_otp(phone: str, code: str) -> dic
         if pending_job_id:
             target_job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == pending_job_id))).first()
 
-        if not target_job:
+        if not target_job and clean_phone:
             # Query recent candidate jobs for this driver
             cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
             statement = (
@@ -186,6 +216,8 @@ async def resolve_and_complete_pending_job_for_otp(phone: str, code: str) -> dic
                             TaskStatus.NEEDS_REVIEW.value,
                             TaskStatus.RECONCILING.value,
                             TaskStatus.PENDING.value,
+                            TaskStatus.WAITING_RETRY.value,
+                            TaskStatus.RETRYING.value,
                         ]
                     ),
                     col(WaybillJob.updated_at) >= cutoff,
@@ -194,8 +226,15 @@ async def resolve_and_complete_pending_job_for_otp(phone: str, code: str) -> dic
             )
             recent_jobs = (await session.exec(statement)).all()
             for job in recent_jobs:
-                p = job.payload_json if isinstance(job.payload_json, dict) else {}
-                j_phone = normalize_phone_for_otp_key(p.get("vehicle", {}).get("driver_mobile"))
+                p = _safe_json_dict(job.payload_json)
+                raw_m = (
+                    p.get("vehicle", {}).get("driver_mobile")
+                    or p.get("driver", {}).get("phone")
+                    or p.get("driver", {}).get("mobile")
+                    or p.get("driver_phone")
+                    or p.get("driver_mobile")
+                )
+                j_phone = normalize_phone_for_otp_key(raw_m)
                 if j_phone == clean_phone:
                     target_job = job
                     break
@@ -206,8 +245,27 @@ async def resolve_and_complete_pending_job_for_otp(phone: str, code: str) -> dic
                         break
 
         if not target_job:
-            logger.debug("no_pending_waybill_found_for_otp_phone", extra={"extra_fields": {"phone": clean_phone}})
+            logger.debug(
+                "no_pending_waybill_found_for_otp",
+                extra={"extra_fields": {"phone": clean_phone, "job_id": job_id}},
+            )
             return None
+
+        # If clean_phone was missing, try to derive it from target_job for cleanup
+        if not clean_phone:
+            pj = _safe_json_dict(target_job.payload_json)
+            m_cand = (
+                pj.get("vehicle", {}).get("driver_mobile")
+                or pj.get("driver", {}).get("phone")
+                or pj.get("driver", {}).get("mobile")
+                or pj.get("driver_phone")
+                or pj.get("driver_mobile")
+            )
+            if not m_cand and target_job.driver_id:
+                drv = await session.get(Driver, target_job.driver_id)
+                if drv:
+                    m_cand = drv.phone
+            clean_phone = normalize_phone_for_otp_key(m_cand) if m_cand else None
 
         if target_job.status == TaskStatus.SUCCESS.value:
             # Already completed
@@ -229,7 +287,7 @@ async def resolve_and_complete_pending_job_for_otp(phone: str, code: str) -> dic
                 session=session,
                 otp_code=code,
             )
-            res_dict = response.result_json if isinstance(response.result_json, dict) else {}
+            res_dict = _safe_json_dict(response.result_json)
             tracking_code = res_dict.get("tracking_code") or response.document_id
 
             # Notify any worker that might still be waiting
@@ -287,7 +345,10 @@ async def process_otp_stream_events(batch_size: int = 10) -> int:
                         entry = json.loads(payload_str)
                         phone = entry.get("phone", "")
                         code = entry.get("code", "")
-                        if phone and code:
+                        job_id = entry.get("job_id")
+                        if job_id and code:
+                            await resolve_and_complete_pending_job_for_otp(phone=phone, code=code, job_id=job_id)
+                        elif phone and code:
                             await resolve_and_complete_pending_job_for_otp(phone=phone, code=code)
                     await redis.xack(OTP_STREAM_KEY, OTP_STREAM_GROUP, message_id)
                     processed += 1
