@@ -2,7 +2,16 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { PlusIcon, TruckIcon, UserCircleIcon } from '@heroicons/react/24/outline';
+import {
+  ClipboardDocumentCheckIcon,
+  ClipboardDocumentIcon,
+  DevicePhoneMobileIcon,
+  PlusIcon,
+  SignalIcon,
+  TruckIcon,
+  UserCircleIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
@@ -71,6 +80,8 @@ export default function DriversPage() {
   });
   const [editDriver, setEditDriver] = useState<{ id: number; payload: DriverUpdateRequest } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [forwarderDriver, setForwarderDriver] = useState<Driver | null>(null);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'list' | 'add' | 'plates_schedules' | 'tracking'>('list');
@@ -553,7 +564,16 @@ export default function DriversPage() {
                         </div>
                       )}
 
-                      <div className="mt-8 flex justify-end gap-3 border-t border-white/5 pt-6">
+                      <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-white/5 pt-6">
+                        <button
+                          type="button"
+                          onClick={() => setForwarderDriver(driver)}
+                          className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3.5 text-xs font-bold text-cyan-300 transition hover:bg-cyan-500/20 hover:border-cyan-500/40 flex items-center gap-1.5 touch-target"
+                          title="تنظیمات فورواردر پیامک راننده"
+                        >
+                          <DevicePhoneMobileIcon className="h-4 w-4 text-cyan-400" />
+                          <span>فورواردر پیامک OTP</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -909,6 +929,125 @@ export default function DriversPage() {
                  حذف شود
                </button>
              </div>
+          </div>
+        </div>
+      )}
+
+      {forwarderDriver && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setForwarderDriver(null)}
+        >
+          <div
+            className="w-full max-w-xl rounded-3xl border border-cyan-500/30 bg-slate-900 p-6 sm:p-8 shadow-2xl relative my-8 text-white animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-500/30 shadow-inner">
+                  <DevicePhoneMobileIcon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">تنظیمات فورواردر پیامک راننده (SMS Forwarder)</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    راننده: <span className="text-cyan-300 font-bold">{forwarderDriver.full_name}</span> ({forwarderDriver.phone || 'فاقد شماره همراه'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForwarderDriver(null)}
+                className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/5 transition"
+                aria-label="بستن"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-5 text-xs leading-relaxed">
+              {/* Webhook URL Box */}
+              <div className="rounded-2xl bg-slate-950 border border-white/10 p-4">
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  آدرس وب‌هوک اختصاصی این راننده (Webhook URL)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    dir="ltr"
+                    value={
+                      typeof window !== 'undefined'
+                        ? `${window.location.origin}/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`
+                        : `/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`
+                    }
+                    className="w-full rounded-xl bg-slate-900 border border-white/10 px-3.5 py-2.5 text-xs font-mono text-cyan-300 select-all outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = typeof window !== 'undefined'
+                        ? `${window.location.origin}/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`
+                        : `/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`;
+                      void navigator.clipboard.writeText(url);
+                      setCopiedWebhook(true);
+                      toast.success('آدرس وب‌هوک کپی شد');
+                      setTimeout(() => setCopiedWebhook(false), 2000);
+                    }}
+                    className="shrink-0 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 text-xs transition flex items-center gap-1.5 shadow-md shadow-cyan-950"
+                  >
+                    {copiedWebhook ? (
+                      <>
+                        <ClipboardDocumentCheckIcon className="h-4 w-4" />
+                        کپی شد
+                      </>
+                    ) : (
+                      <>
+                        <ClipboardDocumentIcon className="h-4 w-4" />
+                        کپی آدرس
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-400">
+                  این آدرس را در بخش URL برنامه فورواردر پیامک گوشی راننده قرار دهید تا پیامک‌های ارسالی بدون نیاز به تایپ دستی ثبت شوند.
+                </p>
+              </div>
+
+              {/* 3-Step Setup Instructions */}
+              <div className="rounded-2xl bg-cyan-950/20 border border-cyan-500/20 p-4 space-y-3">
+                <h3 className="font-bold text-cyan-300 text-xs flex items-center gap-2">
+                  <SignalIcon className="h-4 w-4 text-cyan-400" />
+                  راهنمای راه‌اندازی در ۳ مرحله روی گوشی اندروید راننده:
+                </h3>
+                <ol className="list-decimal list-inside space-y-2 text-slate-300 text-[11px] pr-1">
+                  <li>
+                    اپلیکیشن <span className="text-white font-bold">SecureSMS Forwarder</span> را روی گوشی راننده نصب کنید.
+                  </li>
+                  <li>
+                    یک قانون (Rule) جدید اضافه کرده و فرستنده (Sender) را روی سرشماره‌های سامانه بارنامه کشوری (<code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">20007777</code> یا <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">30001923</code>) قرار دهید.
+                  </li>
+                  <li>
+                    نوع ارسال را روی <code className="bg-slate-900 px-1 py-0.5 rounded text-amber-300 font-mono">Webhook (POST)</code> قرار داده و آدرس وب‌هوک کپی‌شده در بالا را در آن قرار دهید.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="rounded-2xl bg-slate-950/60 border border-white/5 p-4 text-[11px] text-slate-400">
+                <span className="font-bold text-amber-400">💡 نحوه عملکرد:</span> در ساعات شبانه سامانه بارنامه (۱۷:۳۰ الی ۰۸:۰۰ صبح)، به محض ارسال کد تایید به شماره همراه راننده، پیامک در کسری از ثانیه دریافت و بارنامه به صورت خودکار صادر و ثبت قطعی می‌شود.
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end border-t border-white/5 pt-4">
+              <button
+                type="button"
+                onClick={() => setForwarderDriver(null)}
+                className="rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-2.5 text-xs transition"
+              >
+                بستن
+              </button>
+            </div>
           </div>
         </div>
       )}
