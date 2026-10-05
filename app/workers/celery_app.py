@@ -216,6 +216,14 @@ def _build_beat_schedule() -> dict:
                     "expires": 240,
                 },
             },
+            "otp-stream-sweep": {
+                "task": "barpro.otp.sweep_stream",
+                "schedule": schedule(5.0),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 4,
+                },
+            },
         }
     )
 

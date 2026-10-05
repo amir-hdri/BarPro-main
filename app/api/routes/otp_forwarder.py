@@ -183,11 +183,15 @@ async def receive_sms_gateway(request: Request) -> dict[str, Any]:
 
 
 @router.post("/sms-forwarder", summary="Webhook for SecureSMS Forwarder / SMS Forwarder Android Apps")
+@router.post("/sms-forwarder/{path_driver_phone}", summary="Webhook with path-based driver phone")
 @router.post("/webhook", summary="Alias webhook for SMS Forwarders")
-async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
+@router.post("/webhook/{path_driver_phone}", summary="Alias webhook with path-based driver phone")
+async def receive_sms_forwarder_webhook(
+    request: Request, path_driver_phone: str | None = None
+) -> dict[str, Any]:
     """
     Accepts incoming SMS from SecureSMS Forwarder or any SMS forwarding Android app.
-    Supports JSON payloads, form-encoded data, query parameters, or raw text.
+    Supports JSON payloads, form-encoded data, query parameters, headers, or raw text.
 
     Requires the ``X-OTP-Webhook-Token`` header matching ``OTP_WEBHOOK_SECRET``.
     """
@@ -197,6 +201,11 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
     content = ""
     phone = ""
     timestamp = None
+
+    if path_driver_phone:
+        norm_p = normalize_phone_for_otp_key(path_driver_phone)
+        if re.fullmatch(r"09[0-9]{9}", norm_p):
+            phone = norm_p
 
     body = await request.body()
     if len(body) > 16_384:
@@ -328,6 +337,24 @@ async def receive_sms_forwarder_webhook(request: Request) -> dict[str, Any]:
             "sender": sender,
             "content_length": len(content),
         }
+
+    if not phone and request.query_params:
+        for key in ("driver_phone", "driver_mobile", "phone", "mobile", "target", "target_phone", "recipient"):
+            val = request.query_params.get(key)
+            if val:
+                clean_val = normalize_phone_for_otp_key(val)
+                if re.fullmatch(r"09[0-9]{9}", clean_val) and clean_val != sender:
+                    phone = clean_val
+                    break
+
+    if not phone:
+        for key in ("X-Driver-Phone", "X-Driver-Mobile", "X-Target-Phone", "X-Phone"):
+            val = request.headers.get(key)
+            if val:
+                clean_val = normalize_phone_for_otp_key(val)
+                if re.fullmatch(r"09[0-9]{9}", clean_val) and clean_val != sender:
+                    phone = clean_val
+                    break
 
     if not phone:
         # Fallback: if exactly one pending waybill job is awaiting OTP in the system, attribute to it.

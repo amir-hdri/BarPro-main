@@ -660,7 +660,9 @@ class WaybillJobService:
         try:
             # 3. Retrieve or create authenticated UtcmsMobileClient
             from app.automation.utcms_mobile_client import UtcmsMobileApiError, UtcmsMobileClient
+            from app.automation.worker_proxy import get_worker_proxy_url
 
+            proxy_url = get_worker_proxy_url()
             mobile_client = None
             if r:
                 cached_session_raw = await r.get(f"rpa:job:pending_doc:{job_id}")
@@ -669,7 +671,7 @@ class WaybillJobService:
                         session_info = json.loads(cached_session_raw)
                         token = session_info.get("token")
                         if token:
-                            mobile_client = UtcmsMobileClient(token=token)
+                            mobile_client = UtcmsMobileClient(token=token, proxy_url=proxy_url)
                     except Exception:
                         logger.debug("cached_otp_token_parse_failed", exc_info=True)
 
@@ -682,11 +684,9 @@ class WaybillJobService:
                     )
                 from app.auth_multitenant import decrypt_driver_password
                 from app.automation.gps_shipping_manager import get_or_login_client
-                from app.automation.worker_proxy import get_worker_proxy_url
 
                 plain_password = decrypt_driver_password(driver.utcms_password_encrypted)
                 login_user = driver.utcms_username or driver.driver_national_code
-                proxy_url = get_worker_proxy_url()
                 mobile_client = await get_or_login_client(
                     national_code=login_user,
                     password=plain_password,

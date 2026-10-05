@@ -386,3 +386,11 @@ if celery_app is not None:
         from app.automation.clean_ip_pool import probe_and_recover_squid_egress
 
         return _run_async(probe_and_recover_squid_egress(worker_id=worker_id))
+
+    @celery_app.task(name="barpro.otp.sweep_stream")
+    def sweep_otp_stream():
+        """Periodic consumer of durable Redis Stream for OTP forwarder events."""
+        from app.services.otp_wakeup_consumer import process_otp_stream_events
+
+        return _run_async(process_otp_stream_events(batch_size=10))
+

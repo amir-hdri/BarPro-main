@@ -655,6 +655,8 @@ class WaybillPayload(BaseModel):
     # Metadata
     notes: str | None = Field(default=None, max_length=500)
     metadata_json: dict | None = Field(None)
+    transport: str | None = Field(default=None, description="روش انتقال: web یا mobile")
+    allow_otp_flow: bool = Field(default=True, description="اجازه صدور از طریق جریان OTP پیامکی")
 
     @staticmethod
     def _validate_iran_national_code(code: str) -> bool:
@@ -753,6 +755,8 @@ class WaybillNestedPayload(BaseModel):
     vehicle: VehicleModel
     financial: FinancialModel
     shipping_options: ShippingOptionsModel | None = None
+    transport: str | None = Field(default=None, description="روش انتقال: web یا mobile")
+    allow_otp_flow: bool = Field(default=True, description="اجازه صدور از طریق جریان OTP پیامکی")
 
 
 class WaybillJobCreateRequest(BaseModel):
