@@ -64,5 +64,8 @@ Waybill success follows:
     running -> unknown -> reconciling -> success | needs_review
 
 Do not treat a browser success message as final. Success requires a tracking
-code from RPA, the same value persisted in result_json, and a matching UTCMS
-History/Search record.
+code from RPA and the same value persisted in result_json. Final confirmation
+is a batch pass over that day's registrations, not a per-waybill check during
+the day: `orchestrator.reconciliation.audit_tracking_received` sweeps all
+tracking-received jobs in one run (`app/orchestrator/reconciliation_service.py`,
+`reconcile_tracking_received_jobs`), currently on a 10-minute beat cadence.

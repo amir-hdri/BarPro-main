@@ -155,7 +155,7 @@ container همان deployment اجرا کنید.
 7. پاسخ GET /healthz و پاسخ sanitized مسیر GET /readyz بدون URL یا credential؛
 8. دسترسی admin به GET /api/v1/admin/readyz و /api/system/clean-ips؛
 9. Prometheus targets، Alertmanager و health Grafana/exporterها؛
-10. backlog reconciliation و successهای دارای سه شاهد.
+10. backlog reconciliation و successهای دارای دو شاهد + تأیید یکجای History.
 
 هر موردی که اجرا نشده است با «نیازمند بررسی runtime» گزارش شود.
 
@@ -182,11 +182,14 @@ Compose اثبات running بودن، scrape موفق یا delivery هشدار �
 ## 10. معیار موفقیت ثبت
 
 هیچ smoke test نباید نتیجه RPA را مستقیماً success اعلام کند. موفقیت production
-تنها با سه شاهد قرارداد UTCMS معتبر است:
+تنها با دو شاهد قرارداد UTCMS معتبر است:
 
 1. tracking code در پاسخ RPA؛
-2. همان code در waybill_jobs.result_json؛
-3. رکورد متناظر در History/Search UTCMS.
+2. همان code در waybill_jobs.result_json.
+
+تأیید نهایی یکجا (batch) انجام می‌شود: task
+`orchestrator.reconciliation.audit_tracking_received` همهٔ موارد
+`tracking_received` را در یک اجرا به History/Search UTCMS می‌برد.
 
 جریان ایمن running → unknown → reconciling → success یا needs_review است.
 

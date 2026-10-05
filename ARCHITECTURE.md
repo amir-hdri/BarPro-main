@@ -108,7 +108,7 @@ POST /api/v1/waybill-jobs
   → at-most-once UTCMS submit
   → unknown (نتیجه mutation هنوز قطعی نیست)
   → reconciling (UTCMS History/Search)
-       ├── سه شاهد معتبر → success
+       ├── شرایط success محقق → success
        ├── ambiguous/not found after bounded attempts → needs_review
        └── transient evidence gap → unknown/retry reconciliation
 ```
@@ -121,9 +121,13 @@ POST /api/v1/waybill-jobs
 3. History/Search خود UTCMS رکورد متناظر را تأیید کند و
    `mutation_status=confirmed` و `reconciled_at` ثبت شده باشند.
 
-بسته شدن modal، دریافت پیام success از UI، screenshot یا وجود tracking code بدون
-تأیید History به‌تنهایی اثبات ثبت نهایی نیست. Job نامطمئن هرگز خودکار resubmit
-نمی‌شود؛ پس از پایان reconciliation محدود به `needs_review` می‌رود.
+بسته شدن modal، دریافت پیام success از UI یا screenshot به‌تنهایی اثبات ثبت
+نهایی نیست؛ اثبات با دو شاهد (کد در پاسخ RPA و ذخیره همان کد در
+`result_json`) انجام می‌شود و تأیید نهایی یکجا است: task
+`orchestrator.reconciliation.audit_tracking_received` همهٔ jobهای
+`tracking_received` را در یک اجرا به History می‌برد. Job نامطمئن هرگز خودکار
+resubmit نمی‌شود؛ پس از
+پایان reconciliation محدود به `needs_review` می‌رود.
 
 تاخیرهای فعلی reconciliation برابر `15, 45, 120, 300` ثانیه‌اند و task دوره‌ای
 آن از queue reconciliation اجرا می‌شود.

@@ -1,18 +1,34 @@
 # گراف دانش مرجع BarPro
 
-> نسخه سند: 2026-10-01 (شامل snapshot تا 2026-09-27؛ بخش‌های snapshot برچسب تاریخی دارند و وضعیت زنده را تضمین نمی‌کنند)
+> نسخه سند: 2026-10-05 (شامل snapshot تا 2026-10-05؛ بخش‌های snapshot برچسب تاریخی دارند و وضعیت زنده را تضمین نمی‌کنند)
 >
 > commit مبنای audit اولیه: 9c472f1
 >
-> آخرین commit کد/رابط کاربری: 2026-09-27 GPS pipeline remediation (Route Authority + TravelEngine wiring)
+> آخرین commit کد/رابط کاربری: 2026-10-05 OTP event-driven wake-up, lease locking, clock skew & single-flight attribution (`d5abc0c`)
 >
-> Alembic head مبنا: 040_add_route_template_polyline
+> Alembic head مبنا: 041_driver_plate_tracking_fields
 >
 > جایگزین tracked برای knowledge graph خارجی قبلی
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
-## OTP پایدار + fence چرخه حمل — 2026-10-04 (CODE-VERIFIED؛ uncommitted→committed در این نشست)
+## چرخه کامل OTP، انتساب تک‌پرواز، بیدارسازی رویدادمحور و قفل اجاره (Lease) — 2026-10-05 (CODE-VERIFIED)
+
+- CODE-VERIFIED: سرویس مصرف‌کننده رویدادمحور `app/services/otp_wakeup_consumer.py` متصل به جریان پایدار Redis Streams (`rpa:otp:stream`) با گروه مشتریان `barpro_otp_group` و تایید اتمیک `XACK`. تابع `resolve_and_complete_pending_job_for_otp` بلافاصله پس از دریافت کد، اسناد معلق در وضعیت `WAITING_OTP` یا `UNKNOWN (otp_required)` را شناسایی کرده و صدور قطعی را انجام می‌دهد؛ بحران پیامک دیررس ثانیه ۱۲۵ (Late SMS Race Condition) پس از تایم‌اوت کارگر به طور قطعی حل شد (`test_late_sms_125_second_auto_completion`).
+- CODE-VERIFIED: مدیریت توزیع‌شده قفل اجاره (`reserve_otp_issue_lease` / `release_otp_issue_lease` در `app/automation/otp_keys.py`) با کلید `lock:otp:issue:{job_id}` و TTL ۳۰ ثانیه؛ از هرگونه تداخل، رقابت همزمان (Race Condition) یا فراخوانی تکراری بین کارگر سلری و مصرف‌کننده وب‌هوک به طور قطعی جلوگیری می‌کند (`test_lease_locking_prevents_concurrent_issue`).
+- CODE-VERIFIED: ابطال اتمیک و سراسری کلیدهای مصرف‌شده (`consume_scoped_otp` در `app/automation/otp_keys.py`). بلافاصله پس از صدور موفق، کلید بارنامه (`rpa:otp:job:{job_id}`)، کلید راننده (`rpa:otp:phone:{phone}`)، کش سند معلق (`rpa:job:pending_doc:{job_id}`) و ردیابی معلق راننده (`rpa:otp:pending_by_phone:{phone}`) پاکسازی می‌شوند تا از مصرف کد منقضی در بارنامه‌های بعدی جلوگیری شود (`test_consume_scoped_otp_cleans_all_keys`).
+- CODE-VERIFIED: تاب‌آوری در برابر خطای ۱ ساعته تغییر ساعت رسمی ایران (`test_iran_dst_clock_skew_tolerance` در `app/services/otp_delivery.py`). پس از لغو تغییر ساعت تابستانی در سال ۱۴۰۲، گوشی‌های اندروید پچ‌نشده رانندگان ۱ ساعت انحراف دارند؛ تابع `sms_received_at` با نرمال‌سازی انحراف ۳۶۰۰ ثانیه‌ای (با تلرانس ۹۰ ثانیه) مانع از خطای کاذب ۴۱۰ یا ۴۲۲ می‌گردد. همچنین در `waybill_enhanced.py` مبنا قرار دادن `ingested_at` سرور BarPro انحراف ساعت محلی گوشی را بی‌اثر می‌کند (`test_fetch_scoped_otp_handles_device_clock_skew`).
+- CODE-VERIFIED: انتساب هوشمند تک‌بارنامه معلق (`resolve_single_flight_pending_phone` در `otp_wakeup_consumer.py` و `otp_forwarder.py`). برای حل چالش عدم وجود MSISDN در سیم‌کارت‌های ایرانسل/همراه اول و رله‌های GSM، در غیاب شماره راننده در صورتی که دقیقاً ۱ بارنامه معلق وجود داشته باشد، پیامک به همان بارنامه اختصاص می‌یابد (`test_single_flight_phone_attribution_from_redis`).
+- CODE-VERIFIED: گارد امنیتی عدم ابهام (`AMBIGUOUS_OTP`). در صورتی که بیش از ۱ بارنامه معلق در سیستم باشد و پیامک فاقد شماره راننده باشد، سیستم حدس نمی‌زند و با خطای صریح HTTP 422 (`AMBIGUOUS_OTP`) اعلام می‌کند که `driver_phone` الزامی است (`test_ambiguous_otp_attribution_rejected_when_multiple_jobs_pending`).
+- CODE-VERIFIED: اصلاحات اتوماسیون وب و کارگر (`waybill_bot_multitenant.py` و `waybill_job_service.py`): ذخیره متادیتای راننده در سشن کش موقت ردیس، رصد کلید `completed_otp:{job_id}` در حلقه انتظار جهت خروج فوری کارگر بدون معطلی در صورت صدور توسط وب‌هوک، و بررسی قفل اجاره در `submit_otp`.
+- CODE-VERIFIED: تزریق امن پراکسی خروجی (`get_worker_proxy_url`) در `WaybillJobService.submit_otp` جهت تضمین ارسال درخواست‌های صدور از طریق پراکسی Squid محلی راننده و جلوگیری از نشت IP سرور مرکزی (`test_submit_otp_uses_worker_proxy`).
+- CODE-VERIFIED: انتساب چندکاناله شماره راننده در وب‌هوک (`app/api/routes/otp_forwarder.py`): پشتیبانی همزمان از مسیر URL (`/sms-forwarder/{driver_phone}`)، پارامتر پرس‌وجو (`?driver_phone=...`)، هدر HTTP (`X-Driver-Phone`) و بدنه JSON، جهت تسهیل بی‌نقص کانفیگ در انواع اپ‌های فورواردر اندروید (`test_path_based_driver_phone_webhook`, `test_query_param_driver_phone_webhook`, `test_header_driver_phone_webhook`).
+- CODE-VERIFIED: تسک دوره‌ای سلری `barpro.otp.sweep_stream` در `app/workers/celery_app.py` و `tasks.py` با زمان‌بندی هر ۵ ثانیه (`schedule(5.0)`) بر روی صف `rpa_scheduler` (`RPA_SCHEDULER_QUEUE`) با انقضای ۴ ثانیه، جهت تخلیه و تایید مداوم رویدادهای جریان ردیس بدون ایجاد تأخیر در صف‌های کاری (`test_sweep_otp_stream_celery_task`).
+- CODE-VERIFIED: فیلد `allow_otp_flow: bool = Field(default=True)` در اسکیمای `WaybillJobCreate` و `WaybillBatchItemCreate` (`app/schemas/multitenant.py`) جهت فعال‌سازی پیش‌فرض جریان OTP برای بیدارسازی خودکار بارنامه‌های شبانه.
+- CODE-VERIFIED: ابزار شبیه‌ساز فورواردر پیامک `scripts/sms_forwarder_simulator.py` برای ارسال وب‌هوک‌های تستی استاندارد و گیت‌وی امضاشده HMAC بدون وابستگی به سخت‌افزار فیزیکی موبایل.
+- TEST-VERIFIED: ۸۴ تست مرتبط در `tests/test_otp_wakeup_and_lifecycle.py`، `tests/test_otp_delivery_contract.py`، `tests/test_otp_forwarder.py` و پکیج‌های متصل با موفقیت کامل پاس شدند (آزمون E2E کامل HTTP تا تغییر وضعیت دیتابیس).
+
+## OTP پایدار + fence چرخه حمل — 2026-10-04 (CODE-VERIFIED)
 
 - CODE-VERIFIED: سرویس جدید `app/services/otp_delivery.py` (ingest پایدار و مرتب OTP). یک تراکنش Lua یکجا dedup + ordering + نوشتن پایدار + pub/sub را انجام می‌دهد: retry نه TTL را تازه می‌کند نه کد مصرف‌شده را احیا، و SMS قدیمی‌تر نمی‌تواند روی OTP جدیدتر بنویسد (409). TTL=300s، skew=30s، روی قطع Redis **fail-closed** (503؛ تحویل پیش از نوشتن پایدار ACK نمی‌شود). متن خام SMS نه ذخیره و نه بازگردانده می‌شود.
 - CODE-VERIFIED: مسیر امضاشده `POST /api/v1/otp/sms-gateway` — envelope `BP1#phone#timestamp#code#signature` با HMAC-SHA256 (`hmac(OTP_WEBHOOK_SECRET, "#".join(parts[:4])).hexdigest()[:32]`) و تطبیق فرستنده با گیرنده؛ همان هویت تحویلِ `sms-forwarder` را دارد (dedup مشترک). فورواردر اکنون `driver_phone` اجباری، سقف بدنه 16KB، رویداد `HEALTH_CHECK` و `extract_otp_code` کلیدواژه‌محور دارد (کد رهگیری/شماره تلفن/پیامک بانک هرگز OTP تلقی نمی‌شود).
@@ -91,7 +107,7 @@
 
 ## 1.0 snapshot زنده و استقرار Android (2026-09-25)
 
-- LIVE-OBSERVED & CONFIRMED: صدور قطعی دو فقره بارنامه زنده در سامانه کشوری UTCMS با احراز هویت دوطرفه، حل آفلاین کپچای ریاضی (Math CRNN) و تأیید کامل قانون ۳ شاهد:
+- LIVE-OBSERVED & CONFIRMED: صدور قطعی دو فقره بارنامه زنده در سامانه کشوری UTCMS با احراز هویت دوطرفه، حل آفلاین کپچای ریاضی (Math CRNN) و تأیید کامل قانون اثبات ثبت (شامل تطبیق History در همان روز):
   1. بارنامه اول (Job 125): شناسه سند `226157460`، شماره بارنامه رسمی `1349750688`، راننده پرویز قنائی (`0321410408`)، ناوگان `23ع965ایران78`، مسیر البرز طالقان (میر به کشرود). وضعیت در پرتال: `درحال حمل` (کد ۱). ثبت قطعی در دیتابیس با `mutation_status: confirmed`.
   2. بارنامه دوم (Job 127): شناسه سند `226164459`، شماره بارنامه رسمی `1349757758`، راننده یوسف قلی‌زاده (`4929889601`)، ناوگان `32ع444ایران27`، مسیر آذربایجان غربی شوط (دیزج به مرگن وسط). وضعیت در پرتال: `درحال حمل` (کد ۱). ثبت قطعی در دیتابیس با `mutation_status: confirmed`.
 - RUNTIME-VERIFIED: مهندسی معکوس و آنالیز عمیق بایت‌کد هرمس (Hermes v94) و فایل‌های DEX پکیج رسمی `com.baarnameshahri`؛ کشف ماژول امنیتی بومی اختصاصی `Lcom/baarnameshahri/security/SecurityNativeModule;` شامل تست‌های روت (`checkRoot`)، امولاتور (`isProbablyEmulator`) و Mock Location (`detectMockLocationApps`). اثبات پایداری رویکرد کلاینت مستقیم موبایل BarPro (Mobile Transport) جهت دور زدن لایه ناپایدار UI.
@@ -114,7 +130,7 @@
 
 ## 0.8 snapshot این بازبینی (2026-09-09)
 
-- CODE-VERIFIED: قرارداد تصریح کد رهگیری (Tracking-First Acknowledgement) پیاده شد — کد رهگیری غیرخالی = تصریح فوری اپراتور، نه success نهایی (قانون سه‌شاهد بدون تغییر).
+- CODE-VERIFIED: قرارداد تصریح کد رهگیری (Tracking-First Acknowledgement) پیاده شد — کد رهگیری غیرخالی = تصریح فوری اپراتور، نه success نهایی (قانون اثبات ثبت بدون تغییر).
 - CODE-VERIFIED: فیلدهای سطح نتیجه در `result_json`: `confirmation_status` ∈ {`tracking_received`, `tracking_missing_history_required`, `confirmed_by_history`}، `operator_acknowledged`، `requires_reconciliation`، `requires_resubmission`، `reconciliation_mode='history_only'`.
 - CODE-VERIFIED: فیلد سطح پاسخ `operator_acknowledged: bool` روی `WaybillJobResponse` و `WaybillTaskStatusResponse`.
 - CODE-VERIFIED: گاردها — Dispatcher اینتنت‌های submit/reconciliation قدیمی jobهای دارای کد را لغو می‌کند؛ Scheduler این jobها را از dispatch خارج می‌کند؛ Reconciliation خودکار برای `tracking_received` رد می‌شود (مسیر دستی `audit_only=True`)؛ endpoint بازتلاش HTTP 409 برمی‌گرداند؛ recovery کارهای گیرکرده قرارداد را حفظ می‌کند.
@@ -520,15 +536,21 @@ JobStateMachine برای WaybillJob تنها زمانی success را می‌پذ
 2. reconciled_at تنظیم شده باشد؛
 3. result_json دارای tracking_code غیرخالی باشد.
 
-قرارداد UTCMS یک شاهد سوم بیرونی نیز می‌خواهد: رکورد متناظر در History/Search.
+این سه شرط کدی هستند؛ اثبات ثبت (بند 7.3) دو شاهدی است.
 
-### 7.3. Three-witness contract
+### 7.3. Two-witness contract
 
-ثبت فقط با این سه شاهد قطعی است:
+ثبت فقط با این دو شاهد قطعی است:
 
 1. tracking code در پاسخ RPA؛
-2. همان tracking code در waybill_jobs.result_json؛
-3. تطبیق History/Search خود UTCMS.
+2. همان tracking code در waybill_jobs.result_json.
+
+تأیید نهایی یکجا (batch) است، نه تک‌تک در طول روز: task
+`orchestrator.reconciliation.audit_tracking_received`
+(`reconciliation_service.reconcile_tracking_received_jobs`) همهٔ jobهای
+`tracking_received` را در یک اجرا با `audit_only=True` به History می‌برد
+و `reconciled_at` و `mutation_status=confirmed` را می‌نشاند. cadence فعلی
+beat هر ۱۰ دقیقه است (`app/workers/celery_app.py`).
 
 success message، بسته‌شدن modal، screenshot یا dry-run شاهد کافی نیست.
 
@@ -559,8 +581,8 @@ success message، بسته‌شدن modal، screenshot یا dry-run شاهد ک�
 
 - کد رهگیری غیرخالی → Job در `unknown` با `confirmation_status='tracking_received'`
   و `operator_acknowledged=true`؛ بدون زمان‌بندی تطبیق (`requires_reconciliation=false`)،
-  بدون resubmit. تصریح فوری به اپراتور، اما نه success نهایی (قانون سه‌شاهد
-  بخش 7.3 بدون تغییر است).
+  بدون resubmit. تصریح فوری به اپراتور، اما نه success نهایی (قانون اثبات
+  بخش 7.3).
 - موفق‌نما بدون کد → `unknown` با `confirmation_status='tracking_missing_history_required'`
   و `reconciliation_mode='history_only'`؛ زمان‌بندی تطبیق فقط‌خواندنی ۱۵/۴۵/۱۲۰/۳۰۰ ثانیه.
 - گاردهای no-submit: `result_json.tracking_code` غیرخالی به‌صورت بی‌قید و شرط
@@ -992,14 +1014,14 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 - 408 سرد روی HagigiHogugi بدون session شاهد block IP نیست؛ navigation رسمی Login → Notification → menu است.
 - reset/403/429/egress markers می‌توانند IP را به‌طور موقت از routing خارج کنند، اما 408 عمومی Worker را block نمی‌کند.
 - origin/destination فقط پس از read-back value+label استان/شهر و آدرس از همان selector موفق پذیرفته می‌شوند.
-- ثبت موفق فقط با سه شاهد معتبر است.
+- ثبت موفق فقط با دو شاهد معتبر است؛ تأیید نهایی یکجا (batch) انجام می‌شود.
 - ALLOW_LIVE_SUBMIT باید بدون approval و job کنترل‌شده فعال نشود.
 - retry تهاجمی، parallel submit یک راننده و resubmit نتیجه unknown ممنوع است.
 - fuel inquiry queue مستقل از driver submit lock بارنامه است.
 - محاسبه period سوخت باید timezone Asia/Tehran را رعایت کند.
 
 اعداد throughput مانند 1000 تا 2000 بارنامه در روز از کد قابل اثبات نیستند و فقط
-با metric production شامل success سه‌شاهدی معتبرند.
+با metric production شامل success قطعی (دو شاهد + تأیید یکجای History) معتبرند.
 
 ---
 
@@ -1022,7 +1044,7 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 | Clean IP pool | manager/probe code | active count، distinct egress و health |
 | Circuit state | implementation/defaultها | current blocks/failures/retry-after |
 | Monitoring | Compose inventory | containers، targets، alerts، delivery |
-| Throughput | quota و queue mechanisms | 24h/7d success سه‌شاهدی و latency |
+| Throughput | quota و queue mechanisms | 24h/7d success قطعی و latency |
 | Reconciliation | service و schedule | backlog، oldest age، ambiguous count |
 
 اگر evidence در دسترس نیست، مقدار گزارش باید دقیقاً «نیازمند بررسی runtime» باشد.
@@ -1049,7 +1071,7 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 15. queue depth، reconciliation backlog و orphan/claim metrics؛
 16. CAPTCHA warmup/model availability روی هر Worker؛
 17. gate state/observation age؛
-18. یک dry-run و فقط در صورت مجوز یک live job کنترل‌شده با سه شاهد.
+18. یک dry-run و فقط در صورت مجوز یک live job کنترل‌شده با دو شاهد + تأیید یکجای History.
 
 ---
 
@@ -1065,7 +1087,7 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 | UUID primary keys | SQLModel primary keys integer؛ public IDs string |
 | SuperAdmin model | role/context Master Admin؛ مدل مستقلی وجود ندارد |
 | waybill_payload/retry_count | payload_json/result_json/attempt_count و fields واقعی |
-| RUNNING مستقیم به SUCCESS | UNKNOWN و reconciliation سه‌شاهدی اجباری |
+| RUNNING مستقیم به SUCCESS | UNKNOWN و reconciliation اجباری |
 | OTP window قطعی | prediction configurable؛ فقط observation OTP_FREE مجاز |
 | Beat مصرف‌کننده probe | Beat publisher؛ celery_scheduler consumer |
 | فقط waybill_tasks_X | auth/submit/reconciliation/scheduled/base/fuel queues نیز وجود دارند |
@@ -1076,7 +1098,7 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 | فقط Prometheus | Alertmanager، Grafana و چهار exporter نیز وجود دارند |
 | Model B Squid 2/3 روی Central ندارد چون مستند گفته | باید با profile و runtime inventory enforce/verify شود |
 | همه 6672 node و 15142 edge verify شده‌اند | ادعای غیرقابل بازتولید حذف شده |
-| throughput 1000-2000+ قطعی | نیازمند metric production با success سه‌شاهدی |
+| throughput 1000-2000+ قطعی | نیازمند metric production با success قطعی |
 
 ---
 

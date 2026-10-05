@@ -35,7 +35,7 @@
 - در حالت عادی، `submit_after` با فاصلهٔ ثابت `interval_minutes` پلکانی می‌شود.
 - در حالت `route_chain=true`، `target_count` باید دقیقاً برابر تعداد مسیرهای انتخاب‌شده باشد و ترتیب `route_template_ids` ترتیب legs است.
 - زمان آزادسازی leg بعدی = زمان leg قبلی + `duration_min` ثبت‌شده؛ اگر فقط `distance_km` موجود باشد، تخمین جاده‌ای پروژه (سرعت شهری/بین‌شهری + بافر بارگیری) استفاده می‌شود.
-- `plan_due_jobs` علاوه بر `submit_after`، موفقیت نهایی leg قبلی (`SUCCESS` پس از reconciliation سه‌شاهدی) را بررسی می‌کند؛ بنابراین jobها هم‌زمان dispatch نمی‌شوند و پایان دیرتر قبلی باعث ثبت زودهنگام بعدی نمی‌شود.
+- `plan_due_jobs` علاوه بر `submit_after`، موفقیت نهایی leg قبلی (`SUCCESS` پس از reconciliation) را بررسی می‌کند؛ بنابراین jobها هم‌زمان dispatch نمی‌شوند و پایان دیرتر قبلی باعث ثبت زودهنگام بعدی نمی‌شود.
 - گیت زندهٔ OTP/ساعات مجاز UTCMS همچنان روی هر leg اعمال می‌شود. اگر سایت در پنجرهٔ ممنوع باشد، job به `WAITING_SUBMISSION_WINDOW` می‌رود و زنجیره بدون از دست رفتن ترتیب ادامه پیدا می‌کند.
 - `driver_id` اجباری است (jobهای بدون راننده توسط `plan_due_jobs` که روی `Driver` inner join می‌زند دیده نمی‌شوند).
 
@@ -67,4 +67,4 @@ alembic upgrade head   # یا: bash manage.sh migrate
 - favorite location بین نمونه‌های فرم با React Query مشترک است و انتخاب آن با صفحه‌کلید/ARIA قابل استفاده است.
 - با تغییر استان، شهر، آدرس یا favorite، مختصات قبلی پاک می‌شود تا مختصات stale وارد payload متنی نشود.
 - smoke و build محلی: چهار route عملیاتی به احراز هویت redirect شدند؛ build کامل Next.js و ۵ تست واحد موفق بود.
-- suite فعلی backend: `1149 passed, 3 skipped`. ثبت واقعی همچنان فقط با payload واقعی، گیت `OTP_FREE` و سه شاهد reconciliation مجاز است.
+- suite فعلی backend: `1149 passed, 3 skipped`. ثبت واقعی همچنان فقط با payload واقعی، گیت `OTP_FREE`، دو شاهد اثبات و تأیید یکجای History مجاز است.

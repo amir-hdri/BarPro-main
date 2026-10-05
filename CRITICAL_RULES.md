@@ -15,7 +15,7 @@
 ❌ هرگز ALLOW_LIVE_SUBMIT را به‌صورت پیش‌فرض فعال نکنید
 ```
 
-- ثبت نهایی فقط با تطبیق tracking code در پاسخ RPA، دیتابیس BarPro و History/Search UTCMS اثبات می‌شود.
+- ثبت نهایی فقط با تطبیق tracking code در پاسخ RPA و ذخیره همان کد در دیتابیس BarPro اثبات می‌شود؛ تأیید نهایی یکجا (batch) و از طریق task `orchestrator.reconciliation.audit_tracking_received` انجام می‌شود، نه تک‌تک در طول روز.
 - payload ناقص باید پیش از proxy/browser/driver-slot به `needs_review` برود.
 - قرارداد زنده و محدودیت‌های سامانه در `docs/UTCMS_CONSTRAINTS.md` نگهداری می‌شود.
 - navigation صدور باید `Login -> Notification -> menu click -> HagigiHogugi` را طی کند. درخواست مستقیم

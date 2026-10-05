@@ -89,8 +89,8 @@ opt-in پیاده شده است:
 2. پاسخ مبهم یا timeout پس از insert هرگز retry یا resubmit نمی‌شود.
 3. password، token، refresh token، cookie و پاسخ CAPTCHA وارد log/fixture نمی‌شوند.
 4. حالت web rollback فوری است؛ تغییر env به UTCMS_TRANSPORT=web کافی است.
-5. سه شاهد موفقیت همچنان لازم‌اند: tracking پاسخ، ذخیره همان کد، و History/Search
-   مطابق در UTCMS. تا اثبات reconciliation موبایل، History وب شاهد سوم باقی می‌ماند.
+5. دو شاهد موفقیت لازم‌اند: tracking پاسخ و ذخیره همان کد. تأیید نهایی پس از
+   پایان ثبت روزانه، یک‌جا روی کل موارد همان روز انجام می‌شود.
 
 ## برنامه آزمون
 
@@ -115,7 +115,7 @@ opt-in پیاده شده است:
 - دقیقاً یک درخواست insert؛ بدون retry، fallback یا اجرای همزمان.
 - اگر OTP خواسته شد، job به unknown/submission_unconfirmed می‌رود مگر اینکه
   اپراتور code معتبر را از کانال رسمی وارد کند.
-- ثبت document ID، tracking code و History/Search به‌عنوان سه شاهد.
+- ثبت document ID و tracking code به‌عنوان دو شاهد؛ تأیید یکجای History برای کل موارد ثبت‌شده.
 
 ## ریسک‌ها و معیار تصمیم
 
@@ -155,7 +155,8 @@ opt-in پیاده شده است:
 - به‌علت نبود credential مجاز و نبود Android runtime، آزمون live فعلاً فقط در
   سطح آماده‌سازی و read-only قابل انجام است.
 - پس از آماده شدن credential و payload تستی، مرحله بعد باید shadow و سپس
-  canary تک‌job باشد؛ transport وب تا پایان اثبات سه‌شاهدی مسیر rollback است.
+  canary تک‌job باشد؛ transport وب تا پایان اثبات قطعی ثبت (دو شاهد + تأیید
+  یکجای History) مسیر rollback است.
 
 آخرین verification محلی: `10 passed` برای contract موبایل، `43 passed` برای
 مجموعه متمرکز موبایل/validation/mutation-safety، Ruff و compile بدون خطا. اجرای

@@ -10,6 +10,45 @@
 >
 > **Server Android / FakeTraveler replacement plan:** [docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md](./docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md) — معماری هدف جایگزین GPS؛ بدون گوشی فیزیکی
 
+## Agent Conduct Rules (Mandatory — apply to every task in this repo)
+
+### 1. No negligence — verify before you act
+- Inspect real state first: read the file, run the command, look at the actual output. Never work from memory, assumption, or a stale changelog entry.
+- Ambiguous request → clarify before executing. No half-done, rushed, or surface-level work.
+- Multi-step tasks → maintain a todo list; close with a verification checklist (artifact actually produced? tests/linters really run? edge cases covered?).
+- "Done" is only allowed after real verification — run the checks CI actually runs (`.github/workflows/ci-test.yml`, `ci-cd.yml`) and cite their actual output:
+  - backend: `uvx ruff check`, `black --check app/ tests/`, `mypy app/ --ignore-missing-imports`, `pytest` (markers: `-m unit`, `-m integration`, `-m "not slow"`; warnings are errors via `pytest.ini`)
+  - frontend (`apps/web`): `npm run lint`, `npm run typecheck` (`tsc --noEmit` + eslint)
+  - security: `pip-audit`, `npm audit --audit-level=moderate`
+
+### 2. No unsupported claims — evidence or silence
+- Every claim in a report must carry evidence: `file:line`, command output, test log, or tool result.
+- Forbidden without execution: "tests pass", "fixed", "deployed", "works", "no issues".
+- If something cannot be verified, state "unverified" and why. Never present uncertainty as confidence.
+- Never fabricate metrics, quotes, or citations. Report failures completely — hiding or downplaying errors is a violation.
+- Repo state ≠ production state: a merged fix proves nothing about the live server. Server claims require a timestamped runtime check (see Historical Remediation Log disclaimer).
+- Any claim that a UTCMS document was registered must pass the two-witness proof (`docs/UTCMS_CONSTRAINTS.md`): (1) non-empty tracking code in the RPA response, (2) the same code stored in `waybill_jobs.result_json`. Final confirmation is batched, not per waybill: `orchestrator.reconciliation.audit_tracking_received` sweeps all tracking-received jobs in one run and attaches the UTCMS History record, so per-waybill History/Search checks during the day are not required. UI success, modal close, dry-run, or internal status alone is never proof (`CRITICAL_RULES.md`, §0). `ALLOW_LIVE_SUBMIT` stays `false` unless a pre-validated, operator-monitored job explicitly enables it for one run.
+
+### 3. Mandatory use of matching tools / skills / plugins / MCPs
+- Before starting a task, scan the available skills, tools, plugins, and MCP servers, and use the ones that match the job:
+  - library/framework docs → Context7 MCP
+  - web research, scraping, monitoring → Firecrawl / Tavily / Exa
+  - UI or web-app verification → Playwright / Chrome DevTools / Lighthouse MCPs
+  - office documents (docx/xlsx/pdf/pptx) → document skills/MCPs
+  - this repo's own knowledge → query `docs/BARPRO_KNOWLEDGE_GRAPH.md` first (canonical, dated snapshots + evidence labels), then `docs/INDEX.md`, `CRITICAL_RULES.md`, `docs/UTCMS_CONSTRAINTS.md`, and the 20 domain skills in `.agents/skills/` (barpro-rpa-ops, captcha-retrain, proxy-ops, database-ops, barpro-deploy-ops, tenant-onboard, celery-ops, disaster-recovery, …)
+- Building a hand-rolled solution while a matching tool exists is a violation. If nothing fits, proceed and state that in the report.
+
+### 4. Network reality (BarPro-scoped): UTCMS requires an Iranian egress IP
+- `barname.utcms.ir` expects Iranian IP access; the WAF answers non-allowed requests with the «درخواست مجاز نمی باشد» page / HTTP 444 (`docs/UTCMS_CONSTRAINTS.md`, §4).
+- The operator's machine is often behind a VPN whose exit may be non-Iranian. Before any live UTCMS access from the local machine, verify egress with `curl -s https://ipinfo.io/country` — it must return `IR`; otherwise switch the VPN to an Iranian exit or disable it.
+- Point-in-time evidence: 2026-10-05, local egress measured `US` and `barname.utcms.ir` was unreachable (HTTP 000 / DNS resolution timeout) while control sites loaded normally — re-verified twice the same day with identical results.
+- The same rule binds workers and proxies: pool admission is fail-closed on `egress_verified=true` AND `observed_country=IR` (`app/automation/clean_ip_pool.py`).
+
+### 5. Documentation drift — keep the repo's knowledge alive
+- After any structural or behavioral change, update `docs/CHANGELOG.md` (dated entry under the current version) and `docs/BARPRO_KNOWLEDGE_GRAPH.md` (dated snapshot + evidence labels) within the same task — not "later".
+- Snapshot sections in the knowledge graph carry dates by design; never present a dated snapshot as current live state, and never rewrite history to hide a regression.
+- Freshness gate: before citing a doc as fact, confirm it is at least as new as the code it describes; a doc older than the change it claims to cover is a lead to verify, not a fact to repeat.
+
 ## Project Identity
 
 **BarPro** is a multi-tenant RPA (Robotic Process Automation) framework for automated waybill (بارنامه) registration on Iran's national transportation portal (barname.utcms.ir). It uses Playwright-driven browser automation with CAPTCHA solving (CNN/PyTorch fuel CRNN/Keras OCR), smart proxy rotation (Squid), and human-behavior simulation.
@@ -199,7 +238,7 @@ Remote Worker Nodes (each: 2 vCPU / ~6 GB / own static Iranian IP)
 | Clean IP operations | `/api/system/clean-ips`, `/api/system/clean-ips/refresh` (admin only) |
 | GPS shipping lifecycle | `POST /shipping/coordinates`, `POST /shipping/start`, `POST /shipping/step` (**returns 410 Gone**), `POST /shipping/finish`, `GET /shipping/status/{job_id}` — all guarded by `require_sensitive_auth` |
 | Realtime | `WS /ws/waybill` with cookie auth and optional task/batch/correlation filters |
-| OTP intake (mobile transport) | `POST /api/v1/otp/sms-forwarder`, `POST /api/v1/otp/sms-gateway` (HMAC-signed `BP1#phone#timestamp#code#signature` envelope), `POST /api/v1/otp/webhook`, `POST /api/v1/otp/submit-manual`, `GET /api/v1/otp/latest`, `GET /api/v1/otp/securesms-config`. Forwarder/gateway require `OTP_WEBHOOK_SECRET` and fail closed (503) without it; 16 KB body cap, a `HEALTH_CHECK` probe, and a mandatory `driver_phone` (`09xxxxxxxxx`) for per-recipient routing. Durable, ordered, replay-safe intake lives in `app/services/otp_delivery.py`. |
+| OTP intake (mobile transport) | `POST /api/v1/otp/sms-forwarder`, `POST /api/v1/otp/sms-forwarder/{driver_phone}` (multi-channel recipient phone attribution: path, `?driver_phone=...`, `X-Driver-Phone` header, or body; fallback to single-flight pending job; 422 `AMBIGUOUS_OTP` guard), `POST /api/v1/otp/sms-gateway` (HMAC-signed `BP1#phone#timestamp#code#signature` envelope), `POST /api/v1/otp/webhook`, `POST /api/v1/otp/submit-manual`, `GET /api/v1/otp/latest`, `GET /api/v1/otp/securesms-config`. Forwarder/gateway require `OTP_WEBHOOK_SECRET` and fail closed (503) without it; 16 KB body cap, a `HEALTH_CHECK` probe. Durable, ordered, replay-safe intake lives in `app/services/otp_delivery.py`. |
 
 Do not use stale paths such as `/api/system/health`, `/ws/jobs/{client_id}` or
 `/ws/admin/stream`. There is no distinct POST cancel contract:
@@ -218,12 +257,13 @@ A successful browser response is not immediate proof of registration. The safe f
 
 `running → unknown → reconciling → success | needs_review`
 
-`success` requires all three witnesses defined in `docs/UTCMS_CONSTRAINTS.md`:
-an RPA tracking code, the same code persisted in `result_json`, and a matching
-UTCMS History/Search record. `JobStateMachine` also requires
-`mutation_status=confirmed` and `reconciled_at`. Unknown outcomes are reconciled
-with delays `15,45,120,300` seconds and are never automatically resubmitted after
-the bounded window.
+Registration proof is the two-witness rule defined in
+`docs/UTCMS_CONSTRAINTS.md`: an RPA tracking code and the same code persisted
+in `result_json`. `JobStateMachine` additionally requires
+`mutation_status=confirmed` and `reconciled_at` (set by read-only History
+reconciliation) before `success`. Unknown outcomes are reconciled with delays
+`15,45,120,300` seconds and are never automatically resubmitted after the
+bounded window.
 
 ### Queue Topology
 
@@ -262,6 +302,13 @@ URL/Data URI and has no direct tracking-code column.
   without that flag remains fail-closed on `otp_required` / `gate_unknown`.
   This is an intentional contract change from pure `OTP_FREE`-only mutation;
   do not remove the flag without restoring fail-closed behavior for mobile.
+- **Event-Driven OTP Wake-Up & Lease Locking (2026-10-05):**
+  - Durable ingestion (`app/services/otp_delivery.py`) writes to `rpa:otp:stream` via Lua transaction and triggers non-blocking wake-up.
+  - Background consumer (`app/services/otp_wakeup_consumer.py`, consumer group `barpro_otp_group`, `XACK`) awakens stuck drafts (`WAITING_OTP` or `UNKNOWN - otp_required`) when an SMS arrives late (e.g. at second 125 after the 120s worker loop expires), resolving the late SMS race condition.
+  - Concurrency is protected by a distributed lease lock (`lock:otp:issue:{job_id}`, TTL 30s) via `reserve_otp_issue_lease` / `release_otp_issue_lease` (`app/automation/otp_keys.py`), guaranteeing single-flight mutation between Celery worker and webhook issuer.
+  - Atomic invalidation (`consume_scoped_otp`) purges job, phone, pending_doc session (`rpa:job:pending_doc:{job_id}`), and phone pending set immediately on successful issuance.
+  - Shared GSM gateway / SIM fallback: `resolve_single_flight_pending_phone` matches incoming SMS lacking driver phone to a sole pending waybill; if multiple waybills are pending, it strictly fails closed with HTTP 422 (`AMBIGUOUS_OTP`).
+  - Clock skew & Iranian DST resilience: `sms_received_at` normalizes the 1-hour daylight saving shift resulting from Iran's 1402 time change abolishment on unpatched phones (+/- 3600s with 90s tolerance); automation anchors on server `ingested_at` rather than client device clock. Worker loop monitors `completed_otp:{job_id}` for zero-latency exit.
 - `CAPTCHA_PROVIDER=auto` uses CNN → PyTorch Fuel CRNN → Keras → Enhanced OCR →
   Local OCR.
 - Keras lazy-loads and runs in-process in each Worker. `KERAS_PYTHON_PATH` is a

@@ -181,7 +181,7 @@ OTP اکنون بر `#GetOptCodeModal.show` و عبارات مخصوص پیام�
 | هیچ فیلدی با دادهٔ ساختگی پر نمی‌شود؛ داده ناقص باشد اجرا رد می‌شود | `validate_live_waybill_payload` |
 | هرگز job‌ای که کد رهگیری یا `document_id` دارد دوباره ثبت نمی‌شود | لایهٔ صف |
 | کد پیامکی و پاسخ کپچا هرگز لاگ نمی‌شوند | `_sanitize_evidence` |
-| موفقیت ثبت با سه شاهد اثبات می‌شود: کد رهگیری RPA + `waybill_jobs.result_json` + History/Search خودِ UTCMS | رویهٔ عملیاتی |
+| موفقیت ثبت با دو شاهد اثبات می‌شود: کد رهگیری RPA + `waybill_jobs.result_json`؛ تأیید نهایی یکجا از طریق `audit_tracking_received` انجام می‌شود | رویهٔ عملیاتی |
 
 ---
 

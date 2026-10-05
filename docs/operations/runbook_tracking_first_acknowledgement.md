@@ -14,8 +14,9 @@ Scope:
   `confirmation_status='tracking_received'`, `operator_acknowledged=true`,
   `requires_reconciliation=false`, `requires_resubmission=false`.
 - The database job status stays `unknown` — it is **not** `success`. Final
-  `success` still requires the unchanged three-witness rule
-  (`mutation_status='confirmed'` + `reconciled_at` + persisted tracking code).
+  `success` still requires the state-machine gate
+  (`mutation_status='confirmed'` + `reconciled_at` + persisted tracking code),
+  which the batched `audit_tracking_received` sweep attaches per §3.
 - A tracking-received job never receives a second submit intent, never retries
   the final POST, and never auto-reconciles. A manual audit-only path exists
   (see §3).
@@ -54,7 +55,7 @@ What each combination means:
 |---|---|---|
 | `unknown` | `tracking_received` | Tracking code captured; operator acknowledgement recorded. Waiting for the (manual/audit-only) History confirmation. Not final success. |
 | `unknown` | `tracking_missing_history_required` | Success-shaped response but no code; bounded read-only History reconciliation is scheduled. |
-| `success` | `confirmed_by_history` | History found the document; three-witness rule satisfied; final. |
+| `success` | `confirmed_by_history` | History found the document; state-machine gate satisfied; final. |
 | `needs_review` | `submission_unconfirmed` (error category) | History window exhausted without a match; requires a human decision. |
 
 The response-level `operator_acknowledged` boolean (on `WaybillJobResponse` and
@@ -120,7 +121,7 @@ await reconciliation_service.reconcile_job(job_id="<JOB_ID>", audit_only=True)
 ```
 
 `audit_only=True` forces a manual audit: it never mutates the job towards a
-resubmit and exists solely to attach History evidence for the three-witness
+resubmit and exists solely to attach History evidence during the batched
 confirmation.
 
 ## 4. Decision table
@@ -135,12 +136,17 @@ confirmation.
 
 ## 5. Invariant — a tracking code is not final success
 
-A tracking code alone **never proves final UTCMS History registration**. It
+A tracking code alone **never proves final registration**. It
 must not be counted as final success in monitoring or accounting reports.
-Final success requires the full three-witness rule: the tracking code in the
-RPA response, the same code persisted in `waybill_jobs.result_json`, and
-`mutation_status='confirmed'` with `reconciled_at` set (matching record in
-UTCMS History). Any dashboard, report or alert that counts
+Final success requires the two proof witnesses (the tracking code in the
+RPA response and the same code persisted in `waybill_jobs.result_json`) plus
+the state-machine gate `mutation_status='confirmed'` with `reconciled_at`
+set. That gate is satisfied by the batched audit sweep:
+`orchestrator.reconciliation.audit_tracking_received`
+(`reconcile_tracking_received_jobs`) runs `reconcile_job(audit_only=True)`
+over every tracking-received job in one pass, so no per-waybill History
+check is needed during the day. Any dashboard, report or alert
+that counts
 `confirmation_status='tracking_received'` jobs as successful submissions is
 wrong by contract.
 

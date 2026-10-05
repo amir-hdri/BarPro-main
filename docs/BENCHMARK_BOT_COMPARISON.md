@@ -123,4 +123,4 @@ errors = draft.validation_errors
 و نتیجه‌های لاگی WAF از این HTML/JSON به‌تنهایی تأیید نمی‌شوند. گزارش آن‌ها
 نیازمند corpus ارجاع‌شدهٔ `utcms_scraper` یا شواهد لاگی مستقل است. وضعیت
 `barname_id`، status داخلی یا shipping داخل snapshot ربات مرجع نیز جای قاعدهٔ
-سه‌شاهدی BarPro در [UTCMS_CONSTRAINTS.md](UTCMS_CONSTRAINTS.md) را نمی‌گیرد.
+دوشاهدی + تأیید یکجای History در [UTCMS_CONSTRAINTS.md](UTCMS_CONSTRAINTS.md) را نمی‌گیرد.

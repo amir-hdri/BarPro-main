@@ -4,6 +4,96 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-05 — Registration proof: two witnesses + batched confirmation
+
+#### Changed
+- **Registration proof reduced to two witnesses** (`AGENTS.md` §2, `CRITICAL_RULES.md` §0,
+  `docs/UTCMS_CONSTRAINTS.md`, `docs/UTCMS_RECONCILIATION.md`,
+  `docs/UTCMS_BOT_BEHAVIOR_CONTRACT.md` §6, `docs/INDEX.md`, `DEPLOYMENT_GUIDE.md`,
+  `docs/operations/DEPLOYMENT_GUIDE.md`, `docs/operations/runbook_tracking_first_acknowledgement.md`,
+  `docs/BARPRO_KNOWLEDGE_GRAPH.md` §7.3): the per-waybill third witness (a matching
+  UTCMS History/Search record) is removed from the proof contract. Proof is now
+  (1) a non-empty tracking code in the RPA response and (2) the same code persisted
+  in `waybill_jobs.result_json`. Final confirmation is batched rather than
+  per-waybill: `orchestrator.reconciliation.audit_tracking_received`
+  (`reconcile_tracking_received_jobs`) sweeps every tracking-received job in one
+  pass with `audit_only=True`, setting `reconciled_at` and
+  `mutation_status='confirmed'`; no per-waybill History check is needed during the
+  day. The `JobStateMachine` success gate (`mutation_status='confirmed'`
+  + `reconciled_at` + persisted tracking code) is unchanged in code.
+- **Domain skills scoped to the repository**: all BarPro agent skills moved from
+  global installs (`~/.claude/skills`, `~/.config/opencode/skills`, `~/.gemini/skills`,
+  `~/.agents/skills`) into `~/GitHub/BarPro-main/.agents/skills/` (21 skills);
+  global copies and symlinks removed. The temporary `barpro-leak` stub (which
+  dumped `git status/log/diff` into a failing-test message) was then deleted
+  outright, leaving 20 skills.
+- **BarPro skills aligned with the two-witness rule**:
+  `barpro-waybill-submission-safety` (SKILL.md + `references/call-site-map.md`),
+  `barpro-rpa-ops`, and `barpro-master-upgrade` now state the two-witness proof
+  plus batched `audit_tracking_received` confirmation; stale
+  `038_add_multiroute_batch_distance` head reference updated to the current
+  `041_driver_plate_tracking_fields`.
+
+### 2026-10-05 — Event-driven OTP wake-up, lease locking, Iranian DST tolerance & single-flight attribution
+
+#### Added
+- **Event-driven OTP wake-up consumer** (`app/services/otp_wakeup_consumer.py`): background
+  stream processor listening on `rpa:otp:stream` with consumer group `barpro_otp_group` and
+  atomic `XACK`. When an OTP arrives, `resolve_and_complete_pending_job_for_otp` immediately
+  locates waybill jobs waiting for OTP (`WAITING_OTP` or `UNKNOWN` with `otp_required`) and executes
+  immediate document completion via `submit_otp`. Resolves the late SMS race condition where an
+  SMS arrives at second 125 after the 120-second worker loop expired.
+- **Distributed lease locking** (`app/automation/otp_keys.py`: `reserve_otp_issue_lease`,
+  `release_otp_issue_lease`): atomic 30-second TTL distributed lease with token ownership
+  verification (`lock:otp:issue:{job_id}`). Prevents concurrent issuance and race conditions
+  between the active Celery worker and the webhook background issuer.
+- **Single-flight phone attribution fallback** (`app/services/otp_wakeup_consumer.py`:
+  `resolve_single_flight_pending_phone`): solves the Iranian SIM card limitation where Irancell
+  and MCI SIMs lack MSISDN on the chip. When incoming SMS arrives via a shared GSM gateway without
+  a driver phone, the system checks whether exactly one waybill is pending OTP; if so, the SMS is
+  safely attributed to that job.
+- **Multi-channel driver phone attribution** (`app/api/routes/otp_forwarder.py`): incoming SMS
+  can attribute the driver phone via path parameter (`/sms-forwarder/{driver_phone}`), query
+  parameter (`?driver_phone=...`), custom header (`X-Driver-Phone`), or JSON body field,
+  simplifying setup for third-party Android forwarding apps.
+- **Celery periodic stream consumer task** (`app/workers/tasks.py`: `sweep_otp_stream`,
+  `app/workers/celery_app.py`): scheduled every 5 seconds (`schedule(5.0)`) on `rpa_scheduler`
+  (`RPA_SCHEDULER_QUEUE`) with 4-second expiry to drain and acknowledge Redis Stream events
+  reliably without introducing worker queue delays.
+- **Client opt-in OTP flow flag** (`app/schemas/multitenant.py`): added `allow_otp_flow: bool = True`
+  to `WaybillJobCreate` and `WaybillBatchItemCreate`, enabling automated OTP flow by default for all jobs.
+- **Standalone SMS Forwarder simulator** (`scripts/sms_forwarder_simulator.py`): CLI utility
+  supporting direct webhook POSTs, HMAC-signed gateway envelopes, and health probes for offline
+  and operator testing without a physical Android device.
+
+#### Fixed
+- **Squid proxy injection for OTP submission** (`app/services/waybill_job_service.py`): `submit_otp`
+  now instantiates `UtcmsMobileClient` using `get_worker_proxy_url()`, routing mobile requests
+  through the designated Iranian Squid proxy and safeguarding the central server IP.
+- **Atomic consumed OTP invalidation** (`app/automation/otp_keys.py`: `consume_scoped_otp`):
+  called immediately upon successful waybill issuance across `waybill_job_service.py`,
+  `waybill_enhanced.py`, and `waybill_bot_multitenant.py`. Atomically deletes `rpa:otp:job:{job_id}`,
+  `rpa:otp:phone:{phone}`, `rpa:job:pending_doc:{job_id}`, and cleans up pending sets so a stale
+  OTP cannot be reused for a subsequent waybill.
+- **Iranian DST clock skew tolerance** (`app/services/otp_delivery.py`: `sms_received_at`):
+  handles unpatched Android devices affected by the Iranian government's 1402 cancellation of
+  daylight saving time. Automatically normalizes 1-hour (3600s +/- 90s) clock shifts back to UTC/server
+  time, avoiding false 410 or 422 rejections.
+- **Ambiguous OTP protection guard** (`app/api/routes/otp_forwarder.py`, `otp_wakeup_consumer.py`):
+  when more than one waybill is pending OTP and an incoming SMS lacks a `driver_phone`, the system
+  fails closed with HTTP 422 (`AMBIGUOUS_OTP`) rather than guessing, requiring driver phone attribution.
+- **Server `ingested_at` anchoring** (`app/automation/waybill_enhanced.py`): evaluates OTP freshness
+  against server-side ingestion timestamp rather than client device clock, preventing premature timeouts.
+- **Zero-latency worker loop exit** (`app/automation/waybill_bot_multitenant.py`): Celery worker wait
+  loop polls `completed_otp:{job_id}`, allowing instant exit with `SUCCESS` as soon as the webhook
+  completes the document.
+
+#### Tests
+- New comprehensive test suite: `tests/test_otp_wakeup_and_lifecycle.py` (13 tests verifying late
+  SMS auto-completion, lease locking concurrency, atomic key cleanup, device clock skew, single-flight
+  attribution, Redis streams processing, Iranian DST tolerance, ambiguous OTP rejection, and full
+  HTTP E2E webhook-to-job database completion). All 84 OTP, forwarder, and contract tests passing.
+
 ### 2026-10-04 — GPS shipping fences, durable OTP intake & operator-endpoint hardening
 
 #### Added

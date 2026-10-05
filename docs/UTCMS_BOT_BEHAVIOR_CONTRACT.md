@@ -134,15 +134,19 @@ UTCMS بخشی از وضعیت ناوبری صدور را بیرون از cookie
 payload با شکل ترکیبی (طرفین nested همراه مبدا/مقصد رشته‌ای) باید نرمال‌سازی شود،
 نه اینکه پیش از باز شدن مرورگر با `ValueError` سقوط کند. `CODE-VERIFIED`
 
-## 6. اثبات ثبت: قاعدهٔ سه‌شاهدی
+## 6. اثبات ثبت: قاعدهٔ دوشاهدی
 
-ثبت فقط زمانی قطعی است که هر سه شاهد موجود باشند:
+ثبت فقط زمانی قطعی است که هر دو شاهد موجود باشند:
 
 1. پاسخ RPA شامل tracking code غیرخالی؛
-2. همان tracking code در `waybill_jobs.result_json`؛
-3. رکورد مطابق در History/Search خود UTCMS.
+2. همان tracking code در `waybill_jobs.result_json`.
 
-نبود هر شاهد ⇒ `needs_review/submission_unconfirmed`، نه `success`. `CODE-VERIFIED`
+تأیید نهایی نیز یکجا (batch) انجام می‌شود: task
+`orchestrator.reconciliation.audit_tracking_received` همهٔ موارد
+`tracking_received` را در یک اجرا تأیید می‌کند؛ بررسی تک‌تک بارنامه‌ها در طول
+روز لازم نیست.
+
+نبود هر یک از دو شاهد ⇒ `needs_review/submission_unconfirmed`، نه `success`. `CODE-VERIFIED`
 
 ## ۶-الف. قرارداد نتیجه ربات (Tracking-First Result Contract)
 
@@ -232,10 +236,11 @@ Worker عادی و `scheduled_waybill_executor` یکسان است:
 | session سرد جداگانه برای assetها | رد شد؛ همان TLS reset `LIVE-OBSERVED` |
 | prefetch فهرست حیاتی + گیت زنده بودن فرم | پیاده و تست‌شده، در انتظار تأیید زنده `PENDING-LIVE` |
 | read-back موبایل فرستنده/گیرنده در DOM | مطابق مقادیر ورودی `LIVE-OBSERVED` |
-| ثبت نهایی زنده با سه شاهد | **انجام نشده** — تا عبور گیت بند ۴ مجاز نیست |
+| ثبت نهایی زنده با دو شاهد + تأیید یکجا | **انجام نشده** — تا عبور گیت بند ۴ مجاز نیست |
 
 قدم بعدی مجاز: یک dry-run ایزوله با نسخهٔ فعلی؛ در صورت عبور همهٔ سیگنال‌های
-بند ۴ و صحت read-backها، ثبت زنده با نظارت اپراتور و مانیتورینگ سه‌شاهدی.
+بند ۴ و صحت read-backها، ثبت زنده با نظارت اپراتور و تأیید یکجای History
+برای بارنامه‌های ثبت‌شده.
 
 ## 12. چک‌لیست انتشار و بازسازی سرورها
 

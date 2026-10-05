@@ -3,7 +3,7 @@
 **تاریخ تدوین:** ۱۵ اوت ۲۰۲۶ (۱۴۰۵/۰۵/۲۴)  
 **سرویس:** `app.services.utcms_submission_gate.UTCMSSubmissionGate`
 
-**وضعیت انتشار 2026-09-09:** پس از observation معتبر `OTP_FREE`، scheduler به‌صورت خودکار Jobهای آماده را dispatch می‌کند؛ زمان روز فقط prediction است. برای وضعیت دقیق انتشار و سه‌شاهدی بودن ثبت‌ها به [OPERATIONS_STATUS_2026-09-09.md](archive/OPERATIONS_STATUS_2026-09-09.md) مراجعه کنید.
+**وضعیت انتشار 2026-09-09:** پس از observation معتبر `OTP_FREE`، scheduler به‌صورت خودکار Jobهای آماده را dispatch می‌کند؛ زمان روز فقط prediction است. برای وضعیت دقیق انتشار و ثبت‌ها به [OPERATIONS_STATUS_2026-09-09.md](archive/OPERATIONS_STATUS_2026-09-09.md) مراجعه کنید.
 
 ---
 

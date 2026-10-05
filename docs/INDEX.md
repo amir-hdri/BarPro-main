@@ -3,6 +3,7 @@
 ## مراجع عملیاتی اصلی
 
 - [رفتار سامانه UTCMS و پاسخ ربات](UTCMS_SITE_BEHAVIOR_AND_BOT_RESPONSE.md) — مرجع یکپارچهٔ رفتار سایت: سیاست asset، نقشهٔ pane‌ها، نقص‌های بالادستی، سه مسیر کپچا/ثبت، قرارداد OTP و شواهد اجراهای زنده
+- [کالبدشکافی عمیق و نقشه راه جامع: سیستم SMS Forwarder و چرخه OTP](SMS_FORWARDER_AND_OTP_LIFECYCLE.md) — معماری رویدادمحور، بیدارسازی سند معلق، قفل اجاره (Lease)، تاب‌آوری DST و انتساب تک‌پرواز
 - [قوانین و رفتار الزامی ربات در مواجهه با UTCMS](UTCMS_BOT_BEHAVIOR_CONTRACT.md) — مرجع واحد خطوط قرمز، قرارداد session/transport، گیت زنده بودن فرم، read-back فیلدها و پروتکل dry-run
 - [قرارداد و محدودیت‌های UTCMS](UTCMS_CONSTRAINTS.md) — فیلدهای اجباری، CAPTCHA، IP/WAF، زمان‌بندی، صف‌ها و معیار اثبات ثبت
 - [قابلیت چندمسیره + فاصله/زمان](MULTI_ROUTE_FEATURE.md) — قالب مسیر، دستهٔ چندمسیره و محاسبهٔ فاصله/زمان جاده‌ای
@@ -53,14 +54,14 @@ bash manage.sh stop
 
 ## Important Current State
 
-- Alembic head is `040_add_route_template_polyline`
+- Alembic head is `041_driver_plate_tracking_fields`
 - Frontend Docker builds inside `apps/web/Dockerfile`
 - No prebuilt `.next/standalone` upload is required
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
 - Keep `AUTH_COOKIE_SECURE=false` on HTTP; switch to `true` after HTTPS
 - Required captcha assets include CNN, PyTorch fuel CRNN, fuel vocab, and Keras fallback model
 - Keras runs in-process; the `17:30–08:00` OTP interval is predictive, not a guaranteed UTCMS window
-- Waybill `success` requires three-witness reconciliation; browser success alone is not final
+- Waybill registration proof is two witnesses (RPA tracking code + `result_json`); final confirmation arrives through the batched `audit_tracking_received` History sweep, not per-waybill checks; browser success alone is not final
 - The issuance form must pass a JavaScript-liveness gate (jQuery, jQuery UI autocomplete, validator, step handler) before any field is filled; DOM markers alone are not readiness
 - Universal mobile anti-zoom enforced across iOS and Android
 
