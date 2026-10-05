@@ -35,7 +35,11 @@ _REPORTED_DISTANCE_RE = re.compile(r"فعلی\s*[:：]?\s*(\d+(?:\.\d+)?)")
 def normalize_shipping_message(value: Any) -> str:
     """Fold the Persian spelling variants UTCMS mixes into one comparable form."""
     text = str(value or "")
-    for source, target in (("‌", ""), ("ي", "ی"), ("ى", "ی"), ("ك", "ک"), ("أ", "ا"), ("إ", "ا")):
+    # ZWNJ becomes a SPACE, not deletion: Word-joining it away merges the two
+    # sides ("نمی‌باشد"→"نمیباشد"), which then evades the space-bearing
+    # rejection markers ("نمی باشد", "مجاز نیست") and can flip a refused
+    # 4006/4011 into a false acknowledgement.
+    for source, target in (("‌", " "), ("ي", "ی"), ("ى", "ی"), ("ك", "ک"), ("أ", "ا"), ("إ", "ا")):
         text = text.replace(source, target)
     return " ".join(text.split())
 

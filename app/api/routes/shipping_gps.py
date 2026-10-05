@@ -296,7 +296,8 @@ def _rejection_detail(job_id: str, rejection: dict[str, Any]) -> dict[str, Any]:
     contract. Only the category, the result code, a mapped Persian message and
     the cooldown cross the boundary; the raw body stays server-side.
     """
-    raw = rejection.get("result") if isinstance(rejection.get("result"), dict) else {}
+    raw_result = rejection.get("result")
+    raw: dict[str, Any] = raw_result if isinstance(raw_result, dict) else {}
     status = str(rejection.get("status") or "rejected")
     logger.error(
         "utcms_finish_rejected job=%s status=%s result=%r backoff_until=%s",
