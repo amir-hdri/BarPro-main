@@ -4,17 +4,22 @@ import base64
 import binascii
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, cast
 
 import cv2
 import numpy as np
 
 try:
-    import torch
-    import torch.nn as nn
+    import torch as _torch
+    import torch.nn as _nn
 except ImportError:  # pragma: no cover
-    torch = None
-    nn = None
+    torch: ModuleType | None = None
+    nn: ModuleType | None = None
+else:
+    # Keep optional availability separate from the statically typed module aliases.
+    torch = _torch
+    nn = _nn
 
 if TYPE_CHECKING:
     from app.automation.captcha.barname_ml_solver import MlMathCaptchaCandidate
@@ -28,31 +33,31 @@ IMG_W = 160
 IMG_H = 48
 
 
-class MathCRNN(nn.Module if nn else object):  # type: ignore[misc]
+class MathCRNN(_nn.Module if nn else object):  # type: ignore[misc]
     def __init__(self, num_classes: int) -> None:
         super().__init__()
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, 3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d((2, 1)),
-            nn.Conv2d(128, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d((2, 1)),
-            nn.Conv2d(128, 128, (3, 1), padding=0),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
+        self.cnn = _nn.Sequential(
+            _nn.Conv2d(1, 32, 3, padding=1),
+            _nn.BatchNorm2d(32),
+            _nn.ReLU(inplace=True),
+            _nn.MaxPool2d(2, 2),
+            _nn.Conv2d(32, 64, 3, padding=1),
+            _nn.BatchNorm2d(64),
+            _nn.ReLU(inplace=True),
+            _nn.MaxPool2d(2, 2),
+            _nn.Conv2d(64, 128, 3, padding=1),
+            _nn.BatchNorm2d(128),
+            _nn.ReLU(inplace=True),
+            _nn.MaxPool2d((2, 1)),
+            _nn.Conv2d(128, 128, 3, padding=1),
+            _nn.BatchNorm2d(128),
+            _nn.ReLU(inplace=True),
+            _nn.MaxPool2d((2, 1)),
+            _nn.Conv2d(128, 128, (3, 1), padding=0),
+            _nn.BatchNorm2d(128),
+            _nn.ReLU(inplace=True),
         )
-        self.rnn = nn.GRU(
+        self.rnn = _nn.GRU(
             input_size=128,
             hidden_size=96,
             num_layers=2,
@@ -60,18 +65,18 @@ class MathCRNN(nn.Module if nn else object):  # type: ignore[misc]
             batch_first=True,
             dropout=0.2,
         )
-        self.fc = nn.Linear(96 * 2, num_classes)
+        self.fc = _nn.Linear(96 * 2, num_classes)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: _torch.Tensor) -> _torch.Tensor:
         conv = self.cnn(x)
         conv = conv.squeeze(2)
         conv = conv.permute(0, 2, 1)
         recurrent, _ = self.rnn(conv)
         logits = self.fc(recurrent)
-        return logits.permute(1, 0, 2)
+        return cast(_torch.Tensor, logits.permute(1, 0, 2))
 
 
-def decode_ctc(logits: torch.Tensor, vocab: list[str]) -> tuple[str, float]:
+def decode_ctc(logits: _torch.Tensor, vocab: list[str]) -> tuple[str, float]:
     probs = logits.permute(1, 0, 2).softmax(dim=-1)[0]  # (W_seq, num_classes)
     max_probs, max_indices = probs.max(dim=-1)
     max_indices_np = max_indices.cpu().numpy()
@@ -98,7 +103,7 @@ class MathCrnnSolver:
         # Any: torch is an optional dependency (try/except import); the
         # MathCRNN instance is only created after a successful lazy load.
         self._model: Any = None
-        self._device = None
+        self._device: _torch.device | None = None
         self._loaded = False
         self._available = False
 
@@ -115,20 +120,30 @@ class MathCrnnSolver:
             self._available = False
             return
 
-        if torch.backends.mps.is_available():
-            self._device = torch.device("mps")
-        elif torch.cuda.is_available():
-            self._device = torch.device("cuda")
+        if _torch.backends.mps.is_available():
+            self._device = _torch.device("mps")
+        elif _torch.cuda.is_available():
+            self._device = _torch.device("cuda")
         else:
-            self._device = torch.device("cpu")
+            self._device = _torch.device("cpu")
 
         try:
-            checkpoint = torch.load(self.model_path, map_location=self._device)
+            checkpoint = _torch.load(self.model_path, map_location=self._device, weights_only=True)
             state_dict = (
                 checkpoint["model_state"]
                 if isinstance(checkpoint, dict) and "model_state" in checkpoint
                 else checkpoint
             )
+            # Both the training wrapper (model_state plus primitive metadata)
+            # and legacy tensor-only state dictionaries are supported.
+            if (
+                not isinstance(state_dict, dict)
+                or not state_dict
+                or not all(
+                    isinstance(key, str) and isinstance(value, _torch.Tensor) for key, value in state_dict.items()
+                )
+            ):
+                raise ValueError("Math CRNN checkpoint must contain a tensor state_dict")
             model = MathCRNN(num_classes=len(VOCAB) + 1).to(self._device)
             model.load_state_dict(state_dict)
             model.eval()
@@ -149,9 +164,9 @@ class MathCrnnSolver:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
         resized = cv2.resize(gray, (IMG_W, IMG_H), interpolation=cv2.INTER_AREA)
         norm = (255.0 - resized.astype(np.float32)) / 255.0
-        tensor_img = torch.from_numpy(norm).unsqueeze(0).unsqueeze(0).to(self._device)
+        tensor_img = _torch.from_numpy(norm).unsqueeze(0).unsqueeze(0).to(self._device)
 
-        with torch.no_grad():
+        with _torch.no_grad():
             logits = self._model(tensor_img)
             pred_text, confidence = decode_ctc(logits, VOCAB)
 

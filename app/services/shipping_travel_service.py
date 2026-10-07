@@ -61,6 +61,16 @@ async def ensure_route_snapshot(state: ShippingState) -> dict[str, Any]:
     if isinstance(state.route_snapshot, dict) and state.route_snapshot.get("polyline"):
         return state.route_snapshot
     snapshot = await resolve_route(state.origin_lat, state.origin_lng, state.dest_lat, state.dest_lng)
+    if snapshot.get("road_anchor_verified"):
+        # A legacy trip has already registered these anchors. Planning recovery
+        # cannot move a started trip onto newly snapped endpoints retroactively.
+        for key, expected in (
+            ("origin", (state.origin_lat, state.origin_lng)),
+            ("destination", (state.dest_lat, state.dest_lng)),
+        ):
+            point = snapshot[key]
+            if haversine_km(point["lat"], point["lng"], *expected) > 0.001:
+                raise ValueError("legacy route anchor requires review; cannot resnap an existing trip")
     state.route_snapshot = snapshot
     state.route_source = str(snapshot.get("source") or "")
     state.route_distance_km = float(snapshot.get("distance_km") or 0.0)
@@ -77,6 +87,13 @@ def build_engine_for_state(state: ShippingState, *, preset: str = "truck_interci
     if not isinstance(snapshot, dict) or not (snapshot.get("points") or snapshot.get("polyline")):
         raise ValueError("route snapshot missing — call ensure_route_snapshot first")
     geometry = geometry_from_snapshot(snapshot)
+    # Frozen geometry belongs to these exact job anchors, never another route.
+    for actual, expected in (
+        (geometry.start, (state.origin_lat, state.origin_lng)),
+        (geometry.end, (state.dest_lat, state.dest_lng)),
+    ):
+        if haversine_km(actual.lat, actual.lon, *expected) > 0.001:
+            raise ValueError("route snapshot anchor mismatch")
     return TravelEngine.build(geometry, preset=preset)
 
 
@@ -208,11 +225,19 @@ async def verify_android_anchor(
 def snapshot_summary(state: ShippingState) -> dict[str, Any]:
     return {
         "route_source": state.route_source,
-        "is_real_route": state.route_source == "neshan",
+        "is_real_route": bool(state.route_snapshot.get("is_real_route", state.route_source == "neshan")),
+        "requested_origin": state.route_snapshot.get("requested_origin"),
+        "requested_destination": state.route_snapshot.get("requested_destination"),
+        "road_anchor_verified": bool(state.route_snapshot.get("road_anchor_verified")),
+        "snap_metadata": state.route_snapshot.get("snap_metadata", {}),
+        "coordinate_source": state.coordinate_source,
         "route_distance_km": state.route_distance_km,
         "travel_status": state.travel_status,
         "travel_progress": state.travel_progress,
         "measured_distance_km": state.measured_distance_km or compute_measured_distance_km(state),
+        "distance_source": "route_or_virtual_points",
+        "measured_distance_is_physical": False,
+        "travel_progress_source": "simulation",
         "anchor_hash": state.anchor_hash,
         "generated_at": utc_now_iso(),
     }

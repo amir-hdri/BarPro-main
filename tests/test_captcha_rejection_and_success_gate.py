@@ -152,8 +152,8 @@ def test_save_rejection_artifact_writes_png_and_json(tmp_path: Path):
     assert out is not None and out.exists()
     payload = json.loads(out.read_text())
     assert payload["result_code"] == 4003
-    assert payload["prediction"] == "17"
-    assert payload["expression"] == "17 + 15"
+    assert "prediction" not in payload
+    assert "expression" not in payload
     assert payload["provider"] == "cnn"
     assert payload["image_png"] and Path(payload["image_png"]).exists()
 
@@ -183,14 +183,15 @@ async def test_dump_captcha_rejection_uses_last_debug(tmp_path: Path):
 
     assert solution == "32"
     assert client.last_captcha_debug is not None
-    assert client.last_captcha_debug["meta"]["expression"] == "17 + 15"
+    assert "solution" not in client.last_captcha_debug
+    assert "expression" not in client.last_captcha_debug["meta"]
 
     art = client.dump_captcha_rejection(4003, directory=tmp_path)
     assert art is not None and art.exists()
     data = json.loads(Path(art).read_text())
-    assert data["prediction"] == "32"
+    assert "prediction" not in data
     assert data["result_code"] == 4003
-    assert data["expression"] == "17 + 15"
+    assert "expression" not in data
 
 
 @pytest.mark.asyncio

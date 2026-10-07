@@ -1,5 +1,5 @@
 # BarPro — وضعیت مشکلات (Issues)
-**آخرین بروزرسانی: 2026-10-04 (v2.9.17-unreleased — fence چرخه حمل، OTP پایدار، سخت‌سازی endpointهای اپراتور)**
+**آخرین بروزرسانی: 2026-10-07 (v2.9.17-unreleased — جلوگیری از شاهد ساختگی شروع حمل؛ گیت امنیت وابستگی باز است)**
 
 > مرجع وضعیت سامانه و محدودیت‌های مشاهده‌شده: [docs/UTCMS_CONSTRAINTS.md](./docs/UTCMS_CONSTRAINTS.md)
 
@@ -13,12 +13,21 @@
 | # | مورد | شدت | فایل | وضعیت |
 |---|------|------|------|-------|
 | O1 | **تصمیم سیاستِ egress استخر Clean IP** — گیت سخت‌گیر «measured Iranian egress» (`is_operational_iranian_egress = is_usable and egress_verified and observed_country=="IR"`) هم‌اکنون روی `main` کامیت شده است. طبق تحلیل زنده‌ی 2026-08-28 (memory `clean-ip-pool-geo-gate-emptied-pool.md`)، دسترسیِ UTCMS و دسترسیِ GeoIP خارجی از egress ایران **anti-correlated** هستند، پس این گیت می‌تواند استخر را در پروداکشن خالی و تنها مسیر failover را قطع کند. تست‌های فعلی `_verify_egress_country` را mock می‌کنند و این رگرسیون را نمی‌گیرند. از زمان آن یادداشت کار عمدی روی IR-tagging انجام شده. **تصمیم با کاربر:** نگه‌داشتن گیت سخت، یا بازگرداندن «admit unmeasurable، رد فقط measured non-IR، رتبه‌بندی measured-IR اول». **تصمیم ۲۰۲۶-۱۰-۰۴:** فعلاً تغییری لازم نیست — کاربر یک IP اختصاصی اضافه برای سرور تهیه می‌کند و اتکای اصلیِ egress روی استخر Clean IP نیست؛ گیت فعلی حفظ می‌شود (بدون تغییر کد). | HIGH | `app/automation/clean_ip_pool.py` | بسته با تصمیم استقراری (IP اختصاصی اضافه)؛ بدون تغییر کد |
-| O2 | `/shipping/start` در استثنای مبهم (raised) وضعیت را `unknown` می‌گذارد که sweep/reclaim نمی‌شود؛ مسیر صدور (issuance) همان حالت را `in_transit` نگه می‌دارد. رد صریحِ غیر-4006 نیز اکنون به‌جای `ready` به `unknown` می‌رود (fail-closed ولی بدون self-service recovery). | MEDIUM | `app/api/routes/shipping_gps.py` | باز — ticket |
-| O3 | `/shipping/finish` در خطای transient (5xx/timeout/reset) به `unknown` می‌رود (strand)، درحالی‌که مسیر Beat آن را `in_transit` قابل‌retry نگه می‌دارد. | LOW | `app/api/routes/shipping_gps.py` | باز — ticket |
-| O4 | تریپ‌های legacy با `estimated_end_at` خالی روی `/shipping/finish` به 409 دائمی می‌خورند (بدون override) و پیام «۱ دقیقه دیگر» گمراه‌کننده است؛ تریپ‌های جدید همیشه ETA دارند. | MEDIUM | `app/api/routes/shipping_gps.py` | باز — ticket |
-| O5 | `_parse_calendar_day` (strptime سخت) در ۵ نقطه‌ی گزارش‌گیری ادمین wrap نشده و ورودی نامعتبر → HTTP 500 (فرانت‌اند `YYYY-MM-DD` می‌فرستد، ریسک واقعی پایین). | LOW | `app/services/admin_reporting_service.py` | باز — ticket |
-| O6 | aggregateهای «امروز / N روز اخیر» داشبورد هنوز مرز روز را naive-UTC حساب می‌کنند (۳.۵h اختلاف با روز تهران که در فیلتر `date_from/date_to` اعمال شد). | LOW | `app/services/user_reporting_service.py` | باز — ticket |
+| O2 | `/shipping/start` پس از تلاش mutation با نتیجه مبهم به `unknown` می‌رود؛ بدون مسیر self-service برای recovery. بازبینی کد 2026-10-06: این گارد عمداً حفظ شد؛ بازیابی باید شاهد خواندنی UTCMS داشته باشد و نباید به بازتلاش کور تبدیل شود. | MEDIUM | `app/api/routes/shipping_gps.py` | باز — نیازمند طراحی reconciliation؛ مسیرهای صدور نیز در 2026-10-07 unknown و بدون شاهد مبدأ شدند |
+| O3 | `/shipping/finish` پس از خطای مبهم mutation به `unknown` می‌رود؛ مسیر Beat بعضی خطاهای transient را قابل retry نگه می‌دارد. بازبینی کد 2026-10-06: یکسان‌سازی به‌صورت retry بدون شاهد نتیجه امن نیست. | LOW | `app/api/routes/shipping_gps.py` | باز — نیازمند طراحی reconciliation؛ fail-closed حفظ شد |
+| O4 | سفرهای legacy با `estimated_end_at` خالی همچنان در `/shipping/finish` با 409 متوقف می‌شوند؛ پیام ساختگی «۱ دقیقه دیگر» در 2026-10-06 با توضیح نبود زمان پایان و نیاز به بررسی پشتیبانی جایگزین شد. هیچ ETA حدسی یا override خودکار اضافه نشد. | MEDIUM | `app/api/routes/shipping_gps.py` | پیام رفع شد؛ recovery داده legacy همچنان باز |
+| O5 | ورودی تاریخ نامعتبر در گزارش‌های ادمین/کاربر با helper مشترک قبل از اجرای query به 422 تبدیل می‌شود؛ بازه معکوس 400 و روز انتهایی به‌صورت inclusive با کران UTC انحصاری اعمال می‌شود. | LOW | `app/services/reporting_dates.py`, `admin_reporting_service.py`, `user_reporting_service.py` | رفع و TEST-VERIFIED در 2026-10-06؛ تست API شش مسیر |
+| O6 | «امروز» و نمودار روزانه اکنون روز تهران را قبل از تعیین بازه و group-by محاسبه می‌کنند؛ داده مشتری دیگر و روز آینده در آمار امروز نمی‌آیند. | LOW | `app/services/user_reporting_service.py` | رفع و TEST-VERIFIED در 2026-10-06 با SQLite؛ آزمون PostgreSQL 16 آزمایشی در 2026-10-07 پاس شد؛ production تأیید نشده |
 | O7 | **هماهنگی استقرار:** `driver_phone` اکنون روی فورواردر OTP اجباری است؛ ruleهای SecureSMS موجود که فقط `{from, content, timestamp}` می‌فرستند باید دوباره پیکربندی شوند وگرنه OTP با 422 drop می‌شود. | — | `app/api/routes/otp_forwarder.py` | اقدام استقرار |
+
+شواهد اصلاحات O4/O5/O6 و A14 ممیزی 2026-10-06: `tests/test_audit_shipping_reporting_regressions.py` و
+`docs/audits/2026-10-06/shipping-reporting-focused.log` (`187 passed`). بازیابی حمل با cursor شناسه
+صعودی و حداکثر ۵۰ envelope در هر tick، پس از انتهای صفحه به ابتدا بازمی‌گردد؛ تست ۱۰۱ سفر،
+ردیف‌های آینده/فاقد ETA و تقدم Redis را پوشش می‌دهد. این cursor صرفاً برای انصاف scan است و
+اجازه mutation نیست؛ کران ETA و قفل‌های completion دست‌نخورده‌اند.
+
+
+- **گیت استقرار 2026-10-07:** audit کامل frontend به‌دلیل `GHSA-vfj7-8cjw-p6xm` در `braces <=3.0.3` همچنان ۸ مسیر high گزارش می‌کند؛ advisory نسخه اصلاح‌شده ندارد. audit runtime جداگانه و وضعیت build/CI در [گزارش تکمیل](docs/audits/2026-10-07/REPORT.fa.md) ثبت شده‌اند. این نتیجه تأیید آمادگی کامل دیپلوی نیست.
 
 ## 🆕 2026-08-26 — ریشه‌یابی زنده: چرا Clean IP Extractor جواب نمی‌داد (v2.9.7)
 

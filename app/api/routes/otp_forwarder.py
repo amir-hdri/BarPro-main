@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -16,13 +17,12 @@ from sqlmodel import select
 from app.auth_multitenant import get_current_admin, get_current_user_or_admin
 from app.automation.otp_keys import (
     normalize_phone_for_otp_key,
-    otp_job_key,
     otp_phone_key,
 )
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.redis_client import redis_manager
-from app.models_multitenant import WaybillJob
+from app.models_multitenant import Driver
 from app.services.otp_delivery import accept_forwarded_otp, recipient_phone
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def _require_webhook_auth(request: Request) -> None:
     Fail-closed: if ``OTP_WEBHOOK_SECRET`` is not configured the endpoint
     refuses every request instead of accepting unauthenticated OTP injections.
     Supports token via X-OTP-Webhook-Token, X-Webhook-Token, X-Webhook-Secret,
-    Authorization Bearer, or query parameter (for Android clients).
+    Authorization Bearer. Credentials in query strings are never accepted.
     """
     secret = (getattr(utcms_config, "OTP_WEBHOOK_SECRET", "") or "").strip()
     if not secret:
@@ -63,13 +63,9 @@ def _require_webhook_auth(request: Request) -> None:
     )
     if not token:
         auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
-    if not token and hasattr(request, "scope") and "query_string" in request.scope:
-        try:
-            token = request.query_params.get("token", "") or request.query_params.get("secret", "")
-        except Exception:
-            token = ""
+        scheme, _, credential = auth_header.partition(" ")
+        if scheme.lower() == "bearer":
+            token = credential.strip()
 
     if not token or not hmac.compare_digest(token.encode(), secret.encode()):
         logger.warning("otp_webhook_rejected: invalid or missing webhook token")
@@ -400,18 +396,18 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
 
     if not phone and request.query_params:
         for key in ("driver_phone", "driver_mobile", "phone", "mobile", "target", "target_phone", "recipient"):
-            val = request.query_params.get(key)
-            if val:
-                clean_val = normalize_phone_for_otp_key(val)
+            query_phone = request.query_params.get(key)
+            if query_phone:
+                clean_val = normalize_phone_for_otp_key(query_phone)
                 if re.fullmatch(r"09[0-9]{9}", clean_val) and clean_val != sender:
                     phone = clean_val
                     break
 
     if not phone:
         for key in ("X-Driver-Phone", "X-Driver-Mobile", "X-Target-Phone", "X-Phone"):
-            val = request.headers.get(key)
-            if val:
-                clean_val = normalize_phone_for_otp_key(val)
+            header_phone = request.headers.get(key)
+            if header_phone:
+                clean_val = normalize_phone_for_otp_key(header_phone)
                 if re.fullmatch(r"09[0-9]{9}", clean_val) and clean_val != sender:
                     phone = clean_val
                     break
@@ -483,64 +479,28 @@ async def submit_manual_otp(
     if not re.fullmatch(r"[0-9]{4,8}", code):
         raise HTTPException(status_code=400, detail="Invalid OTP code format (must be 4 to 8 digits)")
 
-    role = user_context.get("role")
-    if role != "master_admin":
-        client = user_context.get("user")
-        client_id = getattr(client, "id", None)
-        if client_id is None:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        if not req.job_id:
-            raise HTTPException(
-                status_code=403,
-                detail="job_id is required for client OTP submissions",
-            )
-        # Verify the caller owns the target job before writing its OTP key.
-        async with async_session_factory() as session:
-            statement = select(WaybillJob).where(
-                (WaybillJob.client_id == client_id) & (WaybillJob.job_id == req.job_id)
-            )
-            result = await session.exec(statement)
-            if not result.first():
-                raise HTTPException(status_code=404, detail="Job not found")
-
-    stored = await store_otp_in_redis(
-        code=code,
-        sender="manual_operator",
-        text=f"Manual OTP submission: {code}",
-        # A job submission must never also target a caller-supplied phone belonging to another tenant.
-        phone=(req.phone or "") if not req.job_id else "",
-    )
-
     if req.job_id:
-        r = await redis_manager.get()
-        if r:
-            payload_json = json.dumps(stored, ensure_ascii=False)
-            await r.set(otp_job_key(req.job_id), payload_json, ex=DEFAULT_OTP_TTL)
-        try:
-            from app.services.otp_wakeup_consumer import trigger_job_completion_on_otp_received
+        # Job ownership, challenge freshness and dispatch are one durable path.
+        # Never forward a caller-selected phone into privileged job cleanup.
+        from app.services.waybill_job_service import WaybillJobService
 
-            trigger_job_completion_on_otp_received(phone=req.phone, code=code, job_id=req.job_id)
-        except Exception as trigger_err:
-            logger.debug("manual_otp_wakeup_trigger_failed: %s", trigger_err)
-    elif req.phone:
-        try:
-            from app.services.otp_wakeup_consumer import trigger_job_completion_on_otp_received
+        async with async_session_factory() as session:
+            job = await WaybillJobService.submit_otp(
+                user_context=user_context, job_id=req.job_id, session=session, otp_code=code
+            )
+        return {
+            "status": "accepted",
+            "job_id": req.job_id,
+            "job_status": job.status,
+            "received_at": time.time(),
+        }
 
-            trigger_job_completion_on_otp_received(phone=req.phone, code=code)
-        except Exception as trigger_err:
-            logger.debug("manual_otp_wakeup_trigger_failed: %s", trigger_err)
-
-    logger.info(
-        "manual_otp_submitted",
-        extra={"extra_fields": {"code_len": len(code), "phone": req.phone, "job_id": req.job_id}},
-    )
-
-    return {
-        "status": "success",
-        "message": "Manual OTP received and stored in Redis",
-        "job_id": req.job_id,
-        "received_at": stored.get("received_at"),
-    }
+    if user_context.get("role") != "master_admin":
+        raise HTTPException(status_code=403, detail="job_id is required for client OTP submissions")
+    if not req.phone:
+        raise HTTPException(status_code=422, detail="A driver phone or job_id is required")
+    stored = await accept_forwarded_otp(code=code, sender="manual_operator", text="", phone=req.phone, timestamp=None)
+    return {"status": "accepted", "job_id": None, "received_at": stored.get("received_at", time.time())}
 
 
 @router.get("/ping", summary="Quick connectivity heartbeat for Android forwarders")
@@ -553,21 +513,60 @@ async def ping_otp_service() -> dict[str, Any]:
     }
 
 
-@router.get("/health", summary="Health check for OTP intake and storage")
-async def health_otp_service(request: Request) -> dict[str, Any]:
-    """Check OTP service readiness and Redis storage connectivity."""
-    redis_ok = False
-    try:
+async def _otp_readiness() -> dict[str, bool]:
+    async def storage_connected() -> bool:
         redis = await redis_manager.get()
-        if redis and hasattr(redis, "ping"):
-            redis_ok = bool(await redis.ping())
+        return bool(redis is not None and await redis.ping())
+
+    try:
+        redis_ok = await asyncio.wait_for(storage_connected(), timeout=2.0)
     except Exception:
         redis_ok = False
+    configured = bool((getattr(utcms_config, "OTP_WEBHOOK_SECRET", "") or "").strip())
+    return {"redis_connected": redis_ok, "token_configured": configured, "intake_ready": redis_ok and configured}
+
+
+@router.get("/health", summary="Health check for OTP intake and storage")
+async def health_otp_service(request: Request) -> dict[str, Any]:
+    """Report intake readiness without claiming the driver's forwarder is connected."""
+    readiness = await _otp_readiness()
     return {
-        "status": "healthy" if redis_ok else "degraded",
-        "redis_connected": redis_ok,
+        "status": "healthy" if readiness["intake_ready"] else "degraded",
+        **readiness,
         "protocol": "barpro-otp-v1",
         "timestamp": time.time(),
+    }
+
+
+@router.get("/forwarder-config/{driver_id}", summary="Safe, tenant-owned driver forwarder setup")
+async def get_driver_forwarder_config(
+    driver_id: int,
+    user_context: dict[str, Any] = Depends(get_current_user_or_admin),
+) -> dict[str, Any]:
+    statement = select(Driver).where(Driver.id == driver_id)
+    if user_context.get("role") != "master_admin":
+        client_id = getattr(user_context.get("user"), "id", None)
+        if client_id is None:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        statement = statement.where(Driver.client_id == client_id)
+    async with async_session_factory() as session:
+        driver = (await session.exec(statement)).first()
+    if driver is None:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    phone = normalize_phone_for_otp_key(driver.phone)
+    if not re.fullmatch(r"09[0-9]{9}", phone):
+        raise HTTPException(status_code=409, detail="شماره موبایل معتبر راننده را ابتدا ثبت کنید")
+    readiness = await _otp_readiness()
+    return {
+        "driver_id": driver.id,
+        "driver_phone": phone,
+        "webhook_path": f"/api/v1/otp/sms-forwarder/{phone}",
+        "token_configured": readiness["token_configured"],
+        "storage_ready": readiness["redis_connected"],
+        "intake_ready": readiness["intake_ready"],
+        "required_header_name": WEBHOOK_TOKEN_HEADER,
+        "authentication_instructions": "اپراتور مجاز باید توکن فورواردر را در هدر برنامه تنظیم کند؛ توکن در URL قرار نگیرد.",
+        "forwarder_connection_verified": False,
     }
 
 

@@ -27,6 +27,7 @@ MODULES = [
     "app.automation.captcha.fuel_captcha_solver",
     "app.automation.captcha.neural_net",
     "app.automation.captcha.math_crnn_solver",
+    "app.automation.captcha.barname_ml_solver",
 ]
 
 PACKAGE = "app.automation.captcha"
@@ -43,6 +44,9 @@ def _preserve_parent_attrs(monkeypatch):
     monkeypatch restores sys.modules but not these attributes, so record and
     restore them explicitly.
     """
+    container = sys.modules.get("app.automation")
+    if container is not None and hasattr(container, "captcha"):
+        monkeypatch.setattr(container, "captcha", container.captcha)
     parent = sys.modules.get(PACKAGE)
     if parent is None:
         return
@@ -50,6 +54,11 @@ def _preserve_parent_attrs(monkeypatch):
         attr = mod.rsplit(".", 1)[-1]
         if hasattr(parent, attr):
             monkeypatch.setattr(parent, attr, getattr(parent, attr))
+        else:
+            # Record original absence as well: a first import inside this
+            # fixture must not leave a torch-less module on the parent.
+            monkeypatch.setattr(parent, attr, None, raising=False)
+            monkeypatch.delattr(parent, attr)
 
 
 @pytest.fixture()
@@ -69,6 +78,10 @@ def no_torch(monkeypatch):
     for name in [n for n in sys.modules if n == "torch" or n.startswith("torch.")]:
         monkeypatch.delitem(sys.modules, name, raising=False)
     for mod in MODULES:
+        if mod not in sys.modules:
+            # Track absence so modules first imported by this test are removed
+            # again when monkeypatch restores the import cache.
+            monkeypatch.setitem(sys.modules, mod, None)
         for name in [n for n in sys.modules if n == mod or n.startswith(mod + ".")]:
             monkeypatch.delitem(sys.modules, name, raising=False)
     return fake_import
@@ -114,3 +127,9 @@ def test_captcha_package_imports_without_torch(no_torch, monkeypatch):
         monkeypatch.delitem(sys.modules, name, raising=False)
     pkg = importlib.import_module(PACKAGE)
     assert pkg.get_captcha_provider is not None
+
+
+def test_math_solver_imports_without_torch_and_reports_unavailable(no_torch):
+    module = _import("app.automation.captcha.math_crnn_solver")
+    assert module.torch is None
+    assert module.MathCrnnSolver().available is False

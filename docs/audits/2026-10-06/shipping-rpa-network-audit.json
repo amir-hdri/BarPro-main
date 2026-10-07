@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "ssrf_risk_checked": true,
+  "is_safe_proxy_url_used": true,
+  "violations": [],
+  "note": "Playwright close-timeout enforcement lives in `app/automation/browser.py`; verify by reading the recycle_browser and teardown paths."
+}

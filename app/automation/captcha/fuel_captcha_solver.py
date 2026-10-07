@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from threading import Lock
+from types import ModuleType
 from typing import Any
 
 import numpy as np
@@ -13,49 +14,53 @@ from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.automation.captcha.persian_number_parser import persian_words_to_number
 
 try:
-    import torch
-    import torch.nn as nn
+    import torch as _torch
+    import torch.nn as _nn
 except ImportError:
-    torch = None
-    nn = None
+    torch: ModuleType | None = None
+    nn: ModuleType | None = None
+else:
+    # Keep optional availability separate from the statically typed module aliases.
+    torch = _torch
+    nn = _nn
 
 logger = logging.getLogger(__name__)
 
 
 # Recreate the model architecture inside the solver class.
-# Defined only when torch is importable: the class body evaluates nn.Module at
+# Defined only when torch is importable: the class body evaluates _nn.Module at
 # import time (same pattern as barname_ml_solver / dnt_captcha_solver).
 if nn is not None:  # pragma: no cover - requires real torch
 
-    class CRNN(nn.Module):
+    class CRNN(_nn.Module):
         def __init__(self, num_classes, img_channel=1):
             super().__init__()
-            self.cnn = nn.Sequential(
-                nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Conv2d(32, 64, kernel_size=3, padding=1),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=2, stride=2),
-                nn.Conv2d(64, 128, kernel_size=3, padding=1),
-                nn.BatchNorm2d(128),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=(2, 1)),
-                nn.Conv2d(128, 256, kernel_size=3, padding=1),
-                nn.BatchNorm2d(256),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=(2, 1)),
-                nn.Conv2d(256, 256, kernel_size=3, padding=1),
-                nn.BatchNorm2d(256),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=(2, 1)),
+            self.cnn = _nn.Sequential(
+                _nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=2, stride=2),
+                _nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=2, stride=2),
+                _nn.Conv2d(64, 128, kernel_size=3, padding=1),
+                _nn.BatchNorm2d(128),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=(2, 1)),
+                _nn.Conv2d(128, 256, kernel_size=3, padding=1),
+                _nn.BatchNorm2d(256),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=(2, 1)),
+                _nn.Conv2d(256, 256, kernel_size=3, padding=1),
+                _nn.BatchNorm2d(256),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=(2, 1)),
             )
 
-            self.rnn = nn.GRU(
+            self.rnn = _nn.GRU(
                 input_size=256, hidden_size=128, num_layers=2, bidirectional=True, batch_first=True, dropout=0.3
             )
 
-            self.fc = nn.Linear(128 * 2, num_classes)
+            self.fc = _nn.Linear(128 * 2, num_classes)
 
         def forward(self, x):
             features = self.cnn(x)
@@ -121,9 +126,9 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
             self._model = CRNN(num_classes)
 
             # Use CPU to avoid MPS GRU inference inconsistencies on Mac
-            self._device = torch.device("cpu")
+            self._device = _torch.device("cpu")
 
-            checkpoint = torch.load(self.model_path, map_location=self._device)  # nosec B614
+            checkpoint = _torch.load(self.model_path, map_location=self._device, weights_only=True)
             self._model.load_state_dict(checkpoint)
             self._model.to(self._device)
             self._model.eval()
@@ -171,15 +176,15 @@ class PyTorchFuelCaptchaProvider(CaptchaProvider):
             img_normalized = np.array(img_resized, dtype=np.float32) / 255.0
 
             # Prepare tensor: shape (1, 1, 32, 300)
-            tensor = torch.tensor(img_normalized, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self._device)
+            tensor = _torch.tensor(img_normalized, dtype=_torch.float32).unsqueeze(0).unsqueeze(0).to(self._device)
 
-            with torch.inference_mode():
+            with _torch.inference_mode():
                 outputs = self._model(tensor)  # (SeqLen, 1, Classes)
 
             # Decode using Greedy CTC Decoder
             outputs = outputs.permute(1, 0, 2)  # (1, SeqLen, Classes)
-            preds = torch.softmax(outputs, dim=-1)
-            max_idx = torch.argmax(preds, dim=-1)[0]  # (SeqLen,)
+            preds = _torch.softmax(outputs, dim=-1)
+            max_idx = _torch.argmax(preds, dim=-1)[0]  # (SeqLen,)
 
             chars = []
             prev = -1

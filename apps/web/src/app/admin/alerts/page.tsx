@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDateTime } from "@/lib/format";
+
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { buildWebSocketUrl } from "@/lib/ws";
@@ -330,7 +332,7 @@ export default function AdminAlertsPage() {
                          <td className="p-4 font-medium text-slate-200">{alert.category}</td>
                          <td className="p-4 leading-relaxed">{alert.message}</td>
                          <td className="p-4 text-xs text-slate-400 dir-ltr text-start">
-                           {new Date(alert.created_at).toLocaleString("fa-IR")}
+                           {formatDateTime(alert.created_at)}
                          </td>
                          <td className="p-4 text-center">
                            <div className="flex items-center justify-center gap-2 flex-wrap">
@@ -396,7 +398,7 @@ export default function AdminAlertsPage() {
                      </div>
                    </div>
                    <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                     <span className="text-xs text-slate-500 dir-ltr">{new Date(alert.created_at).toLocaleString("fa-IR")}</span>
+                     <span className="text-xs text-slate-500 dir-ltr">{formatDateTime(alert.created_at)}</span>
                      <div className="flex items-center gap-2">
                        {!alert.is_acknowledged ? (
                          <button

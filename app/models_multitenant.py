@@ -497,6 +497,10 @@ class FuelInquiry(SQLModel, table=True):
     client_id: int = Field(foreign_key="clients.id", index=True)
     driver_id: int = Field(foreign_key="drivers.id", index=True)
 
+    # Immutable request identity; legacy rows intentionally remain unknown.
+    plate_number_snapshot: str | None = Field(default=None, max_length=50)
+    driver_name_snapshot: str | None = Field(default=None, max_length=255)
+
     # Status of the inquiry (pending, processing, success, failed)
     status: str = Field(default="pending", max_length=50, index=True)
     error_message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
@@ -525,6 +529,8 @@ class FuelInquiry(SQLModel, table=True):
         default_factory=lambda: datetime.now(UTC).replace(tzinfo=None),
         sa_column=Column(DateTime(timezone=False), nullable=False),
     )
+    started_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
+    finished_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=False), nullable=True))
 
 
 # Ensure UTCMSSystemObservation table is included in SQLModel metadata

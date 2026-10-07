@@ -5,10 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
+import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from fastapi import HTTPException
+from redis.exceptions import ResponseError
 from sqlmodel import col, select
 
 from app.automation.otp_keys import (
@@ -46,13 +51,21 @@ def trigger_job_completion_on_otp_received(
     code: str = "",
     job_id: str | None = None,
 ) -> None:
-    """Non-blocking background launcher when an OTP is accepted by the webhook or manual intake."""
+    """Wake the control consumer; intake must already have persisted a stream event."""
+
+    def publish() -> None:
+        try:
+            from app.core.config import utcms_config
+            from app.workers.tasks import sweep_otp_stream
+
+            sweep_otp_stream.apply_async(queue=utcms_config.RPA_SCHEDULER_QUEUE, expires=4, retry=False)
+        except Exception:
+            logger.warning("otp_stream_wakeup_deferred_to_beat", exc_info=True)
+
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(resolve_and_complete_pending_job_for_otp(phone=phone, code=code, job_id=job_id))
+        asyncio.get_running_loop().run_in_executor(None, publish)
     except RuntimeError:
-        # No running event loop (e.g. called from synchronous context or during test teardown)
-        pass
+        logger.info("otp_stream_wakeup_deferred_to_beat_no_event_loop")
 
 
 async def resolve_single_flight_pending_phone() -> str | None:
@@ -84,6 +97,9 @@ async def resolve_single_flight_pending_phone() -> str | None:
                     else:
                         stale_jobs.append(j_id)
 
+                for stale_job in stale_jobs:
+                    await redis.srem(OTP_ACTIVE_PENDING_JOBS_SET, stale_job)
+
                 if len(valid_live_jobs) > 1:
                     for sj in stale_jobs:
                         if hasattr(redis, "srem"):
@@ -105,13 +121,6 @@ async def resolve_single_flight_pending_phone() -> str | None:
                     )
                     return phone
 
-                # If no jobs had pending_doc cached (e.g. synthetic unit tests)
-                if len(active_jobs) > 1:
-                    logger.warning(
-                        "single_flight_attribution_ambiguous_redis",
-                        extra={"extra_fields": {"count": len(active_jobs)}},
-                    )
-                    return "AMBIGUOUS"
     except Exception as exc:
         logger.warning("single_flight_redis_check_failed: %s", exc)
 
@@ -174,188 +183,268 @@ async def resolve_single_flight_pending_phone() -> str | None:
     return None
 
 
+OTP_STREAM_CLAIM_IDLE_MS = 30_000
+OTP_COMPLETABLE_STATUSES = {"unknown", "needs_review", "reconciling", "running", "in_progress"}
+
+
+def otp_worker_index(worker_id: Any) -> int | None:
+    """Parse only the explicit worker identity, never the API process's default IP."""
+    raw = str(worker_id or "").split("@", 1)[0]
+    match = re.fullmatch(r"(?:worker[_-])?(\d{1,3})", raw)
+    return int(match.group(1)) if match and int(match.group(1)) > 0 else None
+
+
+async def job_driver_phone(job: WaybillJob, session: Any) -> str:
+    """Resolve cleanup/attribution only from the durable job's own tenant driver."""
+    if job.driver_id:
+        driver = await session.get(Driver, job.driver_id, populate_existing=True)
+        if driver is not None and isinstance(getattr(driver, "phone", None), str):
+            if driver.client_id != job.client_id:
+                raise HTTPException(409, "Driver tenant does not match the OTP job")
+            return normalize_phone_for_otp_key(driver.phone)
+    payload = _safe_json_dict(job.payload_json)
+    vehicle = _safe_json_dict(payload.get("vehicle"))
+    driver_data = _safe_json_dict(payload.get("driver"))
+    return normalize_phone_for_otp_key(
+        vehicle.get("driver_mobile")
+        or vehicle.get("driver_phone")
+        or driver_data.get("phone")
+        or driver_data.get("mobile")
+        or payload.get("driver_phone")
+        or payload.get("driver_mobile")
+    )
+
+
+def otp_event_is_current(entry: dict[str, Any]) -> bool:
+    try:
+        expires = float(entry.get("expires_at", 0))
+        received = float(entry.get("received_at", entry.get("ingested_at", 0)))
+        return (
+            math.isfinite(expires)
+            and math.isfinite(received)
+            and expires > time.time()
+            and 0 < received <= time.time() + 30
+        )
+    except (ValueError, TypeError):
+        return False
+
+
+async def store_job_otp_event(redis: Any, job: WaybillJob, code: str, phone: str) -> dict[str, Any]:
+    """Durable manual intake, scoped to the current document before acknowledgement."""
+    result = _safe_json_dict(job.result_json)
+    challenge = _safe_json_dict(result.get("_otp_challenge"))
+    now = time.time()
+    entry = {
+        "job_id": job.job_id,
+        "document_id": str(result.get("document_id") or job.document_id or ""),
+        "phone": phone,
+        "code": code,
+        "received_at": now,
+        "ingested_at": now,
+        "expires_at": now + 300,
+        "message_id": uuid.uuid4().hex,
+        "challenge_created_at": challenge.get("created_at"),
+    }
+    # One atomic write: no API acknowledgement with only a volatile wake-up.
+    try:
+        await redis.eval(
+            """
+local message = redis.call('XADD', KEYS[2], '*', 'payload', ARGV[1])
+redis.call('SET', KEYS[1], ARGV[1], 'EX', 300)
+return message
+""",
+            2,
+            f"rpa:otp:job:{job.job_id}",
+            OTP_STREAM_KEY,
+            json.dumps(entry),
+        )
+    except Exception as exc:
+        raise HTTPException(503, "OTP storage unavailable; retry delivery") from exc
+    trigger_job_completion_on_otp_received(job_id=job.job_id)
+    return entry
+
+
+async def dispatch_otp_to_worker(redis: Any, job: WaybillJob, entry: dict[str, Any]) -> None:
+    from app.workers.tasks import complete_otp_event
+
+    challenge = _safe_json_dict(_safe_json_dict(job.result_json).get("_otp_challenge"))
+    index = otp_worker_index(challenge.get("worker_id") or job.worker_id)
+    if index is None:
+        raise HTTPException(503, "OTP job has no verified owning worker")
+    dispatch_key = f"rpa:otp:dispatch:{entry['message_id']}"
+    if not await redis.set(dispatch_key, "1", nx=True, ex=30):
+        return
+    try:
+        await asyncio.to_thread(
+            complete_otp_event.apply_async,
+            kwargs={"entry": entry},
+            queue=f"rpa_submit_{index}",
+            expires=max(1, int(float(entry["expires_at"]) - time.time())),
+        )
+    except Exception as exc:
+        await redis.delete(dispatch_key)
+        raise HTTPException(503, "OTP worker dispatch unavailable") from exc
+
+
 async def resolve_and_complete_pending_job_for_otp(
     phone: str | None = None,
     code: str = "",
     job_id: str | None = None,
-) -> dict[str, Any] | None:
-    """Find a pending waybill job waiting for this driver's OTP and complete it immediately.
-
-    This resolves the 125-second late SMS condition: even if the Celery worker
-    timed out at 120s and left the job in UNKNOWN, the arrival of the OTP at 125s
-    will wake up the workflow, issue the document via IssueDocumentByOtp,
-    mark the job SUCCESS, and consume the OTP keys.
-    """
-    clean_phone = normalize_phone_for_otp_key(phone) if phone else None
-    if not clean_phone and not job_id:
-        return None
-
-    redis = await redis_manager.get()
-    pending_job_id: str | None = job_id
-    if not pending_job_id and redis and clean_phone:
-        pending_key = otp_pending_phone_key(clean_phone)
-        if pending_key:
-            raw_id = await redis.get(pending_key)
-            if raw_id:
-                pending_job_id = raw_id.decode() if isinstance(raw_id, bytes) else str(raw_id)
-
-    async with async_session_factory() as session:
-        target_job: WaybillJob | None = None
-        if pending_job_id:
-            target_job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == pending_job_id))).first()
-
-        if not target_job and clean_phone:
-            # Query recent candidate jobs for this driver
-            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=10)
-            statement = (
-                select(WaybillJob)
-                .where(
-                    col(WaybillJob.status).in_(
-                        [
-                            TaskStatus.UNKNOWN.value,
-                            TaskStatus.NEEDS_REVIEW.value,
-                            TaskStatus.RECONCILING.value,
-                            TaskStatus.PENDING.value,
-                            TaskStatus.WAITING_RETRY.value,
-                            TaskStatus.RETRYING.value,
-                        ]
-                    ),
-                    col(WaybillJob.updated_at) >= cutoff,
-                )
-                .order_by(col(WaybillJob.updated_at).desc())
+    *,
+    entry: dict[str, Any] | None = None,
+    execute: bool = False,
+) -> dict[str, Any]:
+    """Bind an event to one challenge, then route it to its owning worker."""
+    event = dict(entry or {})
+    if not otp_event_is_current(event):
+        return {"success": False, "terminal": True, "error": "OTP event expired or missing original timestamp"}
+    if (
+        (job_id and event.get("job_id") and job_id != event["job_id"])
+        or (
+            phone
+            and event.get("phone")
+            and normalize_phone_for_otp_key(phone) != normalize_phone_for_otp_key(event["phone"])
+        )
+        or (code and event.get("code") and code != event["code"])
+    ):
+        return {"success": False, "terminal": True, "error": "OTP event attribution cannot be overridden"}
+    clean_phone = normalize_phone_for_otp_key(phone or event.get("phone"))
+    code = code or str(event.get("code") or "")
+    pending_job_id = job_id or event.get("job_id")
+    try:
+        redis = await redis_manager.get()
+        if redis is None:
+            raise HTTPException(503, "OTP store unavailable")
+        binding_key = f"rpa:otp:binding:{event.get('message_id', '')}"
+        binding_raw = await redis.get(binding_key) if event.get("message_id") else None
+        binding = _safe_json_dict(binding_raw.decode() if isinstance(binding_raw, bytes) else binding_raw)
+        pending_job_id = binding.get("job_id") or pending_job_id
+        if not pending_job_id and clean_phone:
+            raw_id = await redis.get(otp_pending_phone_key(clean_phone))
+            pending_job_id = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
+        if not pending_job_id:
+            return {"success": False, "retryable": True, "error": "OTP challenge not yet available"}
+        async with async_session_factory() as session:
+            job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == pending_job_id))).first()
+            if job is None:
+                return {"success": False, "retryable": True, "error": "OTP job not yet available"}
+            durable_phone = await job_driver_phone(job, session)
+            if not durable_phone or (clean_phone and clean_phone != durable_phone):
+                return {"success": False, "terminal": True, "error": "OTP phone does not match job driver"}
+            result = _safe_json_dict(job.result_json)
+            document_id = str(result.get("document_id") or job.document_id or "")
+            if result.get("tracking_code"):
+                await consume_scoped_otp(redis, job_id=job.job_id, driver_phone=durable_phone)
+                return {"success": True, "terminal": True, "job_id": job.job_id, "already_completed": True}
+            if not document_id:
+                return {"success": False, "retryable": True, "error": "OTP document not persisted yet"}
+            if str(binding.get("document_id") or event.get("document_id") or document_id) != document_id:
+                return {"success": False, "terminal": True, "error": "OTP belongs to a different document"}
+            challenge = _safe_json_dict(result.get("_otp_challenge"))
+            created = float(challenge.get("created_at") or 0)
+            if not created:
+                return {"success": False, "retryable": True, "error": "OTP challenge not persisted yet"}
+            if float(event.get("received_at", 0)) < created:
+                return {"success": False, "terminal": True, "error": "OTP predates the pending challenge"}
+            event.update(
+                job_id=job.job_id,
+                document_id=document_id,
+                phone=durable_phone,
+                message_id=event.get("message_id") or uuid.uuid4().hex,
             )
-            recent_jobs = (await session.exec(statement)).all()
-            for job in recent_jobs:
-                p = _safe_json_dict(job.payload_json)
-                raw_m = (
-                    p.get("vehicle", {}).get("driver_mobile")
-                    or p.get("driver", {}).get("phone")
-                    or p.get("driver", {}).get("mobile")
-                    or p.get("driver_phone")
-                    or p.get("driver_mobile")
-                )
-                j_phone = normalize_phone_for_otp_key(raw_m)
-                if j_phone == clean_phone:
-                    target_job = job
-                    break
-                if not j_phone and job.driver_id:
-                    d = await session.get(Driver, job.driver_id)
-                    if d and normalize_phone_for_otp_key(d.phone) == clean_phone:
-                        target_job = job
-                        break
-
-        if not target_job:
-            logger.debug(
-                "no_pending_waybill_found_for_otp",
-                extra={"extra_fields": {"phone": clean_phone, "job_id": job_id}},
+            binding_key = f"rpa:otp:binding:{event['message_id']}"
+            wanted_binding = {"job_id": job.job_id, "document_id": document_id}
+            await redis.set(
+                binding_key,
+                json.dumps(wanted_binding),
+                nx=True,
+                ex=max(1, int(float(event["expires_at"]) - time.time())),
             )
-            return None
-
-        # If clean_phone was missing, try to derive it from target_job for cleanup
-        if not clean_phone:
-            pj = _safe_json_dict(target_job.payload_json)
-            m_cand = (
-                pj.get("vehicle", {}).get("driver_mobile")
-                or pj.get("driver", {}).get("phone")
-                or pj.get("driver", {}).get("mobile")
-                or pj.get("driver_phone")
-                or pj.get("driver_mobile")
-            )
-            if not m_cand and target_job.driver_id:
-                drv = await session.get(Driver, target_job.driver_id)
-                if drv:
-                    m_cand = drv.phone
-            clean_phone = normalize_phone_for_otp_key(m_cand) if m_cand else None
-
-        if target_job.status == TaskStatus.SUCCESS.value:
-            # Already completed
-            if redis:
-                await consume_scoped_otp(redis, job_id=target_job.job_id, driver_phone=clean_phone)
-            return {"success": True, "job_id": target_job.job_id, "already_completed": True}
-
-        try:
+            actual_raw = await redis.get(binding_key)
+            actual = _safe_json_dict(actual_raw.decode() if isinstance(actual_raw, bytes) else actual_raw)
+            if actual != wanted_binding:
+                return {"success": False, "terminal": True, "error": "OTP challenge binding changed"}
             from app.services.waybill_job_service import WaybillJobService
 
-            admin_context = {"role": "master_admin"}
-            logger.info(
-                "attempting_auto_completion_via_otp",
-                extra={"extra_fields": {"job_id": target_job.job_id, "phone": clean_phone}},
-            )
             response = await WaybillJobService.submit_otp(
-                user_context=admin_context,
-                job_id=target_job.job_id,
-                session=session,
-                otp_code=code,
+                {"role": "master_admin"},
+                job.job_id,
+                session,
+                code,
+                _execute=execute,
+                otp_event=event,
             )
-            res_dict = _safe_json_dict(response.result_json)
-            tracking_code = res_dict.get("tracking_code") or response.document_id
+            response_result = _safe_json_dict(response.result_json)
+            tracking = response_result.get("tracking_code")
+            if not tracking:
+                return {"success": True, "queued": True, "job_id": job.job_id}
+            await consume_scoped_otp(redis, job_id=job.job_id, driver_phone=durable_phone)
+            return {"success": True, "terminal": True, "job_id": job.job_id, "tracking_code": tracking}
+    except HTTPException as exc:
+        retryable = exc.status_code in {429, 503}
+        return {"success": False, "retryable": retryable, "terminal": not retryable, "error": str(exc.detail)}
+    except Exception:
+        logger.warning("otp_completion_infrastructure_error", exc_info=True)
+        return {"success": False, "retryable": True, "error": "OTP completion infrastructure unavailable"}
 
-            # Notify any worker that might still be waiting
-            if redis:
-                completed_payload = json.dumps({"tracking_code": str(tracking_code or "")})
-                await redis.set(f"rpa:job:completed_otp:{target_job.job_id}", completed_payload, ex=60)
-                await consume_scoped_otp(redis, job_id=target_job.job_id, driver_phone=clean_phone)
 
-            logger.info(
-                "otp_auto_completion_succeeded",
-                extra={"extra_fields": {"job_id": target_job.job_id, "tracking_code": tracking_code}},
-            )
-            return {"success": True, "job_id": target_job.job_id, "tracking_code": tracking_code}
-        except Exception as exc:
-            logger.warning(
-                "otp_auto_completion_failed",
-                extra={"extra_fields": {"job_id": target_job.job_id, "error": str(exc)}},
-            )
-            return {"success": False, "job_id": target_job.job_id, "error": str(exc)}
+async def acknowledge_otp_event(redis: Any, message_id: str) -> None:
+    await redis.eval(
+        "redis.call('XACK', KEYS[1], ARGV[1], ARGV[2]); return redis.call('XDEL', KEYS[1], ARGV[2])",
+        1,
+        OTP_STREAM_KEY,
+        OTP_STREAM_GROUP,
+        message_id,
+    )
 
 
 async def process_otp_stream_events(batch_size: int = 10) -> int:
-    """Consume durable OTP events from Redis Stream rpa:otp:stream.
-
-    Guarantees event-driven delivery survives worker restarts and reconnections.
-    """
+    """Recover pending deliveries and route new events; workers ACK terminal outcomes."""
     redis = await redis_manager.get()
-    if not redis or not hasattr(redis, "xreadgroup"):
+    if redis is None:
         return 0
-
     try:
         try:
-            await redis.xgroup_create(OTP_STREAM_KEY, OTP_STREAM_GROUP, id="$", mkstream=True)
-        except Exception:
-            # Group already exists
-            pass
-
-        messages = await redis.xreadgroup(
-            OTP_STREAM_GROUP,
-            "consumer_1",
-            {OTP_STREAM_KEY: ">"},
-            count=batch_size,
-            block=1000,
+            await redis.xgroup_create(OTP_STREAM_KEY, OTP_STREAM_GROUP, id="0", mkstream=True)
+        except ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise
+        cursor = await redis.get("rpa:otp:claim_cursor") or "0-0"
+        recovered = await redis.xautoclaim(
+            OTP_STREAM_KEY, OTP_STREAM_GROUP, "router", OTP_STREAM_CLAIM_IDLE_MS, start_id=cursor, count=batch_size
         )
-        if not messages:
-            return 0
-
+        await redis.set("rpa:otp:claim_cursor", recovered[0])
+        pending = list(recovered[1])
+        if len(pending) < batch_size:
+            messages = await redis.xreadgroup(
+                OTP_STREAM_GROUP, "router", {OTP_STREAM_KEY: ">"}, count=batch_size - len(pending)
+            )
+            for _, rows in messages:
+                pending.extend(rows)
         processed = 0
-        for _stream, stream_messages in messages:
-            for message_id, data in stream_messages:
-                try:
-                    payload_raw = data.get(b"payload") or data.get("payload")
-                    if payload_raw:
-                        payload_str = payload_raw.decode() if isinstance(payload_raw, bytes) else str(payload_raw)
-                        entry = json.loads(payload_str)
-                        phone = entry.get("phone", "")
-                        code = entry.get("code", "")
-                        job_id = entry.get("job_id")
-                        if job_id and code:
-                            await resolve_and_complete_pending_job_for_otp(phone=phone, code=code, job_id=job_id)
-                        elif phone and code:
-                            await resolve_and_complete_pending_job_for_otp(phone=phone, code=code)
-                    await redis.xack(OTP_STREAM_KEY, OTP_STREAM_GROUP, message_id)
+        for message_id, data in pending:
+            try:
+                raw = data.get(b"payload") or data.get("payload")
+                entry = _safe_json_dict(raw.decode() if isinstance(raw, bytes) else raw)
+                stream_id = message_id.decode() if isinstance(message_id, bytes) else str(message_id)
+                entry["stream_id"] = stream_id
+                entry.setdefault("message_id", stream_id)
+                if not otp_event_is_current(entry):
+                    await acknowledge_otp_event(redis, stream_id)
                     processed += 1
-                except Exception as msg_err:
-                    logger.warning("otp_stream_message_process_error: %s", msg_err)
-
+                    continue
+                result = await resolve_and_complete_pending_job_for_otp(
+                    phone=entry.get("phone"),
+                    code=str(entry.get("code", "")),
+                    job_id=entry.get("job_id"),
+                    entry=entry,
+                )
+                if result and (result.get("terminal") or (result.get("success") and not result.get("queued"))):
+                    await acknowledge_otp_event(redis, stream_id)
+                processed += 1
+            except Exception:
+                logger.warning("otp_stream_event_retry_pending", exc_info=True)
         return processed
-    except Exception as exc:
-        logger.warning("process_otp_stream_events_failed: %s", exc)
+    except Exception:
+        logger.warning("otp_stream_consumer_unavailable", exc_info=True)
         return 0

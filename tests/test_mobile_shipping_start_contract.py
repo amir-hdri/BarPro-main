@@ -12,11 +12,9 @@ Two defect classes are locked here:
 
 2. ``WaybillAutomationBot._finalize_shipping_start`` ignored the UTCMS result
    entirely, hard-set ``in_transit`` unconditionally and swallowed every
-   exception — so a refused start was recorded as in-transit, and a start that
-   RAISED left the state at ``"ready"``, which ``get_due_in_transit_jobs``
-   never selects, silently stranding a trip UTCMS already holds at code 1.
-   It also never appended the origin witness, leaving the terminal POST with a
-   1-point trace.
+   exception — so a refused or ambiguous start could be recorded as in-transit.
+   Only an acknowledged start may append a registered-origin witness and
+   permit automatic completion. Ambiguous outcomes require reconciliation.
 """
 
 from types import SimpleNamespace
@@ -26,6 +24,7 @@ import pytest
 
 from app.automation.utcms_mobile_client import UtcmsMobileApiError, UtcmsMobileClient
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
+from app.travel.geometry import GeoPoint, encode_polyline
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. finish_shipping_with_gps must never fabricate a success envelope
@@ -128,14 +127,34 @@ async def test_finish_shipping_with_gps_non_404_still_propagates():
 # ─────────────────────────────────────────────────────────────────────────────
 
 COMPACT_PAYLOAD = {
-    "origin": "آذربایجان غربی، شوط، دیزج",
-    "destination": "آذربایجان غربی، شوط، مرگان",
+    "origin": "آذربایجان غربی، شوط، دیزج خیابان آزمایشی یک",
+    "destination": "آذربایجان غربی، شوط، مرگان خیابان آزمایشی دو",
     "cargo_type": "محصولات کشاورزی",
     "cargo_weight": 2500,
     "cargo_value": "50000000",
     "plate_number": "32ع444ایران27",
     "driver_national_code": "4929889601",
     "fare": "5,000,000",
+    "originLat": 39.22,
+    "originLng": 45.03,
+    "destLat": 39.23,
+    "destLng": 45.04,
+    "metadata_json": {
+        "origin": {"postal_code": "1456789312"},
+        "destination": {"postal_code": "3156789312"},
+        "sender": {
+            "name": "علی رضایی",
+            "phone": "09121234567",
+            "national_code": "0084575948",
+            "postal_code": "1456789312",
+        },
+        "receiver": {
+            "name": "حسن محمدی",
+            "phone": "09129876543",
+            "national_code": "0012345679",
+            "postal_code": "3156789312",
+        },
+    },
 }
 
 
@@ -171,6 +190,16 @@ async def _run_issuance(start_outcome):
     with (
         patch("app.automation.utcms_mobile_client.UtcmsMobileClient", return_value=client),
         patch("app.automation.gps_shipping_manager.save_shipping_state", saved),
+        patch(
+            "app.services.route_authority._fetch_neshan_route",
+            new=AsyncMock(
+                return_value={
+                    "polyline": encode_polyline([GeoPoint(39.22, 45.03), GeoPoint(39.23, 45.04)]),
+                    "distance_m": 2000,
+                    "duration_s": 1200,
+                }
+            ),
+        ),
     ):
         result = await bot._execute_mobile_waybill_job(
             username="4929889601",
@@ -242,38 +271,31 @@ async def test_rejected_start_is_not_recorded_as_in_transit():
 
 
 @pytest.mark.asyncio
-async def test_raising_start_stays_sweepable_instead_of_stranded_at_ready():
-    """A start that RAISES is ambiguous: UTCMS may already hold the trip.
-
-    Pre-fix the exception was swallowed and the state stayed at `"ready"`,
-    which `get_due_in_transit_jobs` never selects — so the trip was silently
-    never completed. It must stay sweepable, with the error recorded.
-    """
+async def test_raising_start_requires_reconciliation_without_a_registered_origin():
+    """An ambiguous start must preserve issuance without inventing shipping proof."""
     result, state = await _run_issuance(RuntimeError("squid tunnel reset"))
 
     assert result["status"] == "success", "a start blip must never fail the registered waybill"
-    assert state.status == "in_transit", "an ambiguous start must remain sweepable"
+    assert state.status == "unknown", "an ambiguous start requires reconciliation"
     assert "squid tunnel reset" in state.last_error_message
-    assert len(state.gps_list) == 1, "the attempted origin is still the trace's first witness"
+    assert state.gps_list == [], "an attempted origin is not a registered-origin witness"
     assert _step(result)["status"] == "unknown"
 
 
 @pytest.mark.asyncio
-async def test_sweeper_considers_ambiguous_start_but_not_rejected_start():
-    """End-to-end through real persistence: only `in_transit` is ever swept.
-
-    `get_due_in_transit_jobs` reconstructs each envelope with
-    `ShippingState.from_dict` and keeps only `status == "in_transit"`, so the
-    status written here is exactly what decides whether the trip can ever be
-    completed.
-    """
-    from app.automation.gps_shipping_manager import ShippingState
-
-    def considered(state) -> bool:
-        return ShippingState.from_dict(state.to_dict()).status == "in_transit"
+async def test_unconfirmed_start_cannot_trigger_automatic_completion():
+    """The actual completion entry point rejects unconfirmed shipping states."""
+    from app.automation.gps_shipping_manager import auto_complete_shipping
 
     _r1, ambiguous = await _run_issuance(RuntimeError("squid tunnel reset"))
     _r2, rejected = await _run_issuance({"resultCode": 4025, "resultMessage": "رد شد"})
 
-    assert considered(ambiguous) is True, "an ambiguous start must not be stranded"
-    assert considered(rejected) is False, "a refused start must not be chased by the sweeper"
+    with (
+        patch("app.automation.gps_shipping_manager.get_or_login_client", new=AsyncMock()) as login,
+        patch("app.automation.gps_shipping_manager.load_shipping_state", new=AsyncMock()) as load_state,
+    ):
+        for state in (ambiguous, rejected):
+            load_state.return_value = state
+            completed = await auto_complete_shipping(state.job_id, force=True)
+            assert completed == {"status": "skipped", "reason": "not_in_transit"}
+        login.assert_not_awaited()

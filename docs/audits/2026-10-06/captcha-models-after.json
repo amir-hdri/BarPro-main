@@ -1,0 +1,10 @@
+{
+  "status": "ok",
+  "models_found": [
+    "captcha_cnn.pth",
+    "fuel_captcha_crnn.pth",
+    "fuel_captcha_vocab.json",
+    "persian_number_ocr.keras (root)"
+  ],
+  "findings": []
+}

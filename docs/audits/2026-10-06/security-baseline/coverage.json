@@ -1,0 +1,36 @@
+{
+  "completeness": "partial",
+  "deferred": [
+    {
+      "id": "deferred-89e767ad73fc37ff",
+      "reason": "Validate owned-job arbitrary-phone cleanup candidate with real local HTTP/SQLite/Redis; validate query credential ingress and Nginx sink."
+    }
+  ],
+  "documentType": "codex-security.coverage",
+  "excludePaths": [],
+  "explicitExclusions": [],
+  "includePaths": [
+    "."
+  ],
+  "inventoryStrategy": "diff",
+  "mode": "branch_diff",
+  "openQuestions": [
+    {
+      "question": "Production query usage, log permissions, and runtime topology remain unverified."
+    }
+  ],
+  "scanId": "bff93b78-6a79-411a-b862-df97c6650b78",
+  "schemaVersion": "1.0",
+  "surfaces": [
+    {
+      "disposition": "reported",
+      "id": "changed-production-files",
+      "label": "All10 changed production files in authoritative diff inventory",
+      "notes": "Two validated security findings; broader reliability findings reported separately.",
+      "receiptRefs": [
+        "artifacts/02_discovery/in_scope_files.txt",
+        "artifacts/02_discovery/candidate_ledger.jsonl"
+      ]
+    }
+  ]
+}

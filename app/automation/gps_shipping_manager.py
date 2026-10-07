@@ -405,11 +405,21 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
             meta_section,
             top_section,
         ):
+            if raw is None or raw == {}:
+                continue
+            if not isinstance(raw, dict):
+                return None, None
             coords = _safe_dict(raw)
-            lat = _float(_first(coords.get("lat"), coords.get("latitude")))
-            lng = _float(_first(coords.get("lng"), coords.get("lon"), coords.get("longitude")))
+            raw_lat = _first(coords.get("lat"), coords.get("latitude"))
+            raw_lng = _first(coords.get("lng"), coords.get("lon"), coords.get("longitude"))
+            if raw_lat is None and raw_lng is None:
+                continue
+            lat, lng = _float(raw_lat), _float(raw_lng)
             if lat is not None and lng is not None and -90 <= lat <= 90 and -180 <= lng <= 180 and (lat, lng) != (0, 0):
                 return lat, lng
+            # A malformed selected pin cannot silently turn into an older pin
+            # or city centroid. The caller must request corrected coordinates.
+            return None, None
         return None, None
 
     # ── Parse metadata_json once ──
@@ -481,12 +491,15 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     # ── Addresses — EXACT user input ──
     # Reuse meta sections for city/address fallback lookup.
+    origin_section = _safe_dict(payload.get("origin"))
+    dest_section = _safe_dict(payload.get("destination"))
     origin_city = str(
-        payload.get("origin")
+        (payload.get("origin") if isinstance(payload.get("origin"), str) else None)
         or payload.get("citySourceMap")
         or payload.get("sourceCity")
         or payload.get("OriginCity")
         or origin_meta.get("city")
+        or origin_section.get("city")
         or ""
     ).strip()
     origin_address = str(
@@ -496,15 +509,17 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         or payload.get("addressSource")
         or payload.get("sourceAddress")
         or origin_meta.get("address")
+        or origin_section.get("address")
         or origin_city
     ).strip()
 
     dest_city = str(
-        payload.get("destination")
+        (payload.get("destination") if isinstance(payload.get("destination"), str) else None)
         or payload.get("CityDestMap")
         or payload.get("destCity")
         or payload.get("DestCity")
         or dest_meta.get("city")
+        or dest_section.get("city")
         or ""
     ).strip()
     dest_address = str(
@@ -514,17 +529,9 @@ def extract_coordinates_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         or payload.get("AddressDest")
         or payload.get("addressDest")
         or dest_meta.get("address")
+        or dest_section.get("address")
         or dest_city
     ).strip()
-
-    if origin_lat is None or origin_lng is None:
-        coords = find_city_coordinates(origin_city) or find_city_coordinates(origin_address)
-        if coords:
-            origin_lat, origin_lng = coords
-    if dest_lat is None or dest_lng is None:
-        coords = find_city_coordinates(dest_city) or find_city_coordinates(dest_address)
-        if coords:
-            dest_lat, dest_lng = coords
 
     distance_km = 0.0
     direct_distance_km = 0.0
@@ -1192,7 +1199,7 @@ async def init_shipping(
             for wp in waypoints
         ],
         gps_list=[],
-        coordinate_source="map_pin",
+        coordinate_source="map_pin_unverified",
     )
     # Freeze the canonical route snapshot (best-effort: never block init).
     try:
@@ -1204,14 +1211,52 @@ async def init_shipping(
         state.route_distance_km = float(snapshot.get("distance_km") or 0.0)
         state.route_duration_s = float(snapshot.get("duration_s") or 0.0)
         state.anchor_hash = str(snapshot.get("anchor_hash") or "")
-        if not state.distance_km and state.route_distance_km:
+        if snapshot.get("road_anchor_verified") is True:
+            state.origin_lat = float(snapshot["origin"]["lat"])
+            state.origin_lng = float(snapshot["origin"]["lng"])
+            state.dest_lat = float(snapshot["destination"]["lat"])
+            state.dest_lng = float(snapshot["destination"]["lng"])
+            state.coordinate_source = "road_snapped"
+            snapped_waypoints = interpolate_waypoints(
+                state.origin_lat,
+                state.origin_lng,
+                state.dest_lat,
+                state.dest_lng,
+                num_steps=num_steps,
+                origin_address=state.origin_address,
+                dest_address=state.dest_address,
+            )
+            state.waypoints = [
+                {
+                    "lat": wp.lat,
+                    "lon": wp.lon,
+                    "speed": wp.speed_kmh,
+                    "cum_km": wp.cumulative_km,
+                    "type": wp.waypoint_type,
+                    "ts": wp.timestamp,
+                    "address": wp.address,
+                }
+                for wp in snapped_waypoints
+            ]
+        else:
+            state.coordinate_source = "map_pin_unverified"
+        if state.route_distance_km > 0 and math.isfinite(state.route_distance_km):
             state.distance_km = state.route_distance_km
-            duration_hours = estimate_travel_duration_hours(state.distance_km)
-            duration_minutes = max(duration_hours * 60.0, min_minutes)
+            duration_minutes = max(
+                state.distance_km / AVERAGE_TRUCK_SPEED_KMH * 60.0,
+                state.route_duration_s / 60.0 if math.isfinite(state.route_duration_s) else 0.0,
+                min_minutes,
+            )
             state.estimated_end_at = (now_utc + timedelta(minutes=duration_minutes)).isoformat()
     except Exception:
         logger.warning("init_shipping_route_snapshot_failed job=%s", job_id, exc_info=True)
+    if state.route_snapshot.get("requires_reselection"):
+        raise ValueError(
+            "اتصال نقطه انتخاب‌شده به خیابان قابل تأیید نیست؛ نقطه مبدأ و مقصد را دوباره روی خیابان انتخاب کنید"
+        )
     if persist:
+        if state.coordinate_source == "map_pin_unverified":
+            raise ValueError("موقعیت خیابان از سرویس مسیریابی تأیید نشده است؛ پس از بررسی نقشه دوباره تلاش کنید")
         await save_shipping_state(state)
     return state
 
@@ -1225,10 +1270,9 @@ def shipping_wait_reason(state: ShippingState, now: datetime | None = None) -> d
     envelope due immediately with nothing left to stop it. Fail closed instead
     and let an operator force completion explicitly (``force=True``).
 
-    A CORRUPT value is still logged with context and treated as "no wait" — the
-    fail-closed mutation gates and UTCMS rule 4013 are the real backstops, and
-    a typo must not permanently dead-end a real trip. The cooldown is evaluated
-    before the ETA so a corrupt-cooldown diagnostic is never skipped.
+    A corrupt ETA requires review just like a missing ETA; malformed data is
+    never proof that physical time elapsed. A corrupt optional cooldown is
+    logged while the independently required ETA still applies.
     """
     stamp = now or datetime.now(UTC)
     for field_name, status in (("backoff_until", "backoff"), ("estimated_end_at", "waiting_eta")):
@@ -1244,6 +1288,8 @@ def shipping_wait_reason(state: ShippingState, now: datetime | None = None) -> d
         except (TypeError, ValueError):
             event = "shipping_backoff_parse_failed" if field_name == "backoff_until" else "shipping_eta_parse_failed"
             logger.warning("%s job=%s field=%s value=%r", event, state.job_id, field_name, raw)
+            if field_name == "estimated_end_at":
+                return {"status": "waiting_eta", "reason": "invalid_estimated_end_at", "estimated_end_at": raw}
             continue
         if stamp < deadline:
             return {
@@ -1313,6 +1359,11 @@ async def reclaim_stuck_shipping_fences(states: list[ShippingState], now: dateti
 # The DB fallback scan is bounded so a backlog cannot load every envelope into
 # the worker at once; Redis remains the primary, authoritative source.
 DUE_SCAN_DB_LIMIT = 50
+# Advisory keyset position only: it never authorizes a shipping mutation. Sharing
+# it across scheduler processes/restarts avoids repeatedly scanning the first 50
+# future, fenced or Redis-covered rows. A Redis outage retains local progress.
+DUE_SCAN_DB_CURSOR_KEY = "utcms:shipping:due-db-after-id"
+_due_scan_db_after_id = 0
 
 
 async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[ShippingState]:
@@ -1325,6 +1376,7 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
     says "in_transit". Abandoned fences are fixed at the source instead, by
     reclaim_stuck_shipping_fences.
     """
+    global _due_scan_db_after_id
     now = now_dt or datetime.now(UTC)
     if now.tzinfo is None:
         now = now.replace(tzinfo=UTC)
@@ -1362,19 +1414,31 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
     try:
         from sqlalchemy import cast
         from sqlalchemy.dialects.postgresql import JSONB
-        from sqlmodel import select
+        from sqlmodel import col, select
 
         from app.core.database import async_session_factory
         from app.models_multitenant import WaybillJob
+
+        after_id = _due_scan_db_after_id
+        if redis is not None:
+            try:
+                raw_cursor = await redis.get(DUE_SCAN_DB_CURSOR_KEY)
+                if raw_cursor is not None:
+                    after_id = max(0, int(raw_cursor))
+            except (ValueError, TypeError):
+                logger.warning("shipping_due_db_cursor_invalid")
+                after_id = 0
+            except Exception:
+                logger.warning("shipping_due_db_cursor_read_failed", exc_info=True)
 
         async with async_session_factory() as session:
             # Issuance can already be SUCCESS while its shipping envelope is in transit.
             #
             # INDEX NOTE: this is an UNINDEXED JSONB path predicate that runs on
-            # every Beat tick (120s) on a 4 vCPU box shared with Worker 1, so it
-            # is a full sequential scan of waybill_jobs. ``result_json`` is a
-            # JSON column, so the cast below is real and an expression index
-            # must match it exactly:
+            # every Beat tick (120s) on a 4 vCPU box shared with Worker 1. The
+            # cursor narrows the primary-key range, but filtering may still scan
+            # many rows to find a page of active envelopes. ``result_json`` is a
+            # JSON column, so an expression index must match its cast exactly:
             #
             #   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wj_shipping_state_status
             #     ON waybill_jobs ((CAST(result_json AS jsonb) -> '_shipping_state' ->> 'status'))
@@ -1383,9 +1447,15 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
             #
             # Deliberately NOT created here: an index belongs in a reviewed
             # Alembic revision, not in a runtime import path. Until it exists,
-            # DUE_SCAN_DB_LIMIT bounds the damage.
+            # The primary-key cursor avoids rescanning earlier rows each tick;
+            # DUE_SCAN_DB_LIMIT bounds envelopes loaded, not all database work.
             status_expr = cast(WaybillJob.result_json, JSONB)["_shipping_state"]["status"].astext
-            query = select(WaybillJob).where(status_expr.in_(("in_transit", *FENCE_STATUSES))).limit(DUE_SCAN_DB_LIMIT)
+            query = (
+                select(WaybillJob)
+                .where(col(WaybillJob.id) > after_id, status_expr.in_(("in_transit", *FENCE_STATUSES)))
+                .order_by(col(WaybillJob.id))
+                .limit(DUE_SCAN_DB_LIMIT)
+            )
             jobs = (await session.exec(query)).all()
             for job in jobs:
                 if job.job_id in seen:
@@ -1396,6 +1466,14 @@ async def get_due_in_transit_jobs(now_dt: datetime | None = None) -> list[Shippi
                         consider(stored)
                 except (ValueError, TypeError, AttributeError):
                     logger.warning("shipping_state_decode_failed job=%s", job.job_id, exc_info=True)
+            # Advance over ALL scanned rows, including future/seen envelopes.
+            # A short/empty tail wraps to the beginning for the next Beat tick.
+            _due_scan_db_after_id = int(jobs[-1].id or 0) if len(jobs) == DUE_SCAN_DB_LIMIT else 0
+            if redis is not None:
+                try:
+                    await redis.set(DUE_SCAN_DB_CURSOR_KEY, str(_due_scan_db_after_id), ex=86400)
+                except Exception:
+                    logger.warning("shipping_due_db_cursor_write_failed", exc_info=True)
     except Exception:
         logger.warning("shipping_due_db_scan_failed", exc_info=True)
     for state in await reclaim_stuck_shipping_fences(fenced, now):
@@ -1754,6 +1832,8 @@ async def auto_complete_shipping(job_id: str, force: bool = False) -> dict[str, 
     state = await load_shipping_state(job_id)
     if not state or state.status != "in_transit":
         return {"status": "skipped", "reason": "not_in_transit"}
+    if state.coordinate_source == "map_pin_unverified":
+        return {"status": "needs_review", "reason": "road_anchor_unverified"}
 
     claim_token = await _acquire_completion_claim(job_id)
     if claim_token is None:

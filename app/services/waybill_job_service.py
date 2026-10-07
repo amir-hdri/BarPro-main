@@ -178,6 +178,14 @@ class WaybillJobService:
                 },
             )
 
+        from app.services.otp_challenge_guard import find_unresolved_driver_otp_job
+
+        pending_otp_job = await find_unresolved_driver_otp_job(
+            session, client_id=cast(int, client.id), driver_id=driver.id
+        )
+        if pending_otp_job is not None:
+            raise HTTPException(409, "راننده یک سند در انتظار OTP دارد؛ ابتدا همان سند باید تعیین تکلیف شود")
+
         # P1-3: Active in-transit or busy driver guard
         active_statuses = (
             TaskStatus.PENDING.value,
@@ -563,106 +571,121 @@ class WaybillJobService:
         job_id: str,
         session: AsyncSession,
         otp_code: str,
+        *,
+        _execute: bool = False,
+        otp_event: dict[str, Any] | None = None,
     ) -> WaybillJobResponse:
-        """Submit SMS OTP verification code for a waybill job waiting for driver OTP."""
+        """Accept a scoped OTP; only its owning worker may perform the mutation."""
+        import hashlib
+        import os
         import re
-        import time
 
-        # Defensive: callers may pass a Client directly even though the declared type is dict.
+        from app.api.routes.otp_forwarder import normalize_to_english_digits
+        from app.automation.otp_keys import consume_scoped_otp, maintained_otp_issue_lease, renew_otp_issue_lease
+        from app.core.redis_client import redis_manager
+        from app.services.otp_wakeup_consumer import (
+            OTP_COMPLETABLE_STATUSES,
+            _safe_json_dict,
+            dispatch_otp_to_worker,
+            job_driver_phone,
+            otp_event_is_current,
+            otp_worker_index,
+            store_job_otp_event,
+        )
+
         if isinstance(cast(Any, user_context), Client):
             user_context = {"role": "client", "user": user_context}
-        role = user_context["role"]
-
-        if role == "master_admin":
-            job_stmt = select(WaybillJob).where(WaybillJob.job_id == job_id)
-        else:
-            client = user_context["user"]
-            job_stmt = select(WaybillJob).where((WaybillJob.client_id == client.id) & (WaybillJob.job_id == job_id))
-
-        job = (await session.exec(job_stmt)).first()
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="کار بارنامه یافت نشد",
-            )
-
-        if job.status == TaskStatus.SUCCESS.value:
+        job_stmt = select(WaybillJob).where(WaybillJob.job_id == job_id)
+        if user_context["role"] != "master_admin":
+            job_stmt = job_stmt.where(WaybillJob.client_id == user_context["user"].id)
+        found_job = (await session.exec(job_stmt)).first()
+        if found_job is None:
+            raise HTTPException(404, "کار بارنامه یافت نشد")
+        job: WaybillJob = found_job
+        if _safe_json_dict(job.result_json).get("tracking_code"):
             return WaybillJobResponse.model_validate(job)
+        if job.status not in OTP_COMPLETABLE_STATUSES:
+            raise HTTPException(409, "وضعیت بارنامه اجازه صدور با کد یکبار مصرف را نمی‌دهد")
+        clean_code = normalize_to_english_digits(str(otp_code or "").strip())
+        if not re.fullmatch(r"[0-9]{4,8}", clean_code):
+            raise HTTPException(400, "کد یکبار مصرف باید بین ۴ تا ۸ رقم باشد")
 
-        clean_code = str(otp_code or "").strip()
-        from app.api.routes.otp_forwarder import normalize_to_english_digits
+        def validate_challenge() -> tuple[dict[str, Any], str]:
+            result = _safe_json_dict(job.result_json)
+            challenge = _safe_json_dict(result.get("_otp_challenge"))
+            document = str(result.get("document_id") or job.document_id or "")
+            if not document or str(challenge.get("document_id") or "") != document:
+                raise HTTPException(409, "چالش معتبر OTP برای این سند ثبت نشده است")
+            if challenge.get("allow_live_submit") is not True:
+                raise HTTPException(409, "مجوز صدور این چالش فعال نیست")
+            return challenge, document
 
-        clean_code = normalize_to_english_digits(clean_code)
-        if not clean_code or not (4 <= len(clean_code) <= 8):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="کد یکبار مصرف باید بین ۴ تا ۸ رقم باشد",
-            )
-
-        # 1. Resolve document_id from result_json, payload_json, or last_error
-        document_id = None
-        # Defensive: JSON columns are typed dict but may hold raw JSON strings at runtime.
-        _result_json = cast(Any, job.result_json)
-        res_data = _result_json if isinstance(_result_json, dict) else {}
-        if isinstance(_result_json, str):
-            try:
-                res_data = json.loads(_result_json)
-            except Exception:
-                res_data = {}
-        document_id = res_data.get("document_id")
-
-        if not document_id:
-            _payload_json = cast(Any, job.payload_json)
-            payload_data = _payload_json if isinstance(_payload_json, dict) else {}
-            if isinstance(_payload_json, str):
-                try:
-                    payload_data = json.loads(_payload_json)
-                except Exception:
-                    payload_data = {}
-            document_id = payload_data.get("document_id") or payload_data.get("docId")
-
-        if not document_id and job.last_error:
-            m = re.search(r"شناسه\s*(\d+)", job.last_error)
-            if m:
-                document_id = m.group(1)
-
-        if not document_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="شناسه سند ثبتی (docId) در سامانه UTCMS برای این کار یافت نشد.",
-            )
-
-        # 2. Store OTP in Redis for any workers polling (job-scoped key only;
-        # the legacy global "rpa:otp:latest" key is retired — see otp_keys.py)
-        from app.automation.otp_keys import (
-            consume_scoped_otp,
-            release_otp_issue_lease,
-            reserve_otp_issue_lease,
-        )
-        from app.core.redis_client import redis_manager
-
+        challenge, document_id = validate_challenge()
+        driver_phone = await job_driver_phone(job, session)
+        if not re.fullmatch(r"09[0-9]{9}", driver_phone):
+            raise HTTPException(409, "شماره راننده این بارنامه معتبر نیست")
         r = await redis_manager.get()
-        lease_acquired = False
-        if r:
-            otp_payload = json.dumps({"code": clean_code, "job_id": job_id, "received_at": time.time()})
-            await r.set(f"rpa:otp:job:{job_id}", otp_payload, ex=300)
-            lease_acquired = await reserve_otp_issue_lease(r, job_id, ttl_seconds=30)
-            if not lease_acquired:
-                await asyncio.sleep(2)
-                await session.refresh(job)
-                if job.status == TaskStatus.SUCCESS.value:
-                    return WaybillJobResponse.model_validate(job)
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="صدور بارنامه با این کد در حال پردازش توسط پردازش دیگری است",
-                )
+        if r is None:
+            raise HTTPException(503, "OTP storage unavailable")
+        if otp_event is None:
+            await store_job_otp_event(r, job, clean_code, driver_phone)
+            return WaybillJobResponse.model_validate(job)
+        if not otp_event_is_current(otp_event):
+            raise HTTPException(410, "OTP event has expired")
+        if (
+            otp_event.get("job_id") != job_id
+            or str(otp_event.get("document_id")) != document_id
+            or otp_event.get("phone") != driver_phone
+            or float(otp_event.get("received_at", 0)) < float(challenge.get("created_at") or 0)
+        ):
+            raise HTTPException(409, "OTP event does not match this driver/document challenge")
+        owner = otp_worker_index(challenge.get("worker_id") or job.worker_id)
+        if owner is None:
+            raise HTTPException(503, "OTP job has no verified owning worker")
+        if not _execute:
+            await dispatch_otp_to_worker(r, job, otp_event)
+            return WaybillJobResponse.model_validate(job)
+        process_owner = otp_worker_index(os.environ.get("WORKER_ID"))
+        if process_owner != owner:
+            raise HTTPException(503, "OTP issuance must execute on its owning worker")
 
-        try:
+        async with maintained_otp_issue_lease(r, job_id) as lease_token:
+
+            async def validate_owned_event() -> tuple[dict[str, Any], str, str]:
+                current_challenge, current_document = validate_challenge()
+                current_phone = await job_driver_phone(job, session)
+                if (
+                    otp_worker_index(current_challenge.get("worker_id") or job.worker_id) != process_owner
+                    or otp_event.get("phone") != current_phone
+                    or str(otp_event.get("document_id")) != current_document
+                    or float(otp_event.get("received_at", 0)) < float(current_challenge.get("created_at") or 0)
+                    or not otp_event_is_current(otp_event)
+                ):
+                    raise HTTPException(409, "OTP challenge ownership changed before issuance")
+                return current_challenge, current_document, current_phone
+
+            # Re-read under ownership: a pre-lease identity-map snapshot is not evidence.
+            await session.refresh(job)
+            if _safe_json_dict(job.result_json).get("tracking_code"):
+                return WaybillJobResponse.model_validate(job)
+            if job.status not in OTP_COMPLETABLE_STATUSES:
+                raise HTTPException(409, "OTP job state changed before issuance")
+            challenge, document_id, driver_phone = await validate_owned_event()
+            current_result = _safe_json_dict(job.result_json)
+            fence = _safe_json_dict(current_result.get("_otp_issue"))
+            if fence.get("state") in {"dispatching", "unknown", "issued"}:
+                raise HTTPException(409, "Previous OTP issuance is unresolved; reconciliation required")
+            if fence.get("state") == "rejected" and fence.get("message_id") == otp_event.get("message_id"):
+                raise HTTPException(400, "This OTP was already rejected")
+
             # 3. Retrieve or create authenticated UtcmsMobileClient
             from app.automation.utcms_mobile_client import UtcmsMobileApiError, UtcmsMobileClient
             from app.automation.worker_proxy import get_worker_proxy_url
 
             proxy_url = get_worker_proxy_url()
+            assigned_egress = challenge.get("egress_digest")
+            if not proxy_url or hashlib.sha256(proxy_url.encode()).hexdigest() != assigned_egress:
+                raise HTTPException(503, "The document's authenticated egress is no longer assigned to its worker")
             mobile_client = None
             if r:
                 cached_session_raw = await r.get(f"rpa:job:pending_doc:{job_id}")
@@ -670,7 +693,13 @@ class WaybillJobService:
                     try:
                         session_info = json.loads(cached_session_raw)
                         token = session_info.get("token")
-                        if token:
+                        if (
+                            token
+                            and session_info.get("job_id") == job_id
+                            and str(session_info.get("document_id") or session_info.get("doc_id")) == document_id
+                            and session_info.get("client_id") == job.client_id
+                            and session_info.get("egress_digest") == assigned_egress
+                        ):
                             mobile_client = UtcmsMobileClient(token=token, proxy_url=proxy_url)
                     except Exception:
                         logger.debug("cached_otp_token_parse_failed", exc_info=True)
@@ -680,12 +709,7 @@ class WaybillJobService:
                 driver = await session.get(Driver, job.driver_id) if job.driver_id else None
                 if not driver:
                     # Fallback: attempt to find driver by national code or phone in payload
-                    p = job.payload_json if isinstance(job.payload_json, dict) else {}
-                    if isinstance(job.payload_json, str):
-                        try:
-                            p = json.loads(job.payload_json)
-                        except Exception:
-                            p = {}
+                    p = _safe_json_dict(job.payload_json)
                     nat_code = (
                         p.get("driver_national_code")
                         or (p.get("driver", {}).get("national_code") if isinstance(p.get("driver"), dict) else None)
@@ -735,58 +759,121 @@ class WaybillJobService:
                     client_id=getattr(job, "client_id", None),
                 )
 
-            # 4. Call IssueDocumentByOtp
+            # Serialize the durable fence independently of the expiring Redis lease.
+            # A second owner waits for this transaction, then sees the committed fence.
+            locked = (await session.exec(job_stmt.with_for_update().execution_options(populate_existing=True))).first()
+            if locked is None:
+                raise HTTPException(404, "OTP job was removed before issuance")
+            job = locked
+            if _safe_json_dict(job.result_json).get("tracking_code"):
+                return WaybillJobResponse.model_validate(job)
+            if job.status not in OTP_COMPLETABLE_STATUSES:
+                raise HTTPException(409, "OTP job state changed before issuance")
+            challenge, document_id, driver_phone = await validate_owned_event()
+            if challenge.get("egress_digest") != assigned_egress:
+                raise HTTPException(409, "OTP egress changed before issuance")
+            fence = _safe_json_dict(_safe_json_dict(job.result_json).get("_otp_issue"))
+            if fence.get("state") in {"dispatching", "unknown", "issued"}:
+                raise HTTPException(409, "Previous OTP issuance is unresolved; reconciliation required")
+            if fence.get("state") == "rejected" and fence.get("message_id") == otp_event.get("message_id"):
+                raise HTTPException(400, "This OTP was already rejected")
+            if not otp_event_is_current(otp_event) or not await renew_otp_issue_lease(r, job_id, lease_token):
+                raise HTTPException(503, "OTP lease or delivery expired before issuance")
+            # Persist before the POST. A crash after this commit is never an automatic retry.
+            issue_fence = {
+                "state": "dispatching",
+                "document_id": document_id,
+                "message_id": otp_event.get("message_id"),
+                "started_at": datetime.now(UTC).isoformat(),
+            }
+            job.result_json = {**_safe_json_dict(job.result_json), "_otp_issue": issue_fence}
+            session.add(job)
+            await session.commit()
+            if not otp_event_is_current(otp_event) or not await renew_otp_issue_lease(r, job_id, lease_token):
+                raise HTTPException(409, "OTP ownership lost after fencing; reconciliation required")
+
+            async def record_issue_failure(state: str) -> None:
+                # A read-only reconciler may have supplied tracking while the
+                # network call was in flight; never overwrite its newer proof.
+                await session.refresh(job, with_for_update=True)
+                latest = _safe_json_dict(job.result_json)
+                if latest.get("tracking_code"):
+                    return
+                if _safe_json_dict(latest.get("_otp_issue")).get("message_id") != issue_fence["message_id"]:
+                    return
+                job.result_json = {**_safe_json_dict(job.result_json), "_otp_issue": {**issue_fence, "state": state}}
+                if state == "unknown":
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.NEEDS_REVIEW.value,
+                        error_category="ambiguous_mutation",
+                        last_error="OTP issuance outcome is ambiguous; do not resubmit",
+                    )
+                else:
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        TaskStatus.NEEDS_REVIEW.value,
+                        error_category="otp_rejected",
+                        last_error="کد یکبار مصرف توسط سامانه رد شد؛ کد جدید لازم است",
+                    )
+                session.add(job)
+                await session.commit()
+
             try:
                 issue_res = await mobile_client.issue_document_by_otp(
-                    str(document_id), str(clean_code), allow_live_submit=True
+                    document_id,
+                    clean_code,
+                    allow_live_submit=challenge["allow_live_submit"],
                 )
             except UtcmsMobileApiError as exc:
+                # Only a structured authoritative rejection permits a different future OTP.
+                response_body = getattr(exc, "response_body", None)
+                http_status = getattr(exc, "status_code", None)
+                rejected = (
+                    isinstance(response_body, dict)
+                    and response_body.get("resultCode") == exc.result_code
+                    and exc.result_code is not None
+                    and str(exc.result_code).strip() != "200"
+                    and (http_status is None or 200 <= http_status < 300)
+                )
+                await record_issue_failure("rejected" if rejected else "unknown")
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"خطا در صدور بارنامه با OTP: {str(exc) or exc}",
+                    400 if rejected else 409,
+                    "UTCMS rejected the OTP" if rejected else "OTP outcome requires reconciliation",
                 ) from exc
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"خطای ارتباط با سامانه UTCMS: {exc}",
-                ) from exc
-
-            tracking_code = mobile_client.extract_tracking_code(issue_res) or (
-                issue_res.get("obj", {}).get("docNo") if isinstance(issue_res.get("obj"), dict) else None
-            )
+            except BaseException:
+                # The pre-POST fence survives even if cancellation/DB failure interrupts this update.
+                await asyncio.shield(record_issue_failure("unknown"))
+                raise
+            tracking_code = mobile_client.extract_tracking_code(issue_res)
             if not tracking_code:
-                err_msg = (
-                    issue_res.get("meta", {}).get("message")
-                    or issue_res.get("message")
-                    or "پاسخ ناموفق از سامانه UTCMS"
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"سامانه UTCMS کد یکبار مصرف را نپذیرفت: {err_msg}",
-                )
+                await record_issue_failure("unknown")
+                raise HTTPException(409, "OTP response has no tracking code; reconciliation required")
 
-            # 5. Transition state to SUCCESS with confirmed mutation
             from app.schemas.task import build_tracking_received_result
 
+            await session.refresh(job, with_for_update=True)
+            latest = _safe_json_dict(job.result_json)
+            if latest.get("tracking_code"):
+                return WaybillJobResponse.model_validate(job)
+            if _safe_json_dict(latest.get("_otp_issue")).get("message_id") != issue_fence["message_id"]:
+                raise HTTPException(409, "OTP issuance fence changed; reconciliation required")
             now = datetime.now(UTC).replace(tzinfo=None)
             result_payload = build_tracking_received_result(
-                str(tracking_code),
-                document_id=str(document_id),
-                transport="mobile",
+                str(tracking_code), document_id=document_id, transport="mobile"
             )
-
-            # State transition: unknown/needs_review -> reconciling -> success, waiting_retry/retrying -> in_progress -> success
-            if job.status in (TaskStatus.UNKNOWN.value, TaskStatus.NEEDS_REVIEW.value):
+            result_payload["_otp_challenge"] = challenge
+            result_payload["_otp_issue"] = {**issue_fence, "state": "issued"}
+            if job.status in {TaskStatus.UNKNOWN.value, TaskStatus.NEEDS_REVIEW.value}:
                 JobStateMachine.transition(session, job, TaskStatus.RECONCILING.value)
-            elif job.status in (TaskStatus.WAITING_RETRY.value, TaskStatus.RETRYING.value):
-                JobStateMachine.transition(session, job, TaskStatus.IN_PROGRESS.value)
-
             JobStateMachine.transition(
                 session,
                 job,
                 TaskStatus.SUCCESS.value,
                 mutation_status="confirmed",
-                document_id=str(document_id),
+                document_id=document_id,
                 reconciled_at=now,
                 result_json=result_payload,
                 finished_at=now,
@@ -794,7 +881,6 @@ class WaybillJobService:
                 last_error=None,
                 error_category=None,
             )
-
             session.add(
                 DomainEvent(
                     event_id=f"evt_otp_{uuid.uuid4().hex[:24]}",
@@ -802,9 +888,7 @@ class WaybillJobService:
                     client_id=job.client_id,
                     driver_id=job.driver_id,
                     job_id=job.job_id,
-                    payload_json=json.dumps(
-                        {"tracking_code": str(tracking_code), "document_id": str(document_id)}, ensure_ascii=False
-                    ),
+                    payload_json=json.dumps({"tracking_code": str(tracking_code), "document_id": document_id}),
                 )
             )
             session.add(
@@ -813,8 +897,8 @@ class WaybillJobService:
                     client_id=job.client_id,
                     step="issue_by_otp",
                     status=TaskStatus.SUCCESS.value,
-                    message=f"بارنامه با کد رهگیری {tracking_code} و شناسه سند {document_id} صادر شد",
-                    details_json={"tracking_code": str(tracking_code), "document_id": str(document_id)},
+                    message="بارنامه با کد یکبار مصرف صادر شد",
+                    details_json={"tracking_code": str(tracking_code), "document_id": document_id},
                 )
             )
             await session.commit()
@@ -825,12 +909,7 @@ class WaybillJobService:
                 from app.automation.gps_shipping_manager import init_shipping, save_shipping_state
                 from app.automation.shipping_contract import shipping_acknowledged
 
-                raw_payload = job.payload_json if isinstance(job.payload_json, dict) else {}
-                if isinstance(job.payload_json, str):
-                    try:
-                        raw_payload = json.loads(job.payload_json)
-                    except Exception:
-                        raw_payload = {}
+                raw_payload = _safe_json_dict(job.payload_json)
 
                 ship_state = await init_shipping(
                     job_id=job.job_id,
@@ -866,7 +945,7 @@ class WaybillJobService:
                             longitude=origin_lng,
                             latitude=origin_lat,
                             start_date=start_iso,
-                            allow_live_submit=True,
+                            allow_live_submit=challenge["allow_live_submit"],
                         )
                         acknowledged = isinstance(start_res, dict) and shipping_acknowledged(start_res, start=True)
                         if acknowledged:
@@ -880,33 +959,17 @@ class WaybillJobService:
                         await save_shipping_state(ship_state)
                     except Exception as ship_err:
                         logger.warning("Automated start of shipping unconfirmed for job %s: %s", job.job_id, ship_err)
-                        ship_state.status = "in_transit"
-                        ship_state.gps_list = _origin_witness()
+                        # The request may have landed, but an exception proves
+                        # neither the start nor its origin. Reconciliation must
+                        # resolve it before the completion sweeper can act.
+                        ship_state.status = "unknown"
                         ship_state.last_error_message = str(ship_err)[:200]
                         await save_shipping_state(ship_state)
             except Exception as init_err:
                 logger.warning("Automated shipping init error after OTP issue for job %s: %s", job.job_id, init_err)
 
-            if r:
-                driver_phone = None
-                p_dict = job.payload_json if isinstance(job.payload_json, dict) else {}
-                if isinstance(job.payload_json, str):
-                    try:
-                        p_dict = json.loads(job.payload_json)
-                    except Exception:
-                        p_dict = {}
-                driver_phone = (
-                    p_dict.get("vehicle", {}).get("driver_mobile")
-                    or (p_dict.get("driver", {}).get("phone") if isinstance(p_dict.get("driver"), dict) else None)
-                    or p_dict.get("driver_phone")
-                )
-                if not driver_phone and driver:
-                    driver_phone = driver.phone
-                await consume_scoped_otp(r, job_id=job.job_id, driver_phone=driver_phone)
+            await consume_scoped_otp(r, job_id=job.job_id, driver_phone=driver_phone)
             return WaybillJobResponse.model_validate(job)
-        finally:
-            if r and lease_acquired:
-                await release_otp_issue_lease(r, job_id)
 
     @staticmethod
     async def get_job_timeline(

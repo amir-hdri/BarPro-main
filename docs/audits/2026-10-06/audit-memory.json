@@ -1,0 +1,64 @@
+{
+  "central": {
+    "total_mb": 9600,
+    "budget_mb": 10500,
+    "within_budget": true,
+    "breakdown": {
+      "infra.yml": {
+        "postgres": 1536,
+        "redis": 512
+      },
+      "proxy.yml": {
+        "squid_1": 128
+      },
+      "backend.yml": {
+        "backend": 768,
+        "celery_worker_1": 3072,
+        "celery_beat": 384,
+        "celery_scheduler": 768
+      },
+      "web.yml": {
+        "frontend": 1024,
+        "nginx": 512
+      },
+      "monitoring.yml": {
+        "prometheus": 256,
+        "alertmanager": 128,
+        "node-exporter": 64,
+        "redis-exporter": 64,
+        "postgres-exporter": 64,
+        "nginx-exporter": 64,
+        "grafana": 256
+      }
+    }
+  },
+  "central_excluded_services": {
+    "total_mb": 5376,
+    "note": "Services with profiles: directive (run elsewhere, e.g. Worker 2/3 on remote VPS or behind a profile flag).",
+    "breakdown": {
+      "infra.yml": {},
+      "proxy.yml": {
+        "squid_2": 128,
+        "squid_3": 128
+      },
+      "backend.yml": {
+        "celery_worker_2": 2560,
+        "celery_worker_3": 2560
+      },
+      "web.yml": {},
+      "monitoring.yml": {}
+    }
+  },
+  "worker_vps": {
+    "total_mb": 4224,
+    "budget_mb": 5000,
+    "within_budget": true,
+    "breakdown": {
+      "worker-node.yml": {
+        "squid": 128,
+        "worker": 4096
+      }
+    }
+  },
+  "status": "passed"
+}

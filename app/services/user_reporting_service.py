@@ -11,14 +11,14 @@ Provides:
 
 import logging
 from collections import defaultdict
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import case, func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.jalali import tehran_day_end_utc, tehran_day_start_utc
+from app.core.jalali import TEHRAN_UTC_OFFSET, tehran_day_end_utc, tehran_day_start_utc
 from app.models_multitenant import (
     Client,
     Driver,
@@ -29,6 +29,7 @@ from app.models_multitenant import (
     WaybillTaskLog,
 )
 from app.models_rpa import DriverRuntimeState
+from app.services.reporting_dates import parse_report_date_bounds, utc_report_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -227,8 +228,9 @@ class UserReportingService:
         page: int = 1,
         page_size: int = 50,
     ) -> dict[str, Any]:
-        from sqlalchemy import or_
+        from sqlalchemy import and_, or_
 
+        start_at, end_at = parse_report_date_bounds(date_from, date_to)
         # client is a DB-loaded row: the PK is always populated at runtime.
         assert client.id is not None, "client must be a persisted row"
 
@@ -244,9 +246,17 @@ class UserReportingService:
         if plate_number:
             p_stmt = select(col(DriverPlate.driver_id)).where(
                 DriverPlate.client_id == client.id,
+                DriverPlate.status == "active",
                 col(DriverPlate.plate_number).contains(plate_number.strip()),
             )
             plate_subquery = p_stmt
+
+        payload_plate = func.coalesce(
+            func.nullif(col(WaybillJob.payload_json)["plate_number"].as_string(), ""),
+            func.nullif(col(WaybillJob.payload_json)["vehicle_plate"].as_string(), ""),
+            func.nullif(col(WaybillJob.payload_json)["vehicle"]["plate"].as_string(), ""),
+        )
+        payload_driver_name = func.nullif(col(WaybillJob.payload_json)["driver_name"].as_string(), "")
 
         def apply_filters(query):
             query = query.where(col(WaybillJob.client_id) == client.id)
@@ -255,33 +265,30 @@ class UserReportingService:
             if driver_subquery is not None or driver_name:
                 d_conds = []
                 if driver_subquery is not None:
-                    d_conds.append(col(WaybillJob.driver_id).in_(driver_subquery))
+                    d_conds.append(and_(payload_driver_name.is_(None), col(WaybillJob.driver_id).in_(driver_subquery)))
                 if driver_name:
                     dn = driver_name.strip()
-                    d_conds.append(col(WaybillJob.payload_json)["driver_name"].as_string().contains(dn))
+                    d_conds.append(payload_driver_name.contains(dn))
                 query = query.where(or_(*d_conds))
 
             if plate_subquery is not None or plate_number:
                 p_conds = []
                 if plate_subquery is not None:
-                    p_conds.append(col(WaybillJob.driver_id).in_(plate_subquery))
+                    p_conds.append(and_(payload_plate.is_(None), col(WaybillJob.driver_id).in_(plate_subquery)))
                 if plate_number:
                     pn = plate_number.strip()
-                    p_conds.append(col(WaybillJob.payload_json)["plate_number"].as_string().contains(pn))
-                    p_conds.append(col(WaybillJob.payload_json)["vehicle_plate"].as_string().contains(pn))
+                    p_conds.append(payload_plate.contains(pn))
                 query = query.where(or_(*p_conds))
 
             if status:
                 query = query.where(col(WaybillJob.status) == status.strip().lower())
-            if date_from:
-                dt = tehran_day_start_utc(date_from)
-                query = query.where(col(WaybillJob.created_at) >= dt)
-            if date_to:
-                dt = tehran_day_end_utc(date_to)
-                query = query.where(col(WaybillJob.created_at) < dt)
+            if start_at is not None:
+                query = query.where(col(WaybillJob.created_at) >= start_at)
+            if end_at is not None:
+                query = query.where(col(WaybillJob.created_at) < end_at)
             return query
 
-        stmt = apply_filters(select(WaybillJob)).order_by(col(WaybillJob.created_at).desc())
+        stmt = apply_filters(select(WaybillJob)).order_by(col(WaybillJob.created_at).desc(), col(WaybillJob.id).desc())
         count_stmt = apply_filters(select(func.count(col(WaybillJob.id))))
 
         count_result = await session.exec(count_stmt)
@@ -297,11 +304,19 @@ class UserReportingService:
         drivers_map = {}
         plates_map = {}
         if driver_ids:
-            drivers_stmt = select(Driver).where(col(Driver.id).in_(list(driver_ids)))
+            drivers_stmt = select(Driver).where(Driver.client_id == client.id, col(Driver.id).in_(list(driver_ids)))
             drivers_result = await session.exec(drivers_stmt)
             drivers_map = {d.id: d for d in drivers_result.all()}
 
-            plates_stmt = select(DriverPlate).where(col(DriverPlate.driver_id).in_(list(driver_ids)))
+            plates_stmt = (
+                select(DriverPlate)
+                .where(
+                    DriverPlate.client_id == client.id,
+                    DriverPlate.status == "active",
+                    col(DriverPlate.driver_id).in_(list(driver_ids)),
+                )
+                .order_by(col(DriverPlate.id))
+            )
             plates_result = await session.exec(plates_stmt)
             for p in plates_result.all():
                 plates_map[p.driver_id] = p.plate_number
@@ -309,28 +324,33 @@ class UserReportingService:
         rows = []
         for job in jobs:
             driver = drivers_map.get(job.driver_id)
-            plate_no = (
-                plates_map.get(job.driver_id)
-                or (job.payload_json or {}).get("plate_number")
+            vehicle = (job.payload_json or {}).get("vehicle")
+            frozen_plate = (
+                (job.payload_json or {}).get("plate_number")
                 or (job.payload_json or {}).get("vehicle_plate")
+                or (vehicle.get("plate") if isinstance(vehicle, dict) else None)
                 or None
             )
+            plate_no = frozen_plate or plates_map.get(job.driver_id)
+            plate_source = "payload_snapshot" if frozen_plate else "current_driver" if plate_no else "unknown"
             rows.append(
                 {
                     "job_id": job.job_id,
                     "driver_id": job.driver_id,
-                    "driver_name": driver.full_name if driver else (job.payload_json or {}).get("driver_name"),
+                    "driver_name": (job.payload_json or {}).get("driver_name")
+                    or (driver.full_name if driver else None),
                     "driver_national_code": driver.driver_national_code if driver else None,
                     "plate_number": plate_no,
+                    "plate_source": plate_source,
                     "status": job.status,
                     "source": job.source,
                     "business_date": job.business_date,
                     "last_error": job.last_error,
                     "error_category": job.error_category,
                     "attempt_count": job.attempt_count,
-                    "created_at": job.created_at.isoformat(),
-                    "started_at": job.started_at.isoformat() if job.started_at else None,
-                    "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                    "created_at": utc_report_timestamp(job.created_at),
+                    "started_at": utc_report_timestamp(job.started_at),
+                    "finished_at": utc_report_timestamp(job.finished_at),
                     "is_scheduled": job.schedule_id is not None,
                     "schedule_id": job.schedule_id,
                 }
@@ -353,6 +373,7 @@ class UserReportingService:
         date_to: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
+        start_at, end_at = parse_report_date_bounds(date_from, date_to)
         # client is a DB-loaded row: the PK is always populated at runtime.
         assert client.id is not None, "client must be a persisted row"
         stmt = select(WaybillJob).where(
@@ -367,12 +388,10 @@ class UserReportingService:
         )
         if driver_id:
             stmt = stmt.where(WaybillJob.driver_id == driver_id)
-        if date_from:
-            dt = tehran_day_start_utc(date_from)
-            stmt = stmt.where(WaybillJob.created_at >= dt)
-        if date_to:
-            dt = tehran_day_end_utc(date_to)
-            stmt = stmt.where(WaybillJob.created_at < dt)
+        if start_at is not None:
+            stmt = stmt.where(WaybillJob.created_at >= start_at)
+        if end_at is not None:
+            stmt = stmt.where(WaybillJob.created_at < end_at)
         stmt = stmt.order_by(col(WaybillJob.created_at).desc()).limit(limit)
 
         result = await session.exec(stmt)
@@ -645,22 +664,29 @@ class UserReportingService:
     ) -> dict[str, Any]:
         """Return per-day job statistics for the given client, backfilled over *days* days."""
         days = max(1, min(days, 90))
-        today = datetime.now(UTC).replace(tzinfo=None).date()
+        today = (datetime.now(UTC) + TEHRAN_UTC_OFFSET).date()
         start_date = today - timedelta(days=days - 1)
+        # created_at is naive UTC. Convert before grouping so the chart uses
+        # the same Tehran day as its filters and dashboard. PostgreSQL's
+        # explicit source timezone avoids depending on the connection timezone.
+        if session.get_bind().dialect.name == "sqlite":
+            report_day = func.date(col(WaybillJob.created_at), "+210 minutes")
+        else:
+            report_day = func.date(func.timezone("Asia/Tehran", func.timezone("UTC", col(WaybillJob.created_at))))
 
         stmt = (
             select(
-                func.date(col(WaybillJob.created_at)).label("report_date"),
+                report_day.label("report_date"),
                 col(WaybillJob.status),
                 func.count(col(WaybillJob.id)).label("job_count"),
             )
             .where(
                 (col(WaybillJob.client_id) == client_id)
-                & (col(WaybillJob.created_at) >= datetime.combine(start_date, time.min))
-                & (col(WaybillJob.created_at) <= datetime.combine(today, time.max))
+                & (col(WaybillJob.created_at) >= tehran_day_start_utc(start_date.isoformat()))
+                & (col(WaybillJob.created_at) < tehran_day_end_utc(today.isoformat()))
             )
-            .group_by(func.date(col(WaybillJob.created_at)), col(WaybillJob.status))
-            .order_by(func.date(col(WaybillJob.created_at)).desc())
+            .group_by(report_day, col(WaybillJob.status))
+            .order_by(report_day.desc())
         )
 
         result = await session.exec(stmt)
@@ -718,8 +744,10 @@ class UserReportingService:
         # Use DB aggregation to prevent memory issues with thousands of jobs
         failed_statuses = [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
         pending_statuses = [TaskStatus.PENDING.value, TaskStatus.QUEUED.value, TaskStatus.IN_PROGRESS.value]
-        today = datetime.now(UTC).replace(tzinfo=None).date()
-        today_start = datetime.combine(today, datetime.min.time())
+        today = (datetime.now(UTC) + TEHRAN_UTC_OFFSET).date().isoformat()
+        today_start = tehran_day_start_utc(today)
+        today_end = tehran_day_end_utc(today)
+        in_today = (col(WaybillJob.created_at) >= today_start) & (col(WaybillJob.created_at) < today_end)
 
         # The seven-column select does not fit sqlmodel's typed select()
         # overloads, so it is split into two narrower queries with identical
@@ -737,12 +765,11 @@ class UserReportingService:
             total_v = success_v = failed_v = pending_v = 0
 
         today_stmt = select(
-            func.sum(case((col(WaybillJob.created_at) >= today_start, 1), else_=0)).label("today_jobs"),
+            func.sum(case((in_today, 1), else_=0)).label("today_jobs"),
             func.sum(
                 case(
                     (
-                        (col(WaybillJob.created_at) >= today_start)
-                        & (col(WaybillJob.status) == TaskStatus.SUCCESS.value),
+                        in_today & (col(WaybillJob.status) == TaskStatus.SUCCESS.value),
                         1,
                     ),
                     else_=0,
@@ -751,7 +778,7 @@ class UserReportingService:
             func.sum(
                 case(
                     (
-                        (col(WaybillJob.created_at) >= today_start) & (col(WaybillJob.status).in_(failed_statuses)),
+                        in_today & (col(WaybillJob.status).in_(failed_statuses)),
                         1,
                     ),
                     else_=0,

@@ -17,6 +17,7 @@ import logging
 import math
 import os
 import re
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -26,6 +27,7 @@ from urllib.parse import parse_qsl, urljoin, urlparse
 from app.automation.worker_proxy import get_worker_proxy_url
 from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
+from app.core.private_storage import private_directory, read_private_file, write_private_file
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +138,7 @@ _CRITICAL_FORM_SCRIPT_MARKERS = (
 # makes the issuance form independent of UTCMS's unreliable static surface:
 # every asset a previous run managed to download is served locally, so the HTML
 # parser never blocks on a synchronous <script> that will not arrive.
-_ASSET_CACHE_DIR = Path(os.environ.get("UTCMS_ASSET_CACHE_DIR", "/tmp/utcms_asset_cache"))
+_ASSET_CACHE_DIR = Path(os.environ.get("UTCMS_ASSET_CACHE_DIR", str(Path(tempfile.gettempdir()) / "utcms_asset_cache")))
 _ASSET_CACHE_MAX_BYTES = 8 * 1024 * 1024
 _JSON_CACHE_TTL_SECONDS = 8.0
 
@@ -153,15 +155,24 @@ def _asset_cache_files(cache_key: str) -> tuple[Path, Path]:
 def _read_asset_cache(cache_key: str) -> tuple[int, dict[str, str], bytes] | None:
     meta_path, body_path = _asset_cache_files(cache_key)
     try:
-        if not meta_path.is_file() or not body_path.is_file():
+        with private_directory(_ASSET_CACHE_DIR) as directory_fd:
+            meta = json.loads(read_private_file(directory_fd, meta_path.name, max_bytes=64 * 1024))
+            body = read_private_file(directory_fd, body_path.name, max_bytes=_ASSET_CACHE_MAX_BYTES)
+        if not isinstance(meta, dict):
             return None
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        body = body_path.read_bytes()
+        if meta.get("url_key") != cache_key:
+            return None
+        # Concurrent writers can replace the body and metadata in different
+        # orders. A mixed pair is a cache miss, never a script served as valid.
+        if meta.get("body_sha256") and meta["body_sha256"] != hashlib.sha256(body).hexdigest():
+            return None
+        status = int(meta.get("status") or 0)
+        headers = {str(k): str(v) for k, v in (meta.get("headers") or {}).items()}
+    except FileNotFoundError:
+        return None
     except Exception:
         logger.warning("http_browser_bridge_asset_cache_read_failed key=%s", cache_key, exc_info=True)
         return None
-    status = int(meta.get("status") or 0)
-    headers = {str(k): str(v) for k, v in (meta.get("headers") or {}).items()}
     if status != 200 or not body:
         return None
     return status, headers, body
@@ -172,16 +183,17 @@ def _write_asset_cache(cache_key: str, status: int, headers: dict[str, str], bod
         return
     meta_path, body_path = _asset_cache_files(cache_key)
     try:
-        _ASSET_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_body = body_path.with_suffix(".body.tmp")
-        tmp_meta = meta_path.with_suffix(".meta.tmp")
-        tmp_body.write_bytes(body)
-        tmp_meta.write_text(
-            json.dumps({"status": int(status), "headers": headers, "url_key": cache_key}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        tmp_body.replace(body_path)
-        tmp_meta.replace(meta_path)
+        with private_directory(_ASSET_CACHE_DIR) as directory_fd:
+            write_private_file(directory_fd, body_path.name, body, replace=True)
+            metadata = {
+                "status": int(status),
+                "headers": headers,
+                "url_key": cache_key,
+                "body_sha256": hashlib.sha256(body).hexdigest(),
+            }
+            write_private_file(
+                directory_fd, meta_path.name, json.dumps(metadata, ensure_ascii=False).encode("utf-8"), replace=True
+            )
     except Exception:
         logger.warning("http_browser_bridge_asset_cache_write_failed key=%s", cache_key, exc_info=True)
 

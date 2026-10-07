@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from fastapi import HTTPException, status
-from sqlalchemy import update
+from sqlalchemy import and_, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -29,6 +29,19 @@ logger = logging.getLogger(__name__)
 
 class FuelInquiryService:
     """Manages fuel inquiry database states and automation execution."""
+
+    @staticmethod
+    def _historical_response(inquiry: FuelInquiry, driver: Driver | None = None) -> FuelInquiryResponse:
+        response = FuelInquiryResponse.model_validate(inquiry)
+        response.plate_number = inquiry.plate_number_snapshot
+        response.plate_source = "request_snapshot" if inquiry.plate_number_snapshot else "legacy_unknown"
+        if inquiry.driver_name_snapshot:
+            response.driver_name = inquiry.driver_name_snapshot
+            response.driver_name_source = "request_snapshot"
+        elif driver is not None and driver.id == inquiry.driver_id and driver.client_id == inquiry.client_id:
+            response.driver_name = driver.full_name
+            response.driver_name_source = "current_driver"
+        return response
 
     @staticmethod
     async def create_inquiry(
@@ -132,6 +145,8 @@ class FuelInquiryService:
             status="pending",
             year=inquiry_year,
             month=inquiry_month,
+            plate_number_snapshot=driver_plate.plate_number,
+            driver_name_snapshot=driver.full_name,
         )
         session.add(inquiry)
         try:
@@ -155,14 +170,13 @@ class FuelInquiryService:
             logger.error(f"Failed to enqueue Celery task: {e}")
             set_fuel_inquiry_status(inquiry, "failed")
             inquiry.error_message = f"خطا در ایجاد کار پس‌زمینه: {e}"
+            inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            inquiry.finished_at = inquiry.updated_at
             session.add(inquiry)
             await session.commit()
 
         # Map to response schema
-        response = FuelInquiryResponse.model_validate(inquiry)
-        response.driver_name = driver.full_name
-        response.plate_number = driver_plate.plate_number
-        return response
+        return FuelInquiryService._historical_response(inquiry, driver)
 
     @staticmethod
     async def list_inquiries(
@@ -197,24 +211,16 @@ class FuelInquiryService:
             count_stmt = count_stmt.where(FuelInquiry.status == status)
         if driver_name:
             d_stmt = select(Driver.id).where(col(Driver.full_name).ilike(f"%{driver_name.strip()}%"))
-            d_ids = (await session.exec(d_stmt)).all()
-            if d_ids:
-                statement = statement.where(col(FuelInquiry.driver_id).in_(d_ids))
-                count_stmt = count_stmt.where(col(FuelInquiry.driver_id).in_(d_ids))
-            else:
-                statement = statement.where(col(FuelInquiry.driver_id) == -1)
-                count_stmt = count_stmt.where(col(FuelInquiry.driver_id) == -1)
-        if plate_number:
-            p_stmt = select(DriverPlate.driver_id).where(
-                col(DriverPlate.plate_number).ilike(f"%{plate_number.strip()}%")
+            name_filter = or_(
+                col(FuelInquiry.driver_name_snapshot).ilike(f"%{driver_name.strip()}%"),
+                and_(col(FuelInquiry.driver_name_snapshot).is_(None), col(FuelInquiry.driver_id).in_(d_stmt)),
             )
-            p_driver_ids = (await session.exec(p_stmt)).all()
-            if p_driver_ids:
-                statement = statement.where(col(FuelInquiry.driver_id).in_(p_driver_ids))
-                count_stmt = count_stmt.where(col(FuelInquiry.driver_id).in_(p_driver_ids))
-            else:
-                statement = statement.where(col(FuelInquiry.driver_id) == -1)
-                count_stmt = count_stmt.where(col(FuelInquiry.driver_id) == -1)
+            statement = statement.where(name_filter)
+            count_stmt = count_stmt.where(name_filter)
+        if plate_number:
+            plate_filter = col(FuelInquiry.plate_number_snapshot).ilike(f"%{plate_number.strip()}%")
+            statement = statement.where(plate_filter)
+            count_stmt = count_stmt.where(plate_filter)
         if date_from:
             statement = statement.where(FuelInquiry.created_at >= date_from)
             count_stmt = count_stmt.where(FuelInquiry.created_at >= date_from)
@@ -230,7 +236,7 @@ class FuelInquiryService:
         total = count_result.one()
 
         # Get paginated results
-        statement = statement.order_by(col(FuelInquiry.created_at).desc())
+        statement = statement.order_by(col(FuelInquiry.created_at).desc(), col(FuelInquiry.id).desc())
         statement = statement.offset((page - 1) * page_size).limit(page_size)
 
         result = await session.exec(statement)
@@ -238,19 +244,8 @@ class FuelInquiryService:
 
         items = []
         for i in inquiries:
-            resp = FuelInquiryResponse.model_validate(i)
-            # Find driver name
             driver = await session.get(Driver, i.driver_id)
-            if driver:
-                resp.driver_name = driver.full_name
-            # Inject plate number dynamically
-            plate_stmt = select(DriverPlate).where(
-                (DriverPlate.driver_id == i.driver_id) & (DriverPlate.status == "active")
-            )
-            plate_res = await session.exec(plate_stmt)
-            driver_plate = plate_res.first()
-            if driver_plate:
-                resp.plate_number = driver_plate.plate_number
+            resp = FuelInquiryService._historical_response(i, driver)
             # If admin, inject client info
             if role == "master_admin":
                 cl = await session.get(Client, i.client_id)
@@ -294,18 +289,8 @@ class FuelInquiryService:
                 detail="استعلام مورد نظر یافت نشد",
             )
 
-        resp = FuelInquiryResponse.model_validate(inquiry)
         driver = await session.get(Driver, inquiry.driver_id)
-        if driver:
-            resp.driver_name = driver.full_name
-        # Inject plate number dynamically
-        plate_stmt = select(DriverPlate).where(
-            (DriverPlate.driver_id == inquiry.driver_id) & (DriverPlate.status == "active")
-        )
-        plate_res = await session.exec(plate_stmt)
-        driver_plate = plate_res.first()
-        if driver_plate:
-            resp.plate_number = driver_plate.plate_number
+        resp = FuelInquiryService._historical_response(inquiry, driver)
         # If admin, inject client info
         if role == "master_admin":
             cl = await session.get(Client, inquiry.client_id)
@@ -330,7 +315,7 @@ class FuelInquiryService:
         claim = await conn.execute(
             update(FuelInquiry)
             .where((col(FuelInquiry.id) == inquiry_id) & (col(FuelInquiry.status) == "pending"))
-            .values(status="processing", updated_at=now)
+            .values(status="processing", updated_at=now, started_at=now)
         )
         if claim.rowcount != 1:
             await session.rollback()
@@ -354,14 +339,8 @@ class FuelInquiryService:
             if driver is None:
                 raise WaybillError("راننده در پایگاه داده یافت نشد")
 
-            plate_stmt = select(DriverPlate).where(
-                (DriverPlate.client_id == inquiry.client_id)
-                & (DriverPlate.driver_id == driver.id)
-                & (DriverPlate.status == "active")
-            )
-            driver_plate = (await session.exec(plate_stmt)).first()
-            if driver_plate is None:
-                raise WaybillError("پلاک فعال برای راننده در سامانه یافت نشد")
+            if not inquiry.plate_number_snapshot:
+                raise WaybillError("پلاک زمان درخواست این استعلام قدیمی ثبت نشده است؛ استعلام جدید ایجاد کنید")
 
             national_code = driver.driver_national_code
 
@@ -390,7 +369,7 @@ class FuelInquiryService:
                 scraper = FuelScraper(page, context)
                 result = await scraper.scrape_fuel_quota(
                     national_code=national_code,
-                    plate_number=driver_plate.plate_number,
+                    plate_number=inquiry.plate_number_snapshot,
                     inquiry_id=inquiry_id,
                     j_year=inquiry.year,
                     j_month=inquiry.month,
@@ -414,6 +393,7 @@ class FuelInquiryService:
                 inquiry.quota_data_json = quota_data
                 inquiry.screenshot_url = result.get("screenshot_url")
                 inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                inquiry.finished_at = inquiry.updated_at
                 session.add(inquiry)
                 await session.commit()
                 logger.info(f"Fuel inquiry {inquiry_id} completed with status {inquiry.status}")
@@ -436,6 +416,7 @@ class FuelInquiryService:
             inquiry.error_category = category.value
 
             inquiry.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            inquiry.finished_at = inquiry.updated_at
             session.add(inquiry)
             await session.commit()
 

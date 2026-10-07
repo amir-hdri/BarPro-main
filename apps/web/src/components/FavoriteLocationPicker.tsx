@@ -1,5 +1,8 @@
 "use client";
 
+import { useSession } from '@/hooks/useSession';
+import { sessionQueryKey } from "@/lib/session-query";
+
 import { memo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookmarkIcon, PlusIcon, TrashIcon, CheckIcon } from "@heroicons/react/24/outline";
@@ -41,8 +44,9 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
   onSelectFavorite,
 }: FavoriteLocationPickerProps) {
   const queryClient = useQueryClient();
+  const { client } = useSession();
   const { data: favorites = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ["location-favorites"],
+    queryKey: sessionQueryKey(client, 'location-favorites'),
     queryFn: async ({ signal }) => {
       const res = await api.get<FavoriteLocation[] | { data?: FavoriteLocation[] }>(
         "/api/v1/locations/favorites",
@@ -56,6 +60,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
       return Array.isArray(res.data.data) ? res.data.data : [];
     },
     staleTime: 60_000,
+    enabled: Boolean(client),
   });
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -85,7 +90,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
       toast.success("مکان منتخب با موفقیت ذخیره شد");
       setShowSaveModal(false);
       setNewTitle("");
-      await queryClient.invalidateQueries({ queryKey: ["location-favorites"] });
+      await queryClient.invalidateQueries({ queryKey: sessionQueryKey(client, 'location-favorites') });
     } else {
       toast.error(res.error || "خطا در ذخیره مکان منتخب");
     }
@@ -97,7 +102,7 @@ export const FavoriteLocationPicker = memo(function FavoriteLocationPicker({
     setDeletingId(null);
     if (res.success) {
       toast.success("مکان منتخب حذف شد");
-      await queryClient.invalidateQueries({ queryKey: ["location-favorites"] });
+      await queryClient.invalidateQueries({ queryKey: sessionQueryKey(client, 'location-favorites') });
     } else {
       toast.error(res.error || "خطا در حذف مکان منتخب");
     }

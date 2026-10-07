@@ -494,6 +494,10 @@ export interface FuelQuotaData {
 }
 
 export interface FuelInquiryItem {
+  started_at?: string | null;
+  finished_at?: string | null;
+  plate_source?: 'request_snapshot' | 'legacy_unknown';
+  driver_name_source?: 'request_snapshot' | 'current_driver' | 'unknown';
   id: number;
   client_id: number;
   driver_id: number;

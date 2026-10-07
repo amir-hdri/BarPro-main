@@ -5,13 +5,12 @@ import {
   MapPinIcon,
   ArrowPathIcon,
   GlobeAsiaAustraliaIcon,
-  SunIcon,
-  MoonIcon,
   ArrowsPointingInIcon,
 } from "@heroicons/react/24/outline";
 import toast from "react-hot-toast";
 import type * as LType from "leaflet";
 import { api } from "@/lib/api";
+import { createMapTiles, MAP_TILES, MAP_TILE_ORDER, type MapTheme, type MapTileStatus } from "@/lib/map-tiles";
 
 interface LocationMapPickerProps {
   label: string;
@@ -28,37 +27,6 @@ interface LocationMapPickerProps {
   onClose?: () => void;
 }
 
-const TILE_SERVERS = {
-  google: {
-    name: "نقشه خیابان‌ها (گوگل)",
-    url: "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
-    subdomains: "0123",
-    attribution: '&copy; Google Maps',
-    maxZoom: 20,
-  },
-  voyager: {
-    name: "نقشه روشن (Voyager)",
-    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-    subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>',
-    maxZoom: 20,
-  },
-  dark: {
-    name: "نقشه تیره (Dark Matter)",
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer">CARTO</a>',
-    maxZoom: 20,
-  },
-  osm: {
-    name: "OpenStreetMap",
-    url: "https://tile.openstreetmap.de/{z}/{x}/{y}.png",
-    subdomains: "",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  },
-};
-
 export const LocationMapPicker = memo(function LocationMapPicker({
   label,
   initialLat = 35.6892,
@@ -68,12 +36,15 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 }: LocationMapPickerProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<LType.Map | null>(null);
-  const currentTileLayer = useRef<LType.TileLayer | null>(null);
+  const tilesRef = useRef<ReturnType<typeof createMapTiles> | null>(null);
+  const selectionCallbackRef = useRef(onLocationSelected);
+  useEffect(() => { selectionCallbackRef.current = onLocationSelected; }, [onLocationSelected]);
   const markerRef = useRef<LType.Marker | null>(null);
   const geocodeControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
 
-  const [mapTheme, setMapTheme] = useState<"google" | "voyager" | "dark" | "osm">("voyager");
+  const [mapTheme, setMapTheme] = useState<MapTheme>("osm");
+  const [tileStatus, setTileStatus] = useState<MapTileStatus>("loading");
   const [loadingGeocode, setLoadingGeocode] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number }>({
     lat: initialLat,
@@ -96,7 +67,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
       // Immediate commit with provisional (empty) address — parent state is
       // always correct even if geocoding fails.
-      onLocationSelected({
+      selectionCallbackRef.current({
         province: "",
         city: "",
         district: "",
@@ -107,20 +78,25 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
       try {
         const res = await api.get<{
+          success?: boolean;
           province: string;
           city: string;
           district: string;
           address: string;
+          is_approximate?: boolean;
+          display_name?: string;
         }>(`/api/v1/locations/reverse-geocode?lat=${lat}&lng=${lng}`, undefined, { signal: controller.signal });
 
         if (controller.signal.aborted || !mountedRef.current || geocodeControllerRef.current !== controller) return;
         setLoadingGeocode(false);
 
-        if (res.success && res.data) {
+        if (res.success && res.data && res.data.success !== false) {
           const { province, city, district, address } = res.data;
-          setResolvedAddress(address || `${province} - ${city}`);
+          setResolvedAddress(res.data.is_approximate
+            ? `${res.data.display_name || city} — موقعیت تقریبی است؛ آدرس دقیق را وارد کنید.`
+            : address || `${province} - ${city}`);
           // Enrichment second call overwrites the provisional address only.
-          onLocationSelected({
+          selectionCallbackRef.current({
             province,
             city,
             district,
@@ -139,7 +115,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         }
       }
     },
-    [onLocationSelected]
+    []
   );
 
   // Synchronize when parent updates coordinates (e.g. user selected city from dropdown or favorite location)
@@ -149,6 +125,9 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       const cur = markerRef.current.getLatLng();
       const dist = Math.abs(cur.lat - initialLat) + Math.abs(cur.lng - initialLng);
       if (dist > 0.0001) {
+        geocodeControllerRef.current?.abort();
+        setLoadingGeocode(false);
+        setResolvedAddress("");
         markerRef.current.setLatLng([initialLat, initialLng]);
         leafletMap.current.setView([initialLat, initialLng], Math.max(leafletMap.current.getZoom(), 13), {
           animate: true,
@@ -158,47 +137,6 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       }
     }
   }, [initialLat, initialLng]);
-
-  // Tile fallback chain: voyager -> dark -> osm -> google (google is sanctioned/blocked in Iran)
-  const tileErrorCount = useRef(0);
-  const applyTileLayer = useCallback(
-    (L: typeof LType, map: LType.Map, theme: "google" | "voyager" | "dark" | "osm" = "voyager") => {
-      if (currentTileLayer.current) {
-        currentTileLayer.current.remove();
-        currentTileLayer.current = null;
-      }
-      tileErrorCount.current = 0;
-
-      const cfg = TILE_SERVERS[theme];
-      const layer = L.tileLayer(cfg.url, {
-        subdomains: cfg.subdomains,
-        maxZoom: cfg.maxZoom,
-        attribution: cfg.attribution,
-      });
-
-      // Real automatic fallback on sustained tile errors (sanctions / filtering).
-      layer.on("tileerror", () => {
-        if (layer !== currentTileLayer.current) return;
-        tileErrorCount.current += 1;
-        if (tileErrorCount.current < 3) return;
-        const order: Array<"google" | "voyager" | "dark" | "osm"> = ["voyager", "dark", "osm", "google"];
-        const next = order[order.indexOf(theme) + 1] || order[0];
-        if (!next || next === theme) return;
-        if (process.env.NODE_ENV !== "production") {
-          console.warn(`Tile layer "${theme}" failing, falling back to "${next}"`);
-        }
-        setTimeout(() => {
-          if (currentTileLayer.current === layer && leafletMap.current === map) {
-            applyTileLayer(L, map, next);
-          }
-        }, 200);
-      });
-
-      layer.addTo(map);
-      currentTileLayer.current = layer;
-    },
-    []
-  );
 
   // Debounced invalidateSize
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -228,7 +166,10 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         }).setView([initialLat, initialLng], 13);
         leafletMap.current = map;
 
-        applyTileLayer(L, map, mapTheme);
+        tilesRef.current = createMapTiles(L, map, (theme, state) => {
+          if (isMounted) { setMapTheme(theme); setTileStatus(state); }
+        });
+        tilesRef.current.select();
 
         const pinIcon = L.divIcon({
           className: "custom-leaflet-marker",
@@ -265,6 +206,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           }, delayMs);
         });
       } catch (err) {
+        if (isMounted) setTileStatus('unavailable');
         if (process.env.NODE_ENV !== "production") {
           console.error("Failed to load Leaflet:", err);
         }
@@ -298,25 +240,19 @@ export const LocationMapPicker = memo(function LocationMapPicker({
       window.removeEventListener("resize", handleWindowResize);
       window.removeEventListener("orientationchange", handleWindowResize);
       geocodeControllerRef.current?.abort();
+      tilesRef.current?.dispose();
+      tilesRef.current = null;
       if (leafletMap.current) {
         leafletMap.current.remove();
         leafletMap.current = null;
       }
       markerRef.current = null;
-      currentTileLayer.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toggleTheme = async () => {
-    const order: Array<"google" | "voyager" | "dark" | "osm"> = ["voyager", "dark", "osm", "google"];
-    const newTheme = order[(order.indexOf(mapTheme) + 1) % order.length];
-    setMapTheme(newTheme);
-    if (leafletMap.current) {
-      const L = (await import("leaflet")).default;
-      applyTileLayer(L, leafletMap.current, newTheme);
-      leafletMap.current.invalidateSize();
-    }
+  const toggleTheme = () => {
+    tilesRef.current?.select(MAP_TILE_ORDER[(MAP_TILE_ORDER.indexOf(mapTheme) + 1) % MAP_TILE_ORDER.length]);
   };
 
   const handleCenter = () => {
@@ -329,11 +265,9 @@ export const LocationMapPicker = memo(function LocationMapPicker({
 
   const handleMyPosition = () => {
     if (typeof window !== "undefined" && navigator.geolocation) {
-      if (window.location.protocol !== "https:" && window.location.hostname !== "localhost") {
-        toast("درخواست GPS ارسال شد. (در ارتباط غیر HTTPS تایید مرورگر لازم است)", {
-          icon: "📍",
-          duration: 3500,
-        });
+      if (!window.isSecureContext) {
+        toast.error("موقعیت خودکار به اتصال امن HTTPS نیاز دارد؛ نقطه را روی نقشه انتخاب کنید.");
+        return;
       }
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -374,17 +308,11 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           <button
             type="button"
             onClick={toggleTheme}
-            aria-label={`تغییر حالت نقشه: ${TILE_SERVERS[mapTheme]?.name || mapTheme}`}
-            title={`تغییر حالت نقشه (${TILE_SERVERS[mapTheme]?.name})`}
+            aria-label={`تغییر منبع نقشه: ${MAP_TILES[mapTheme]?.name || mapTheme}`}
+            title={`تغییر منبع نقشه (${MAP_TILES[mapTheme]?.name})`}
             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-white/5 transition-colors min-h-[38px] min-w-[38px] flex items-center justify-center"
           >
-            {mapTheme === "dark" ? (
-              <MoonIcon className="h-4 w-4 text-cyan-400" />
-            ) : mapTheme === "google" ? (
-              <GlobeAsiaAustraliaIcon className="h-4 w-4 text-emerald-400" />
-            ) : (
-              <SunIcon className="h-4 w-4 text-amber-400" />
-            )}
+            <GlobeAsiaAustraliaIcon className="h-4 w-4 text-cyan-400" />
           </button>
 
           <button
@@ -427,7 +355,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
           <div
             role="status"
             aria-live="polite"
-            className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm z-10 flex items-center justify-center gap-2 text-cyan-400 text-xs font-bold pointer-events-none"
+            className="absolute bottom-3 start-3 end-3 rounded-lg bg-white/95 px-3 py-2 z-[500] flex items-center gap-2 text-slate-800 text-xs font-bold pointer-events-none"
           >
             <ArrowPathIcon className="h-5 w-5 animate-spin" aria-hidden="true" />
             <span>در حال دریافت آدرس پین...</span>
@@ -435,9 +363,16 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         )}
       </div>
 
+      {tileStatus !== 'ready' && (
+        <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-3 text-xs text-amber-200">
+          <span>{tileStatus === 'loading' ? 'در حال بارگذاری نقشه…' : 'تصویر نقشه دریافت نشد. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.'}</span>
+          {tileStatus === 'unavailable' && <button type="button" className="min-h-11 rounded-lg border border-white/20 px-3" onClick={() => tilesRef.current?.select()}>تلاش دوباره</button>}
+        </div>
+      )}
+
       {/* Instruction hint */}
       <p className="text-[11px] text-slate-400 leading-relaxed">
-        💡 برای تغییر موقعیت در موبایل یا رایانه، روی هر نقطه از نقشه لمس/کلیک کنید یا پین را بکشید — مختصات فوراً ذخیره می‌شود و آدرس تکمیل خواهد شد.
+        💡 برای تغییر موقعیت در موبایل یا رایانه، روی هر نقطه از نقشه لمس/کلیک کنید یا پین را بکشید — مختصات فوراً ذخیره می‌شود و در صورت دریافت آدرس، فیلدها تکمیل می‌شوند. آدرس دقیق را پیش از ادامه بررسی کنید. مسیر حرکت از نزدیک‌ترین خیابان قابل‌تردد محاسبه می‌شود و جابه‌جایی در نقشه حمل مشخص است.
       </p>
 
       {/* Resolved address banner */}
@@ -445,9 +380,9 @@ export const LocationMapPicker = memo(function LocationMapPicker({
         <div
           role="status"
           aria-live="polite"
-          className="p-3 rounded-xl bg-slate-950/80 border border-white/5 text-xs text-slate-300 flex items-center justify-between gap-3"
+          className="p-3 rounded-xl bg-slate-950/80 border border-white/5 text-xs text-slate-300 flex flex-wrap items-center justify-between gap-3"
         >
-          <span className="truncate">{resolvedAddress}</span>
+          <span className="break-words">{resolvedAddress}</span>
           <span className="text-[10px] font-mono text-cyan-400 shrink-0 me-2" dir="ltr">
             {selectedCoords.lat.toFixed(5)}, {selectedCoords.lng.toFixed(5)}
           </span>

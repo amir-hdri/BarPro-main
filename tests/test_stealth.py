@@ -1,6 +1,11 @@
 from unittest.mock import patch
 
 from app.automation.stealth import _UA_POOL, get_random_user_agent
+from app.automation.stealth_common import add_random_delay
+
+
+async def test_common_delay_runs_inside_active_event_loop():
+    await add_random_delay(None, 0, 0)
 
 
 def test_get_random_user_agent():

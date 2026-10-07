@@ -57,6 +57,9 @@ async def delivery_api(tmp_path, monkeypatch):
             await asyncio.sleep(0.02)
         else:
             pytest.skip("isolated Redis failed to start (environment cannot bind a local socket)")
+        monkeypatch.setattr(
+            "app.services.otp_wakeup_consumer.trigger_job_completion_on_otp_received", lambda **kwargs: None
+        )
         monkeypatch.setattr(utcms_config, "OTP_WEBHOOK_SECRET", "test-forwarder-secret-32-bytes-long")
         monkeypatch.setattr(otp_forwarder.redis_manager, "get", AsyncMock(return_value=redis))
         app = FastAPI()
@@ -97,6 +100,28 @@ async def test_android_payload_reaches_only_recipient_and_worker(delivery_api):
     assert await fetch_scoped_otp(redis, job_id="job-b", driver_phone="09120000002", wait_start=time.time()) is None
     stored = json.loads(await redis.get(otp_phone_key("09120000001")))
     assert "raw_text" not in stored
+
+    # Exercise the current durable intake for a second recipient. The retired
+    # store_otp_in_redis helper no longer represents the webhook/manual path.
+    second = await client.post(
+        "/api/v1/otp/sms-forwarder",
+        json=sms(driver_phone="09120000002", text="کد تایید صدور بارنامه: 58273"),
+    )
+    assert second.status_code == 200 and second.json()["success"] is True
+    assert "58273" not in second.text
+    for job, phone, expected in (("job-a", "09120000001", "39182"), ("job-b", "09120000002", "58273")):
+        own = await fetch_scoped_otp(redis, job_id=job, driver_phone=phone, wait_start=time.time())
+        assert own is not None and own[0] == expected
+        assert own[1] == otp_phone_key(phone)
+    assert json.loads(await redis.get(otp_phone_key("09120000001"))) == stored
+    assert await redis.get("rpa:otp:latest") is None
+    assert await redis.get(otp_phone_key("20007777")) is None
+    events = [json.loads(fields["payload"]) for _, fields in await redis.xrange("rpa:otp:stream")]
+    assert [(entry["phone"], entry["code"]) for entry in events] == [
+        ("09120000001", "39182"),
+        ("09120000002", "58273"),
+    ]
+    assert all("raw_text" not in entry for entry in events)
 
 
 async def test_retries_do_not_refresh_ttl_or_resurrect_consumed_otp(delivery_api):

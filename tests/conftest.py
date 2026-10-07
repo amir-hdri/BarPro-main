@@ -46,6 +46,11 @@ def mock_external_services():
             patch("app.core.rate_limiter.rate_limiter.close", new_callable=AsyncMock),
             patch("app.auth_multitenant.is_blacklisted", new=AsyncMock(return_value=False)),
             patch("app.automation.worker_proxy.check_proxy_health", new=AsyncMock(return_value=True)),
+            # Sync proxy selection can start a singleton-owned screening thread.
+            # Letting it survive a test leaks the refresh lock and external HTTP
+            # into unrelated tests. Refresh-specific tests explicitly replace
+            # this mock and exercise their own controlled screening boundary.
+            patch("app.automation.clean_ip_pool.CleanIPPoolManager._kick_background_refresh"),
         ):
             yield
     finally:

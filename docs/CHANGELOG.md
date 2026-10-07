@@ -4,6 +4,74 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-07 — Complete interrupted audit and verify current contracts
+
+- Closed two ambiguous shipping-start paths: transport failure preserves an
+  unknown trip and does not create a registered-origin witness; tracking remains
+  intact, and automatic completion/replay are blocked pending reconciliation.
+- Isolated background proxy screening in the test harness so singleton refresh
+  locks and external requests cannot outlive tests. Removed two tests for an
+  unused legacy OTP writer; verified recipient isolation through actual HTTP,
+  Lua and Redis intake instead.
+- Replaced CARTO tiles that returned an API-key placeholder with two public
+  OpenStreetMap providers and updated the provider picker and PWA cache rule.
+
+- Recovered the interrupted session and independently reviewed OTP/security,
+  frontend, shipping, map and historical reporting changes. Added executable
+  tenant cleanup and structured-log privacy regressions.
+- Removed CAPTCHA solutions/expressions from diagnostic metadata and logs.
+  Kept private rejection images with digest/size and bounded operational context.
+- Scoped Android mock attribution to the matching provider, honored explicit
+  non-mock markers, and rejected invalid uptime or implausible future timestamps.
+  Validated persisted route geometry and preserved canonical user-coordinate
+  authority without silently substituting city centroids.
+- Fixed stale timeline/account UI state and rejected shipping responses being
+  presented as success. History search follows displayed historical identities.
+- Changed dispatcher Redis routing to asynchronous selection and made the common
+  delay helper awaitable. Per-intent worker selection and fail-closed behavior
+  are covered by regression checks.
+- Ran a full PostgreSQL 16.15 migration upgrade, fuel migration downgrade and
+  re-upgrade in an isolated local cluster. Production migration remains separate.
+- Corrected unsupported Android capacity/RAM claims in the supplied report.
+  Final checks and deployment limits are recorded in the
+  [continuation report](audits/2026-10-07/REPORT.fa.md). The full frontend dependency
+  audit still reports unpatched `braces` development dependencies; its CI gate
+  remains enabled.
+
+
+### 2026-10-06 — Verified audit remediation and driver-specific workflows
+
+- Bound OTP intake to durable driver/document challenges and the owning worker.
+  Removed API-side/inline issuance, added token-owned renewable leases, database
+  mutation fences, pending-stream recovery and fail-closed handling of ambiguous
+  outcomes. Pending OTP documents prevent new submissions for the same driver.
+- Removed query-string webhook credentials. Added tenant-owned forwarder setup
+  without exposing secrets, truthful readiness, asynchronous acceptance messages
+  and session-scoped frontend caches. HTTP clipboard failures are handled.
+- Added driver/day filters and individual fuel-history records with pagination;
+  removed sums of repeated quota snapshots. Historical inquiry identity and UTC
+  timestamps are captured independently of the driver's later profile changes.
+- Fixed shipping recovery starvation after 50 rows, reporting validation and
+  Tehran-day boundaries. Hardened private diagnostic/cache files and tensor-only
+  model loading while preserving the upstream UTCMS MD5 wire contract.
+- Reworked map loading/fallback and address autofill. Old addresses clear on pin
+  change; street-level geocoding and distinct nearby cache keys replace city-level
+  results. Approximate results require manual exact address. Map popups use DOM
+  text rather than untrusted HTML. Road snapping preserves requested and effective
+  anchors with visible provenance and conservative travel time.
+- Made browser smoke tests hermetic and live UTCMS tests explicit opt-in. Added
+  genuine Redis and PostgreSQL integration coverage and Node20 frontend test steps.
+  CI requires configured services; absent local PostgreSQL is reported as skipped.
+- Evidence, final gate results and remaining limitations are recorded in
+  [the audit report](audits/2026-10-06/REPORT.fa.md). Runtime dependency audit is
+  clean in the recorded frontend run; the full dev audit retains an unpatched
+  `braces` advisory and remains a blocking signal in ci-cd. No force-upgrade or
+  audit bypass was added.
+- Rollout requires the new additive fuel-history migration and coordinated API,
+  scheduler and worker versions. Drain legacy inline OTP workers; legacy pending
+  documents without a verified challenge require read-only reconciliation.
+  This task does not provide production or live UTCMS verification.
+
 ### 2026-10-06 — Universal Android forwarder compatibility, resilient JSON decoding & driver national code fallback
 
 #### Added

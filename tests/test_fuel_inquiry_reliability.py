@@ -51,7 +51,9 @@ async def test_fuel_worker_claims_once_and_submits_driver_national_code():
                 status="active",
             )
         )
-        inquiry = FuelInquiry(client_id=client.id, driver_id=driver.id, year=1405, month=4)
+        inquiry = FuelInquiry(
+            client_id=client.id, driver_id=driver.id, year=1405, month=4, plate_number_snapshot="12ب34567"
+        )
         session.add(inquiry)
         await session.commit()
         await session.refresh(inquiry)
@@ -173,7 +175,9 @@ async def test_fuel_inquiry_saves_data_uri_and_dual_quotas():
                 status="active",
             )
         )
-        inquiry = FuelInquiry(client_id=client.id, driver_id=driver.id, year=1405, month=4)
+        inquiry = FuelInquiry(
+            client_id=client.id, driver_id=driver.id, year=1405, month=4, plate_number_snapshot="82ع338ایران24"
+        )
         session.add(inquiry)
         await session.commit()
         await session.refresh(inquiry)

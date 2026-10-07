@@ -1,0 +1,465 @@
+{
+  "scope": "Staged application, frontend, tests, migrations and CI configuration validated in this continuation; excludes documentation and unrelated local files",
+  "files": [
+    {
+      "path": ".github/workflows/ci-cd.yml",
+      "sha256": "119f82a6c787d03a38512b874228a61ddb34c66efa4aff9cfb4ee4b53822dd7b"
+    },
+    {
+      "path": ".github/workflows/ci-test.yml",
+      "sha256": "b0dba543d7a4ce9f8716161db8dedd97db5d0b211f5972463fcbd61c1e9fa0da"
+    },
+    {
+      "path": "alembic/versions/042_fuel_request_identity.py",
+      "sha256": "b99a14a17dd5ddfaeae5cfb6c9077c631ad192dccff521d99f1acfaf257cb16d"
+    },
+    {
+      "path": "app/api/routes/location.py",
+      "sha256": "0a998271c5837fbe10a63c854b792ca521f5f1ee58c32b71b31a81912096dad5"
+    },
+    {
+      "path": "app/api/routes/multitenant.py",
+      "sha256": "d0f9cb0e3a0e34820fb5f0860e0dcb1a53240e55ac89596424b20dc64b56b962"
+    },
+    {
+      "path": "app/api/routes/otp_forwarder.py",
+      "sha256": "a7695bfe209132987d4aa0a5638d8d8409f3548d500062a6ba234816bce9a0ce"
+    },
+    {
+      "path": "app/api/routes/shipping_gps.py",
+      "sha256": "7bc2f8c88ca79a8a4b4bca091e53d44fec6cc3a54276fd67ae6b79a03e812543"
+    },
+    {
+      "path": "app/automation/captcha/barname_ml_solver.py",
+      "sha256": "184c4b355bc1741822f15caca50e6afcba03f7f1deca944d29a43fac84f0a25f"
+    },
+    {
+      "path": "app/automation/captcha/debug_artifacts.py",
+      "sha256": "f0a0435ed4036a4123fe935dc84f4816f5c211802068c693f249a17b03e2189b"
+    },
+    {
+      "path": "app/automation/captcha/dnt_captcha_solver.py",
+      "sha256": "d9c85a8e4b5183b2850bcc39c3c5aeaf464634d41c6cf1eef6b0825d83120c4d"
+    },
+    {
+      "path": "app/automation/captcha/fuel_captcha_solver.py",
+      "sha256": "8e320e2d48a1edd9f95aa8ce0e6f18fe526aaea652b440372a851378af06363e"
+    },
+    {
+      "path": "app/automation/captcha/math_crnn_solver.py",
+      "sha256": "fa62451980a00333f0b7688dafe3ef4ee927f2fc9c1d5da1a14660d627fea837"
+    },
+    {
+      "path": "app/automation/captcha/neural_net.py",
+      "sha256": "0e78b88d4d590dce654a8d989daf17ca0e9bea2a45339b4e77893ef8176688b2"
+    },
+    {
+      "path": "app/automation/gps_shipping_manager.py",
+      "sha256": "364cf4b5894efa4c0b01d22e560a9f10141f533c80126d1ded4479308fcdaccd"
+    },
+    {
+      "path": "app/automation/http_browser_bridge.py",
+      "sha256": "7c7d149a8aac4de03e7725aaeeb7836b28375b6d022bde47f3ef6772567c4119"
+    },
+    {
+      "path": "app/automation/mobile_payload_adapter.py",
+      "sha256": "aca5f38c35ef6cc106feab4839ee6235fb1d4d47f8107cd08038892be61294b9"
+    },
+    {
+      "path": "app/automation/multitenant_payload_adapter.py",
+      "sha256": "fe9a316ec1772418be8838d0addde79f521cfcdd6cca2eea6773f3df98a6118d"
+    },
+    {
+      "path": "app/automation/otp_keys.py",
+      "sha256": "41a3c95bc9fee41866f882fcc06be528832f927d9a5ba370be66ec5fc85c8c62"
+    },
+    {
+      "path": "app/automation/stealth_common.py",
+      "sha256": "5e790832f5cf1ba3a0968590ee10f1c2deef83f2f04ea2923dcf7e868ccdb371"
+    },
+    {
+      "path": "app/automation/utcms_mobile_client.py",
+      "sha256": "ca59fe843d4c045ed3a1f19bed95d53247e2d33b87012d40895a0456f2eb68f4"
+    },
+    {
+      "path": "app/automation/waybill_bot_multitenant.py",
+      "sha256": "5f583f0638f4fe8988ba2dd8304e401514e613da7461b601e8586b3eb1141093"
+    },
+    {
+      "path": "app/core/circuit_breaker.py",
+      "sha256": "2eae9bde4a92aacfe2b5376857a20981e44f8be2c34c8ec159bfa4afa9c4e256"
+    },
+    {
+      "path": "app/core/private_storage.py",
+      "sha256": "9f829c08b4cc43e278e9dd411491b026fe81e1fbd7473808fab915b9c0e8cb56"
+    },
+    {
+      "path": "app/models_multitenant.py",
+      "sha256": "d5dbe06107854ff3c864c02c86698029b9005bdbeb17d6209fc856089a4e3585"
+    },
+    {
+      "path": "app/orchestrator/dispatcher_service.py",
+      "sha256": "97cf818f9b77bcc49fff7e99911829b7e6979d7d3723cfb1c1146611e932ce2d"
+    },
+    {
+      "path": "app/orchestrator/scheduler_service.py",
+      "sha256": "47fa9731249ae0573c1ccfc0ee1f63d0841c987e0325049a9eda946b41f41276"
+    },
+    {
+      "path": "app/schemas/multitenant.py",
+      "sha256": "63c3c1b3044a58359a7315ea8ba84369e743c212413bc5df8b6f356bbd7d51ec"
+    },
+    {
+      "path": "app/services/admin_reporting_service.py",
+      "sha256": "a88fd65bb938921c91a423eb3264e1656257addc2476d715a5adbf1e197b7be8"
+    },
+    {
+      "path": "app/services/fuel_inquiry_service.py",
+      "sha256": "95d3a8777050ee0bf26d982ead432ea49db9421a8fa24a2823ae864202e12774"
+    },
+    {
+      "path": "app/services/location_service.py",
+      "sha256": "ba3c6cec567499c3a49d0a4a37310382f8989ba730b148af85c5ca9239cf3e63"
+    },
+    {
+      "path": "app/services/otp_challenge_guard.py",
+      "sha256": "3debd388e982d25adb169f489ee0f4438c7f7672ae88a9c3711d8b68ec7c9745"
+    },
+    {
+      "path": "app/services/otp_delivery.py",
+      "sha256": "58203b3d2cc67f7de9a2dd5b85bd1eb8b95dd35f8980c298a4bfccb83ce052c1"
+    },
+    {
+      "path": "app/services/otp_wakeup_consumer.py",
+      "sha256": "8e523a3ceeaf8445380d4a44ca439ba310d802917cff5c5e754e917293680d04"
+    },
+    {
+      "path": "app/services/reporting_dates.py",
+      "sha256": "43c8958cea01d5b60b62d30c56ee421bbea0dd1bdd3c21325c1afc6a10220c78"
+    },
+    {
+      "path": "app/services/route_authority.py",
+      "sha256": "fc5e4b96532c4bf8227ae67d5e35879e00709669c68089afe3fd75ab46f4042c"
+    },
+    {
+      "path": "app/services/scheduled_waybill_executor.py",
+      "sha256": "d255d8658e9289f0006ac983bddafc6de6e2526a43d1c98adc758d16c2898771"
+    },
+    {
+      "path": "app/services/shipping_travel_service.py",
+      "sha256": "895519b19022d5830ba1361e48da30de187ae40471016742732785b1c230c179"
+    },
+    {
+      "path": "app/services/user_reporting_service.py",
+      "sha256": "773d22e1857ae0495a0498174dd7a62d4188538d0a5733e1a0d8ef9e08f5ea60"
+    },
+    {
+      "path": "app/services/waybill_job_service.py",
+      "sha256": "b661190a152a054099f52cd13229581a71b0b04bdae36e9f77b3e4b33bf8356c"
+    },
+    {
+      "path": "app/travel/android_observer.py",
+      "sha256": "3c8d3c8911d6c38b90f5029c5f444c5844d41f87478438eb72cebe844dbf3088"
+    },
+    {
+      "path": "app/workers/tasks.py",
+      "sha256": "75bc0ee08909d372ac4c07f8b775122bd41e4028eca3967cbf37bc51b04414c6"
+    },
+    {
+      "path": "app/workers/waybill_worker.py",
+      "sha256": "06da78c0da80742f6d07ef3b1912cf3771c3901e31ca587277e4b1f7e39611c4"
+    },
+    {
+      "path": "apps/web/next.config.mjs",
+      "sha256": "dfd59e138520799ed0d5649d0983715afdb5e938de5fa641e57629f57f033255"
+    },
+    {
+      "path": "apps/web/package-lock.json",
+      "sha256": "3be3dc67398016392e8969a652bca84fa4e92581cff817954b0e4bb4e5ddfb08"
+    },
+    {
+      "path": "apps/web/package.json",
+      "sha256": "5097545dbfb17875f07873a80ed54286e9c2e11f0e9defe7466a2235266c61d1"
+    },
+    {
+      "path": "apps/web/src/app/admin/alerts/page.tsx",
+      "sha256": "15e0fb0d016fea50e65a62a2de689308151e1da968fd18f2846d494c31708186"
+    },
+    {
+      "path": "apps/web/src/app/admin/workers/page.tsx",
+      "sha256": "30ed507c2ceac091d4506c12efa62f6c212546abd042b20dde932acefedc13e3"
+    },
+    {
+      "path": "apps/web/src/app/batches/page.tsx",
+      "sha256": "7d2db6411bdacc9557dd6d8d75347b236a37f5e033c52fee9ba219b170360aeb"
+    },
+    {
+      "path": "apps/web/src/app/drivers/page.tsx",
+      "sha256": "210b33f6aa346bc5924052694c331802f649f445f487bae815007854a19519d3"
+    },
+    {
+      "path": "apps/web/src/app/fuel/page.tsx",
+      "sha256": "07d6b213d4422640d3077c50208d777ddd1e3de2b43b4fe2837cf502e9ab7cbb"
+    },
+    {
+      "path": "apps/web/src/app/history/page.tsx",
+      "sha256": "592102a2a2670394b0252f683209efb79df913f98ebd9e92072e0cfe42a7241c"
+    },
+    {
+      "path": "apps/web/src/app/new/page.tsx",
+      "sha256": "8c169053904b9f500f2af64644125d3938aef4740c906e9617356a419c00f64a"
+    },
+    {
+      "path": "apps/web/src/app/page.tsx",
+      "sha256": "6b99bf0a1e3fd07d8563da296129b8ddcd68ef9b7c6e15f2c5265fb544a87f11"
+    },
+    {
+      "path": "apps/web/src/app/reports/page.tsx",
+      "sha256": "9f71beaa77362012b0ec35ad4847e498d8e12f072d2bf99ef0b5559f6ec7be0b"
+    },
+    {
+      "path": "apps/web/src/app/route-templates/page.tsx",
+      "sha256": "cf2185968a587ac25684f13465bfe731e53cd83e0e75b798eee399b77567ee82"
+    },
+    {
+      "path": "apps/web/src/components/DriverTrackingPanel.tsx",
+      "sha256": "c8e5688d37a8bb920166d12e1f65c8d7add9b34124aebfea4b6cfb61afafd1db"
+    },
+    {
+      "path": "apps/web/src/components/FavoriteLocationPicker.tsx",
+      "sha256": "0dac2ca5d5c89b25ab4c36ac6557c5cc87404fa85065f80e14bc936c8dd93306"
+    },
+    {
+      "path": "apps/web/src/components/LocationMapPicker.tsx",
+      "sha256": "807e4c42343643825a1f614c5d7d9df61b0e43d1bacdd1385817afac0b76cb5d"
+    },
+    {
+      "path": "apps/web/src/components/RecordFilters.tsx",
+      "sha256": "906c3e1299192c13805c8f2d2c2bc4535d58ea04693968e8e2e6e18c07ee7051"
+    },
+    {
+      "path": "apps/web/src/components/ShippingRouteMap.tsx",
+      "sha256": "e4ecbb55e47f182f67cb9e8295aa2bd28d9f2192fd8f70c49c509779284b2f87"
+    },
+    {
+      "path": "apps/web/src/lib/api.ts",
+      "sha256": "a5918d96fc9796642857af1245d69f6b62fac3976df6be3c5bc50e05d37eb92e"
+    },
+    {
+      "path": "apps/web/src/lib/clipboard.ts",
+      "sha256": "ba79cc66e45f0fa8db99f73d495d0cd09deb2c30b1e40becc4ef303c10f8cdc2"
+    },
+    {
+      "path": "apps/web/src/lib/format.ts",
+      "sha256": "7b15720cd0940009df2e1553e358a9c824c9ff7cdeb12fdca6d155df93767895"
+    },
+    {
+      "path": "apps/web/src/lib/fuel-polling.ts",
+      "sha256": "b63e384102c8b8fa43bdcdf44e2baf985b6cea00c91c6d6243a31a46e2812242"
+    },
+    {
+      "path": "apps/web/src/lib/map-popup.ts",
+      "sha256": "877947683167a4b9ab9c19c5a2787850bbba1c14f98011fa3d0469b1d323e86b"
+    },
+    {
+      "path": "apps/web/src/lib/map-tiles.ts",
+      "sha256": "0685c809f77a0941e0e2094d960e0a0880a14661267c8970e299afd6d657ffeb"
+    },
+    {
+      "path": "apps/web/src/lib/record-filters.ts",
+      "sha256": "d5c41fe52211905700a468663f119087ffea687cee526b48e77c69bb994847cb"
+    },
+    {
+      "path": "apps/web/src/lib/session-query.ts",
+      "sha256": "a0d439cac33ec20bcb12714966c8f005e608a7cabf5eb4bee18240d0c37acff6"
+    },
+    {
+      "path": "apps/web/src/lib/shipping-result.ts",
+      "sha256": "d8fa4f80d565b0fb3ea77f3359e50a50d4cb6b9a4b0b044613e05c4a7c53137e"
+    },
+    {
+      "path": "apps/web/src/lib/types.ts",
+      "sha256": "0c275a41802d754da0fd6538780646994b0c0030098baa2636d0c7a3d44737d3"
+    },
+    {
+      "path": "apps/web/src/providers/QueryProvider.tsx",
+      "sha256": "1b8d1c432f8287c738a4cbe004362a96d385e9fcb5ebceaa18b0cadc61186d1e"
+    },
+    {
+      "path": "apps/web/test/clipboard.test.mjs",
+      "sha256": "8b957658708a27b201d5bb7ad2bb2c47b7dfa1992fbd8d39a2b2f45a0d5767b8"
+    },
+    {
+      "path": "apps/web/test/fuel-polling.test.mjs",
+      "sha256": "7af14d513cfb23e2ce7d82df86a5a3804fdf6cd93b8e8b6baee0e879ad1623bc"
+    },
+    {
+      "path": "apps/web/test/map-addresses.test.mjs",
+      "sha256": "0bb2ffbf7b889490e9b441fc7ef5222cbbafecb1d9d1cfaa6a81892cc15831bf"
+    },
+    {
+      "path": "apps/web/test/map-tiles.test.mjs",
+      "sha256": "b2fdc2606996a74d907e9c7da26cf1f072d86ea937c30551e1c75dffc9f2593e"
+    },
+    {
+      "path": "apps/web/test/record-filters.test.mjs",
+      "sha256": "608ef816c53859cb783094d484117accc7808f3cc86baa212040eab2a9f5d3aa"
+    },
+    {
+      "path": "apps/web/test/session-query.test.mjs",
+      "sha256": "776493ae271608a4eea32ed6c845f88f0c0e0825043959ca96a171ffa5bb05f4"
+    },
+    {
+      "path": "apps/web/test/shipping-result.test.mjs",
+      "sha256": "8229be40bed6edcee1e862ec0f6c0aee160372c3930a05e8725c5cf17ff2f4d8"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "f9618cb8857dab9067eb72d57d32557ea27d8e6b2d08bd4528f7972c9e63b1ed"
+    },
+    {
+      "path": "tests/fixtures/gps_anchor_cases.json",
+      "sha256": "fdc37a4b24c7f52acfc41825c3d584e14739c8165498daabef2116b0c6e7f80f"
+    },
+    {
+      "path": "tests/integration/test_worker_lifecycle.py",
+      "sha256": "edd25cc314a82e3d26d5270dfc6a13489214e0d858c97f7bdcc32c814f794da3"
+    },
+    {
+      "path": "tests/test_android_observer_identity.py",
+      "sha256": "43fc9423001f2ee2341b99762a98fad8e8eae26cd8809cfc36882f495bf5f96e"
+    },
+    {
+      "path": "tests/test_audit_shipping_reporting_regressions.py",
+      "sha256": "ab7392ba124898c7a5df4b675d9198146a0e498c8d2adc38bbfd74a53841dc3a"
+    },
+    {
+      "path": "tests/test_automated_shipping_and_payload_repair.py",
+      "sha256": "6316db002abc3eba00881ed117fff41f45c2a0ac89f1e13cacb2aa4536dbd9c1"
+    },
+    {
+      "path": "tests/test_captcha_no_torch.py",
+      "sha256": "b9066ad356118012d1aed12227d91304865d73d8d5b2e880e9793c5fe98aba07"
+    },
+    {
+      "path": "tests/test_captcha_optional_typing.py",
+      "sha256": "f1ea12131729858f939630433496bd7321a9f5b42889e1e82bffb5a4637664d2"
+    },
+    {
+      "path": "tests/test_captcha_rejection_and_success_gate.py",
+      "sha256": "3df31516816dfb39105606bef12eaf6fcc1ef931dd6b2d36df4d8eb449f5dcbe"
+    },
+    {
+      "path": "tests/test_circuit_breaker.py",
+      "sha256": "024abf6dc1226ed425be7cd5128bbe908d06df59da436d9e955733bd77a2af75"
+    },
+    {
+      "path": "tests/test_dispatch_intents.py",
+      "sha256": "57574b0ba45ec62a17f7afc1ba09b9bf3b8bf04c90a9a50e2a311dc48e46fa3a"
+    },
+    {
+      "path": "tests/test_e2e_bot.py",
+      "sha256": "2c500fa2e6d057bf59e885663efb9f4e6f7f597901caa5b72027ae68578e33c1"
+    },
+    {
+      "path": "tests/test_faketraveler_waybill_coords.py",
+      "sha256": "35688676b4964bd164f2dba3515294861b90b56ff82e19eec49c82f145fb16b3"
+    },
+    {
+      "path": "tests/test_fuel_inquiry_reliability.py",
+      "sha256": "f869123b12e251b011b1d9537912ed547c72b599012bf47b07503181d61b186d"
+    },
+    {
+      "path": "tests/test_fuel_scraper_live.py",
+      "sha256": "e1265abb9a0fe58613b21809ab157ea1e60a78dc43746f2420530b99f543f700"
+    },
+    {
+      "path": "tests/test_gps_map_anchor_audit.py",
+      "sha256": "6c2f4e28599cedd4da11d3fb26f238b7b19ec9e0de5369fe07b68b79f553a559"
+    },
+    {
+      "path": "tests/test_history_date_filters.py",
+      "sha256": "2b7849fd8815a7148a99826be9733ceb998eb516946a03a0e177980697623429"
+    },
+    {
+      "path": "tests/test_history_identity_contracts.py",
+      "sha256": "3aa95790eae05cf2a645f5a8a07006073f2f1a5832faef40e50c26a6c5c03208"
+    },
+    {
+      "path": "tests/test_integration/conftest.py",
+      "sha256": "188cd8bad69b72eb23e47313311405b3722ab846d2da4abc24285b285487d416"
+    },
+    {
+      "path": "tests/test_integration/test_postgres_contracts.py",
+      "sha256": "451ea742c8ab7c6d9cf637739294881630354e7d7f1bd2777aa00caa38036c01"
+    },
+    {
+      "path": "tests/test_integration/test_redis_claims.py",
+      "sha256": "9cd5e523e2e00c69cfc1f55ea6cd8df565ed49224d58755bae872bfa06159da3"
+    },
+    {
+      "path": "tests/test_location_service_and_routes.py",
+      "sha256": "2327d47e8ee885661189001f236e1a36783d70cdb5be23c91055e8034ff54dd9"
+    },
+    {
+      "path": "tests/test_map_address_regressions.py",
+      "sha256": "81a757584463c989cc285c2c322afdcbc5b40212ff864461fb75411239fb72ff"
+    },
+    {
+      "path": "tests/test_mobile_shipping_start_contract.py",
+      "sha256": "f1587c5969b58a3642262d9004cff5784784937206cf20fc4d5f9fde29f26249"
+    },
+    {
+      "path": "tests/test_mobile_waybill_bot.py",
+      "sha256": "95a9febab33ad8352cab71d9b31f1ce14823d40186093a1a0d39286164cef288"
+    },
+    {
+      "path": "tests/test_otp_delivery_contract.py",
+      "sha256": "53275e3d2b582ed39f456cf12c8b284bda04c076a2c7988f996b1d024154d105"
+    },
+    {
+      "path": "tests/test_otp_forwarder.py",
+      "sha256": "2f21a547ac83556c5976110b752c8d0bc4309e7b8e1761f23b8a7f3b6ca019ec"
+    },
+    {
+      "path": "tests/test_otp_forwarder_hardening.py",
+      "sha256": "10d49902991919169f82d13a848318033e4f66c9c0eddccdcf04d5a957d4cdc5"
+    },
+    {
+      "path": "tests/test_otp_reliability_regressions.py",
+      "sha256": "17f42c1085e9289d2b5dc099207223b7242189b2f6af184d4915523f45da2711"
+    },
+    {
+      "path": "tests/test_otp_wakeup_and_lifecycle.py",
+      "sha256": "d3690c64a06aca4017122b49910808962830c0fc9afee790998c7d920cec5647"
+    },
+    {
+      "path": "tests/test_route_authority.py",
+      "sha256": "b0541ce2bd6dcf599c3eecf4ed86f12bd50c9fb517ba2e207dff237a704b9aa8"
+    },
+    {
+      "path": "tests/test_scheduled_waybill_executor.py",
+      "sha256": "b79ee01202e6011930d49c1f3a387d328bb7048f9b17561fd5a53f2eb30d5fe5"
+    },
+    {
+      "path": "tests/test_security_audit_gates.py",
+      "sha256": "4a3435a1bde3dc84a97cdf8dba453081c69dc14452414c445bcdcd301d8808d1"
+    },
+    {
+      "path": "tests/test_security_sweep_regressions.py",
+      "sha256": "c1e2983cb78114ce6b8c6ca48e180ad164aa62e300b6ecfc96ad407132c2a4eb"
+    },
+    {
+      "path": "tests/test_stealth.py",
+      "sha256": "70f47ee6f822397e72b347a54d27d6a3a619292934a15798caeec8f2781a23dc"
+    },
+    {
+      "path": "tests/test_tenant_isolation_batch_c.py",
+      "sha256": "6b554886854367236dfa29acfc21a9d71fbe5ad6d73cb23091137a3b2282772d"
+    },
+    {
+      "path": "tests/test_tenant_isolation_gaps.py",
+      "sha256": "e8814fca63255e6e98d05decfe3aa37abb0b7d0faf156dd2cc934ecc291360fe"
+    }
+  ]
+}

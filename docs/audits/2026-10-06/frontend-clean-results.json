@@ -1,0 +1,96 @@
+{
+  "runtime": "v20.20.2",
+  "checks": [
+    {
+      "name": "lint",
+      "command": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "test",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exit_code": 1
+    },
+    {
+      "name": "audit",
+      "command": [
+        "npm",
+        "audit",
+        "--audit-level=moderate"
+      ],
+      "exit_code": 1
+    },
+    {
+      "name": "build",
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "versions": [
+    {
+      "package": "next",
+      "locked": "15.5.23",
+      "installed": "15.5.23"
+    },
+    {
+      "package": "react",
+      "locked": "19.2.7",
+      "installed": "19.2.7"
+    },
+    {
+      "package": "react-dom",
+      "locked": "19.2.7",
+      "installed": "19.2.7"
+    },
+    {
+      "package": "axios",
+      "locked": "1.18.0",
+      "installed": "1.18.0"
+    },
+    {
+      "package": "sharp",
+      "locked": "0.35.0",
+      "installed": "0.35.0"
+    },
+    {
+      "package": "@tanstack/react-query",
+      "locked": "5.100.9",
+      "installed": "5.100.9"
+    }
+  ],
+  "additional_checks": [
+    {
+      "name": "explicit_test_files",
+      "exit_code": 1,
+      "passed": 11,
+      "failed": 2,
+      "reason": "ERR_UNKNOWN_FILE_EXTENSION .ts"
+    },
+    {
+      "name": "cache_probe",
+      "exit_code": 0,
+      "cached_tenant": "A",
+      "signed_in_tenant": "B"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "runtime": "v20.20.2",
+  "checks": [
+    {
+      "name": "lint",
+      "command": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "typecheck",
+      "command": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "test",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "audit",
+      "command": [
+        "npm",
+        "audit",
+        "--audit-level=moderate"
+      ],
+      "exit_code": 1
+    },
+    {
+      "name": "build",
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "audit-runtime",
+      "command": [
+        "npm",
+        "audit",
+        "--omit=dev",
+        "--audit-level=moderate"
+      ],
+      "exit_code": 0
+    }
+  ]
+}

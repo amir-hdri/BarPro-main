@@ -1,22 +1,22 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
+import Link from 'next/link';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { RecordFilters } from '@/components/RecordFilters';
+import { ErrorState } from '@/components/layout/States';
+import { EMPTY_RECORD_FILTERS, recordFilterParams, recordFiltersFromSearch, parseApiDate, tehranDateKey, type RecordFilters as Filters } from '@/lib/record-filters';
+import { nextUnobservedInquiry } from '@/lib/fuel-polling';
+import { sessionQueryKey } from '@/lib/session-query';
 import { useCallback, useEffect, useState, useRef, useMemo, memo } from 'react';
 import {
   FireIcon,
   ClockIcon,
   ArrowPathIcon,
-  CheckCircleIcon,
   ExclamationTriangleIcon,
   EyeIcon,
-  MagnifyingGlassIcon,
-  ChevronDownIcon,
   SparklesIcon,
-  ChartBarIcon,
-  CheckIcon,
-  UserIcon,
   TruckIcon,
-  FunnelIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 
@@ -64,6 +64,7 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
           </div>
           <div>
             <span className="font-bold text-white block text-sm">{item.driver_name || 'نامشخص'}</span>
+            {item.driver_name_source === 'current_driver' && <span className="text-xs text-amber-300">نام فعلی راننده؛ نام تاریخی ثبت نشده</span>}
             <span className="text-[10px] text-slate-400 font-sans font-medium">کد رهگیری: {formatFuelTrackingCode(item)}</span>
           </div>
         </div>
@@ -95,7 +96,8 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
         <div>دوره: <strong className="text-cyan-400 font-sans font-semibold">{item.year && item.month ? `${toPersianDigitsPreserveZero(item.year.toString())}/${toPersianDigitsPreserveZero(item.month.toString().padStart(2, '0'))}` : 'جاری'}</strong></div>
         <div>پایه: <strong className="text-cyan-400 font-sans font-semibold">{parsed.baseQuota ? `${toPersianDigitsPreserveZero(parsed.baseQuota)} لیتر` : '۰'}</strong></div>
         <div>عملکردی: <strong className="text-blue-400 font-sans font-semibold">{parsed.performanceQuota ? `${toPersianDigitsPreserveZero(parsed.performanceQuota)} لیتر` : '۰'}</strong></div>
-        <div className="col-span-2 text-[9px] text-slate-500 font-sans font-medium">زمان: {toPersianDigitsPreserveZero(formatDateTime(item.created_at))}</div>
+        <div className="col-span-2 text-xs text-slate-500 font-sans font-medium">زمان درخواست: {formatDateTime(item.created_at)}</div>
+        {item.finished_at && <div className="col-span-2 text-xs text-cyan-300">دریافت نتیجه: {formatDateTime(item.finished_at)}</div>}
       </div>
        <button
          onClick={() => onSelect(item)}
@@ -111,7 +113,8 @@ const FuelInquiryCard = memo(function FuelInquiryCard({
 });
 
 export default function FuelInquiryPage() {
-  const { role } = useSession();
+  const { role, client } = useSession();
+  const queryClient = useQueryClient();
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [inquiries, setInquiries] = useState<FuelInquiry[]>([]);
   const isAdmin = role === 'master_admin';
@@ -122,135 +125,65 @@ export default function FuelInquiryPage() {
   const [selectedYear, setSelectedYear] = useState<number>(1403);
   const [selectedMonth, setSelectedMonth] = useState<number>(5);
 
-  // Multi-Filter toolbar state
-  const [filterDriverName, setFilterDriverName] = useState('');
-  const [filterPlate, setFilterPlate] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterDateFrom, setFilterDateFrom] = useState('');
-  const [filterDateTo, setFilterDateTo] = useState('');
-
-  // Initialize with current Jalali date on mount
+  const [historyFilters, setHistoryFilters] = useState<Filters>({ ...EMPTY_RECORD_FILTERS });
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyReady, setHistoryReady] = useState(false);
+  const changeHistoryFilters = (next: Filters) => { setHistoryPage(1); setHistoryFilters(next); };
   useEffect(() => {
-    const now = new Date();
-    const tehranOffset = 3.5 * 60 * 60 * 1000;
-    const tehranTime = new Date(now.getTime() + tehranOffset);
-    const gy = tehranTime.getUTCFullYear();
-    const gm = tehranTime.getUTCMonth() + 1;
-    const gd = tehranTime.getUTCDate();
-
-    let jy = gy - 621;
-    let jm = 0;
-
-    const days = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 335];
-    let gDayNo = 365 * (gy - 1) + Math.floor((gy - 1) / 4) - Math.floor((gy - 1) / 100) + Math.floor((gy - 1) / 400) + days[gm - 1] + gd;
-    if (gm > 2 && ((gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0)) gDayNo++;
-
-    let jDayNo = gDayNo - (365 * (jy + 620) + Math.floor((jy + 620) / 4) - Math.floor((jy + 620) / 100) + Math.floor((jy + 620) / 400)) - 79;
-    if (jDayNo < 0) {
-      jy--;
-      jDayNo += ((jy % 33) === 1 || (jy % 33) === 5 || (jy % 33) === 9 || (jy % 33) === 13 || (jy % 33) === 17 || (jy % 33) === 22 || (jy % 33) === 26 || (jy % 33) === 30) ? 366 : 365;
-    }
-
-    if (jDayNo < 186) {
-      jm = 1 + Math.floor(jDayNo / 31);
-    } else {
-      jm = 7 + Math.floor((jDayNo - 186) / 30);
-    }
-
-    setSelectedYear(jy);
-    setSelectedMonth(jm);
+    const initial = recordFiltersFromSearch(window.location.search);
+    setHistoryFilters(initial);
+    setHistoryReady(true);
+    if (initial.driverId) setSelectedDriverId(Number(initial.driverId));
+    const parts = new Intl.DateTimeFormat('en-u-ca-persian', {
+      timeZone: 'Asia/Tehran', year: 'numeric', month: 'numeric',
+    }).formatToParts(new Date());
+    setSelectedYear(Number(parts.find(part => part.type === 'year')?.value));
+    setSelectedMonth(Number(parts.find(part => part.type === 'month')?.value));
   }, []);
+
+  const { data: historyData, isFetching: historyLoading, error: historyError, refetch: refetchHistory } = useQuery({
+    queryKey: sessionQueryKey(client, 'fuel-history', historyPage, historyFilters),
+    enabled: Boolean(client && historyReady),
+    queryFn: async ({ signal }) => {
+      const response = await api.get<{ items: FuelInquiry[]; total: number }>('/api/v1/fuel-inquiries', {
+        page: historyPage, page_size: 20, ...recordFilterParams(historyFilters),
+      }, { signal });
+      if (!response.success || !response.data) throw new Error(response.error || 'تاریخچه استعلام‌ها دریافت نشد.');
+      return response.data;
+    },
+  });
+  const filteredInquiries = useMemo(() => historyData?.items || [], [historyData]);
+  const historyTotal = historyData?.total || 0;
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [selectedInquiry, setSelectedInquiry] = useState<FuelInquiry | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const [elapsedTime, setElapsedTime] = useState(0);
 
   const [driverWaybills, setDriverWaybills] = useState<WaybillJob[]>([]);
   const [driverPlates, setDriverPlates] = useState<Plate[]>([]);
+  const [loadedDriverId, setLoadedDriverId] = useState(0);
   const [loadingWaybills, setLoadingWaybills] = useState(false);
-  const [selectedPlateFilter, setSelectedPlateFilter] = useState<string | null>(null);
-
-  // Filtered inquiries calculation
-  const filteredInquiries = useMemo(() => {
-    return inquiries.filter((item) => {
-      // Plate filter pill
-      if (selectedPlateFilter && item.plate_number !== selectedPlateFilter) {
-        return false;
-      }
-      // Driver Name toolbar filter
-      if (filterDriverName.trim()) {
-        const dName = item.driver_name || '';
-        if (!dName.toLowerCase().includes(filterDriverName.trim().toLowerCase())) return false;
-      }
-      // Plate Number toolbar filter
-      if (filterPlate.trim()) {
-        const pNum = item.plate_number || '';
-        if (!pNum.includes(filterPlate.trim()) && !toPersianDigitsPreserveZero(pNum).includes(filterPlate.trim())) return false;
-      }
-      // Status filter
-      if (filterStatus && item.status !== filterStatus) {
-        return false;
-      }
-      // Date Range filter
-      if (filterDateFrom) {
-        if (new Date(item.created_at) < new Date(filterDateFrom)) return false;
-      }
-      if (filterDateTo) {
-        if (new Date(item.created_at) > new Date(filterDateTo + 'T23:59:59')) return false;
-      }
-      return true;
-    });
-  }, [inquiries, selectedPlateFilter, filterDriverName, filterPlate, filterStatus, filterDateFrom, filterDateTo]);
-
-  const stats = useMemo(() => {
-    const total = inquiries.length;
-    const successList = inquiries.filter(i => i.status === 'success');
-    const success = successList.length;
-    const failed = inquiries.filter(i => i.status === 'failed').length;
-    const rate = total > 0 ? Math.round((success / total) * 100) : 0;
-
-    let baseSum = 0;
-    let perfSum = 0;
-    successList.forEach(i => {
-      const parsed = parseQuotaData(i.quota_data);
-      const baseStr = parsed.baseQuota || '0';
-      const perfStr = parsed.performanceQuota || '0';
-
-      const baseNum = parseInt(baseStr.replace(/[^\d]/g, ''), 10);
-      const perfNum = parseInt(perfStr.replace(/[^\d]/g, ''), 10);
-
-      if (!isNaN(baseNum)) baseSum += baseNum;
-      if (!isNaN(perfNum)) perfSum += perfNum;
-    });
-
-    return {
-      total,
-      success,
-      failed,
-      rate,
-      totalQuota: baseSum + perfSum
-    };
-  }, [inquiries]);
+  const selectedDriverPlate = drivers.find(driver => driver.id === selectedDriverId)?.active_plate
+    || (loadedDriverId === selectedDriverId ? driverPlates[0]?.plate_number : undefined);
 
   const groupedInquiries = useMemo(() => {
-    const groups: Record<string, { driverName: string; plateNumber: string; clientInfo?: string; items: FuelInquiry[] }> = {};
+    const groups: Record<string, { key: string; day: string; currentName: boolean; driverName: string; plateNumber: string; clientInfo?: string; items: FuelInquiry[] }> = {};
     filteredInquiries.forEach((item) => {
       const driverName = item.driver_name || 'نامشخص';
-      const plateNumber = item.plate_number || 'بدون پلاک';
-      const key = `${driverName}-${plateNumber}`;
+      const plateNumber = item.plate_number || 'پلاک تاریخی ثبت نشده';
+      const day = tehranDateKey(item.created_at);
+      const key = `${item.client_id}:${item.driver_id}:${plateNumber}:${day}`;
       if (!groups[key]) {
         let clientInfo = '';
         if (isAdmin && item.client_name) {
           clientInfo = ` (مشتری: ${item.client_name} - ${item.client_code})`;
         }
         groups[key] = {
-          driverName,
+          key, day, currentName: item.driver_name_source === 'current_driver', driverName,
           plateNumber,
           clientInfo,
           items: [],
@@ -260,16 +193,18 @@ export default function FuelInquiryPage() {
     });
 
     return Object.values(groups).map((group) => {
-      group.items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      group.items.sort((a, b) => parseApiDate(b.created_at).getTime() - parseApiDate(a.created_at).getTime());
       return group;
     });
   }, [filteredInquiries, isAdmin]);
 
   // Fetch driver recent waybills & plates when a driver is selected
   useEffect(() => {
+    setLoadedDriverId(0);
+    setDriverWaybills([]);
+    setDriverPlates([]);
     if (selectedDriverId === 0) {
-      setDriverWaybills([]);
-      setDriverPlates([]);
+      setLoadingWaybills(false);
       return;
     }
 
@@ -282,6 +217,8 @@ export default function FuelInquiryPage() {
           api.get<Plate[]>(`/api/v1/plates?driver_id=${selectedDriverId}&page_size=20`, undefined, { signal: controller.signal }),
         ]);
 
+        if (controller.signal.aborted) return;
+        setLoadedDriverId(selectedDriverId);
         if (wbRes.success && wbRes.data) {
           setDriverWaybills(wbRes.data.tasks || []);
         } else {
@@ -294,10 +231,11 @@ export default function FuelInquiryPage() {
           setDriverPlates([]);
         }
       } catch {
+        if (controller.signal.aborted) return;
         setDriverWaybills([]);
         setDriverPlates([]);
       } finally {
-        setLoadingWaybills(false);
+        if (!controller.signal.aborted) setLoadingWaybills(false);
       }
     };
     fetchDriverData();
@@ -306,11 +244,20 @@ export default function FuelInquiryPage() {
 
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
+  const resumedInquiryIds = useRef(new Set<number>());
+  const pollingController = useRef<AbortController | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const dataController = useRef<AbortController | null>(null);
+  const historyController = useRef<AbortController | null>(null);
+  const submitController = useRef<AbortController | null>(null);
 
   // Load all drivers and all fuel inquiries
-  const loadData = useCallback(async (signal?: AbortSignal) => {
-    if (role !== 'client' && role !== 'master_admin') {
+  const loadData = useCallback(async () => {
+    dataController.current?.abort();
+    const controller = new AbortController();
+    dataController.current = controller;
+    const signal = controller.signal;
+    if (!client || (role !== 'client' && role !== 'master_admin')) {
       setLoading(false);
       return;
     }
@@ -323,6 +270,7 @@ export default function FuelInquiryPage() {
         api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 100 }, { signal }),
       ]);
 
+      if (signal?.aborted) return;
       if (driversResponse.success && driversResponse.data) {
         setDrivers(Array.isArray(driversResponse.data) ? driversResponse.data : []);
       } else {
@@ -335,40 +283,52 @@ export default function FuelInquiryPage() {
         setInquiries([]);
       }
     } catch (err: unknown) {
+      if (signal.aborted) return;
       setError(err instanceof Error ? err.message : 'خطا در بارگذاری اطلاعات');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [role]);
+  }, [role, client]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void loadData(controller.signal);
-    return () => controller.abort();
+    void loadData();
+    return () => dataController.current?.abort();
   }, [loadData]);
 
   const refreshHistory = useCallback(async (): Promise<FuelInquiry[]> => {
+    historyController.current?.abort();
+    const controller = new AbortController();
+    historyController.current = controller;
+    void queryClient.invalidateQueries({ queryKey: sessionQueryKey(client, 'fuel-history') });
     try {
-      const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 100 });
+      const inquiriesResponse = await api.get<{ items: FuelInquiry[] }>('/api/v1/fuel-inquiries', { page_size: 100 }, { signal: controller.signal });
+      if (controller.signal.aborted) return [];
       if (inquiriesResponse.success && inquiriesResponse.data) {
         const items = inquiriesResponse.data.items || [];
         setInquiries(items);
         return items;
       }
     } catch {
-      // ignore
+      if (controller.signal.aborted) return [];
+      toast.error('به‌روزرسانی استعلام‌ها انجام نشد. دوباره تلاش کنید.');
     }
     return [];
-  }, []);
+  }, [client, queryClient]);
 
   const startPolling = useCallback((inquiryId: number) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingController.current?.abort();
+    const controller = new AbortController();
+    pollingController.current = controller;
+    resumedInquiryIds.current.add(inquiryId);
+    let inFlight = false;
 
     setActiveInquiryId(inquiryId);
     pollingAttemptsRef.current = 0;
     let consecutiveErrors = 0;
 
     pollingRef.current = setInterval(async () => {
+      if (inFlight || controller.signal.aborted) return;
       pollingAttemptsRef.current += 1;
 
       if (pollingAttemptsRef.current > MAX_POLLING_ATTEMPTS) {
@@ -383,8 +343,10 @@ export default function FuelInquiryPage() {
         return;
       }
 
+      inFlight = true;
       try {
-        const response = await api.get<FuelInquiry>(`/api/v1/fuel-inquiries/${inquiryId}`);
+        const response = await api.get<FuelInquiry>(`/api/v1/fuel-inquiries/${inquiryId}`, undefined, { signal: controller.signal });
+        if (controller.signal.aborted) return;
         if (response.success && response.data) {
           consecutiveErrors = 0;
           const updated = response.data;
@@ -418,6 +380,7 @@ export default function FuelInquiryPage() {
           }
         }
       } catch {
+        if (controller.signal.aborted) return;
         consecutiveErrors += 1;
         if (consecutiveErrors >= 5) {
           if (pollingRef.current) {
@@ -428,14 +391,16 @@ export default function FuelInquiryPage() {
           setSubmitting(false);
           toast.error('خطای شبکه در دریافت نتیجه استعلام');
         }
+      } finally {
+        inFlight = false;
       }
     }, 3000);
   }, [refreshHistory]);
 
   // Auto-resume polling for any active inquiry in the list
   useEffect(() => {
-    const active = inquiries.find(i => i.status === 'pending' || i.status === 'processing' || i.status === 'running');
-    if (active && (!activeInquiryId || activeInquiryId !== active.id)) {
+    const active = nextUnobservedInquiry(inquiries, resumedInquiryIds.current, activeInquiryId);
+    if (active && !activeInquiryId) {
       startPolling(active.id);
     }
   }, [inquiries, activeInquiryId, startPolling]);
@@ -461,28 +426,33 @@ export default function FuelInquiryPage() {
 
   useEffect(() => {
     return () => {
+      pollingController.current?.abort();
+      dataController.current?.abort();
+      historyController.current?.abort();
+      submitController.current?.abort();
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, []);
 
   const handleStartInquiry = async (forceRetry = false) => {
     if (selectedDriverId === 0) return;
+    submitController.current?.abort();
+    const controller = new AbortController();
+    submitController.current = controller;
     setSubmitting(true);
     setError(null);
-    setDropdownOpen(false);
-
-    const activeDriver = drivers.find(d => d.id === selectedDriverId);
-    const driverPlate = activeDriver?.active_plate || driverPlates[0]?.plate_number;
 
     const response = await api.post<FuelInquiry>('/api/v1/fuel-inquiries', {
       driver_id: selectedDriverId,
       year: selectedYear,
       month: selectedMonth,
       force_retry: forceRetry,
-      plate_number: driverPlate,
-    });
+      plate_number: selectedDriverPlate,
+    }, { signal: controller.signal });
+    if (controller.signal.aborted) return;
 
     if (response.success && response.data) {
+      void queryClient.invalidateQueries({ queryKey: sessionQueryKey(client, 'fuel-history') });
       const newInquiry = response.data;
       setInquiries(prev => [newInquiry, ...prev.filter(i => i.id !== newInquiry.id)]);
       toast.success(forceRetry ? 'استعلام مجدد آغاز شد' : 'استعلام جدید آغاز شد');
@@ -491,6 +461,7 @@ export default function FuelInquiryPage() {
       const msg = response.error || 'خطا در ایجاد استعلام جدید';
       if (/فعال|تکرار|در جریان|duplicate|409/i.test(msg)) {
         const freshItems = await refreshHistory();
+        if (controller.signal.aborted) return;
         const existing = freshItems.find(i => 
           i.driver_id === selectedDriverId && 
           (i.status === 'pending' || i.status === 'processing' || i.status === 'running')
@@ -499,22 +470,8 @@ export default function FuelInquiryPage() {
           startPolling(existing.id);
           toast('استعلام در حال اجرا بازیابی شد و در حال پایش وضعیت است.', { icon: 'ℹ️' });
         } else {
-          // Auto force-retry fallback if 409 returned without finding item
-          const retryRes = await api.post<FuelInquiry>('/api/v1/fuel-inquiries', {
-            driver_id: selectedDriverId,
-            year: selectedYear,
-            month: selectedMonth,
-            force_retry: true,
-            plate_number: driverPlate,
-          });
-          if (retryRes.success && retryRes.data) {
-            setInquiries(prev => [retryRes.data!, ...prev.filter(i => i.id !== retryRes.data!.id)]);
-            toast.success('استعلام جدید آغاز شد');
-            startPolling(retryRes.data.id);
-          } else {
-            setError(retryRes.error || msg);
-            toast.error(retryRes.error || msg);
-          }
+          setError(msg);
+          toast.error(msg);
         }
       } else {
         setError(msg);
@@ -522,16 +479,6 @@ export default function FuelInquiryPage() {
       }
       setSubmitting(false);
     }
-  };
-
-  const handleResetFilters = () => {
-    setFilterDriverName('');
-    setFilterPlate('');
-    setFilterStatus('');
-    setFilterDateFrom('');
-    setFilterDateTo('');
-    setSelectedDriverId(0);
-    setSelectedPlateFilter(null);
   };
 
   const activeInquiry = inquiries.find(i => i.id === activeInquiryId);
@@ -548,17 +495,6 @@ export default function FuelInquiryPage() {
       (i.status === 'pending' || i.status === 'processing' || i.status === 'running')
     ) || null;
   }, [inquiries, selectedDriverId]);
-
-  const filteredDrivers = useMemo(() => {
-    return drivers.filter(d =>
-      d.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.driver_national_code.includes(searchQuery)
-    );
-  }, [drivers, searchQuery]);
-
-  useEffect(() => {
-    // Reset selected inquiry to first on driver change
-  }, [selectedInquiry]);
 
   return (
     <AuthGuard requiredRole="client">
@@ -578,7 +514,7 @@ export default function FuelInquiryPage() {
               </p>
             </div>
             <button
-              onClick={() => void loadData()}
+              onClick={() => { void loadData(); void refetchHistory(); }}
               className="inline-flex items-center gap-2 self-start rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-xs font-bold text-slate-300 transition hover:bg-slate-800 hover:scale-105 active:scale-95 shadow-lg"
             >
               <ArrowPathIcon className="h-4 w-4" />
@@ -593,28 +529,9 @@ export default function FuelInquiryPage() {
             </div>
           )}
 
-          {/* Metric Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 md:mb-8">
-            {[
-              { label: 'کل سهمیه استعلام‌شده', value: `${toPersianDigitsPreserveZero(stats.totalQuota)} لیتر`, desc: 'مجموع سهمیه پایه و عملکردی', icon: FireIcon, color: 'text-cyan-400' },
-              { label: 'درصد موفقیت ربات', value: `${toPersianDigitsPreserveZero(stats.rate)}٪`, desc: 'نرخ استعلام‌های موفق', icon: ChartBarIcon, color: 'text-emerald-400' },
-              { label: 'استعلام‌های موفق', value: toPersianDigitsPreserveZero(stats.success), desc: 'تعداد تراکنش‌های موفق', icon: CheckCircleIcon, color: 'text-sky-400' },
-              { label: 'تعداد کل استعلام‌ها', value: toPersianDigitsPreserveZero(stats.total), desc: 'مجموع موارد در تاریخچه', icon: ClockIcon, color: 'text-slate-400' }
-            ].map((st) => (
-              <div key={st.label} className="stat-card group relative overflow-hidden flex flex-col justify-between rounded-3xl border border-white/5 bg-slate-950/60 p-5 backdrop-blur-xl shadow-xl">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-[10px] sm:text-xs font-bold text-slate-400 block">{st.label}</span>
-                    <span className={`text-lg sm:text-xl font-black mt-1 block ${st.color}`}>{st.value}</span>
-                  </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/5 border border-white/10 text-slate-300">
-                    <st.icon className="h-5 w-5" />
-                  </div>
-                </div>
-                <span className="text-[10px] text-slate-500 font-medium mt-3 block">{st.desc}</span>
-              </div>
-            ))}
-          </div>
+          <p className="mb-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm leading-7 text-slate-300">
+            نتیجه هر استعلام، سهمیه همان راننده در زمان دریافت است. تاریخ و جزئیات هر رکورد را در تاریخچه ببینید؛ سهمیه‌های استعلام‌های تکراری با هم جمع نمی‌شوند.
+          </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -630,80 +547,15 @@ export default function FuelInquiryPage() {
 
                 <div className="space-y-4">
                   <div className="relative">
-                    <label className="block text-[11px] font-black uppercase text-slate-400 mb-2">انتخاب راننده</label>
-                    <button
-                      type="button"
-                      onClick={() => setDropdownOpen(!dropdownOpen)}
-                      className="w-full flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-right text-xs font-bold text-white outline-none hover:bg-slate-800 transition"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-7 w-7 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 flex items-center justify-center text-[10px] font-black shrink-0">
-                          {selectedDriver ? getDriverInitials(selectedDriver.full_name) : <UserIcon className="h-4 w-4" />}
-                        </div>
-                        <span className="truncate">{selectedDriver ? selectedDriver.full_name : 'انتخاب راننده از لیست...'}</span>
-                      </div>
-                      <ChevronDownIcon className="h-4 w-4 text-slate-400" />
-                    </button>
-
-                    {dropdownOpen && (
-                      <div className="fixed inset-0 z-10" onClick={() => setDropdownOpen(false)} />
-                    )}
-
-                    {dropdownOpen && (
-                      <div className="absolute right-0 left-0 mt-2 z-20 glass-dropdown p-3 animate-in duration-200">
-                        <div className="relative mb-3">
-                          <MagnifyingGlassIcon className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                          <input
-                            type="text"
-                            placeholder="جستجوی نام یا کدملی راننده..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full rounded-xl border border-white/5 bg-slate-950 pr-10 pl-4 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-                          />
-                        </div>
-
-                        <div className="max-h-60 overflow-y-auto space-y-1 pr-1">
-                          {filteredDrivers.length === 0 ? (
-                            <div className="text-center py-6 text-xs text-slate-500 font-bold">موردی یافت نشد</div>
-                          ) : (
-                            filteredDrivers.map((d) => (
-                              <button
-                                key={d.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedDriverId(d.id);
-                                  setDropdownOpen(false);
-                                  setSearchQuery('');
-                                }}
-                                className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-right transition ${
-                                  selectedDriverId === d.id ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-slate-300 hover:bg-white/5'
-                                }`}
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className={`h-8 w-8 rounded-lg text-[10px] font-black flex items-center justify-center shrink-0 ${
-                                    selectedDriverId === d.id ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-300'
-                                  }`}>
-                                    {getDriverInitials(d.full_name)}
-                                  </div>
-                                  <div>
-                                    <span className="text-xs font-bold block">{d.full_name}</span>
-                                    <div className="flex items-center gap-2 mt-0.5">
-                                      <span className="text-[9px] text-slate-400 font-sans font-medium">{toPersianDigitsPreserveZero(d.driver_national_code)}</span>
-                                      {d.active_plate && (
-                                        <span className="text-[9px] text-cyan-400 font-mono font-bold bg-cyan-950/60 border border-cyan-500/20 px-1.5 py-0.5 rounded">
-                                          {d.active_plate}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                                {selectedDriverId === d.id && <CheckIcon className="h-4 w-4 text-cyan-400" />}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )}
+                    <label htmlFor="inquiry-driver" className="mb-2 block text-xs font-bold text-slate-300">راننده استعلام جدید</label>
+                    <select id="inquiry-driver" className="field touch-target" value={selectedDriverId} disabled={submitting} onChange={event => {
+                      const id = Number(event.target.value);
+                      setSelectedDriverId(id);
+                      changeHistoryFilters({ ...historyFilters, driverId: id ? String(id) : '' });
+                    }}>
+                      <option value={0}>انتخاب راننده…</option>
+                      {drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.full_name} — {driver.driver_national_code}</option>)}
+                    </select>
 
                     {selectedDriver && (
                       <div className="mt-2 flex items-center justify-between rounded-xl bg-slate-900/80 border border-white/5 px-3.5 py-2.5">
@@ -712,7 +564,7 @@ export default function FuelInquiryPage() {
                           <span className="text-[11px] text-slate-300">پلاک متصل خودرو:</span>
                         </div>
                         <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/20">
-                          {selectedDriver.active_plate || driverPlates[0]?.plate_number || 'بدون پلاک'}
+                          {selectedDriverPlate || 'بدون پلاک'}
                         </span>
                       </div>
                     )}
@@ -720,8 +572,9 @@ export default function FuelInquiryPage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-2">سال استعلام</label>
+                      <label htmlFor="inquiry-year" className="block text-xs font-bold text-slate-300 mb-2">سال سهمیه (شمسی)</label>
                       <select
+                        id="inquiry-year"
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                         disabled={submitting || loading}
@@ -737,8 +590,9 @@ export default function FuelInquiryPage() {
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-black uppercase text-slate-400 mb-2">ماه استعلام</label>
+                      <label htmlFor="inquiry-month" className="block text-xs font-bold text-slate-300 mb-2">ماه سهمیه (شمسی)</label>
                       <select
+                        id="inquiry-month"
                         value={selectedMonth}
                         onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
                         disabled={submitting || loading}
@@ -868,13 +722,14 @@ export default function FuelInquiryPage() {
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       <ClockIcon className="h-4 w-4 text-cyan-400" />
-                      بارنامه‌های ثبت شده راننده
+                      آخرین درخواست‌های بارنامه راننده
                     </h3>
                     <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-1 rounded-lg">
-                      تعداد کل: {toPersianDigitsPreserveZero(driverWaybills.length)}
+                      تا ۵ مورد اخیر
                     </span>
                   </div>
 
+                  <Link href={`/history?driver_id=${selectedDriverId}`} className="mb-3 flex touch-target items-center text-xs font-bold text-cyan-300">مشاهده همه بارنامه‌های این راننده و انتخاب روز</Link>
                   {driverPlates.length > 0 && (
                     <div className="mb-4 bg-slate-900/50 rounded-2xl p-3 border border-white/5">
                       <span className="text-[10px] text-slate-400 font-bold block mb-1.5">پلاک‌های فعال:</span>
@@ -943,93 +798,17 @@ export default function FuelInquiryPage() {
                     تاریخچه استعلام‌های سهمیه سوخت
                   </h2>
                   <div className="flex items-center gap-2">
-                    {selectedDriverId > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDriverId(0)}
-                        className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-xl hover:bg-cyan-500/20 transition flex items-center gap-1"
-                      >
-                        <XMarkIcon className="h-3 w-3" />
-                        نمایش همه رانندگان
-                      </button>
-                    )}
                     <span className="text-[10px] sm:text-xs font-bold text-slate-400 bg-slate-900 px-3 py-1 rounded-xl border border-white/5">
-                      {toPersianDigitsPreserveZero(filteredInquiries.length)} مورد
+                      {toPersianDigitsPreserveZero(historyTotal)} رکورد
                     </span>
                   </div>
                 </div>
 
-                {/* MULTI-FILTER TOOLBAR */}
-                <div className="p-4 border-b border-white/5 bg-slate-900/30 text-white space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-300 mb-1">
-                    <FunnelIcon className="h-4 w-4 text-cyan-400" />
-                    <span>فیلتر و جستجوی پیشرفته تاریخچه سوخت</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">نام راننده</label>
-                      <input
-                        type="text"
-                        value={filterDriverName}
-                        onChange={(e) => setFilterDriverName(e.target.value)}
-                        placeholder="جستجو با نام راننده..."
-                        className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 transition"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">پلاک خودرو</label>
-                      <input
-                        type="text"
-                        value={filterPlate}
-                        onChange={(e) => setFilterPlate(e.target.value)}
-                        placeholder="مثال: ۴۵ع۶۴۵"
-                        className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 transition"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">وضعیت</label>
-                      <select
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value)}
-                        className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-cyan-400 transition"
-                      >
-                        <option value="">همه وضعیت‌ها</option>
-                        <option value="success" className="bg-slate-950">موفق</option>
-                        <option value="processing" className="bg-slate-950">در حال اجرا</option>
-                        <option value="pending" className="bg-slate-950">در صف</option>
-                        <option value="failed" className="bg-slate-950">ناموفق</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1">از تاریخ</label>
-                      <input
-                        type="date"
-                        value={filterDateFrom}
-                        onChange={(e) => setFilterDateFrom(e.target.value)}
-                        className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs text-white outline-none focus:border-cyan-400 transition"
-                      />
-                    </div>
-                  </div>
-
-                  {(filterDriverName || filterPlate || filterStatus || filterDateFrom || filterDateTo || selectedDriverId > 0) && (
-                    <div className="flex justify-end pt-1">
-                      <button
-                        type="button"
-                        onClick={handleResetFilters}
-                        className="text-[11px] font-bold text-rose-400 hover:text-rose-300 transition flex items-center gap-1 bg-rose-500/10 border border-rose-500/20 px-3 py-1.5 rounded-xl"
-                      >
-                        <XMarkIcon className="h-3.5 w-3.5" />
-                        پاک کردن همه فیلترها
-                      </button>
-                    </div>
-                  )}
+                <div className="p-4">
+                  <RecordFilters value={historyFilters} onChange={changeHistoryFilters} drivers={drivers} category="fuel" />
                 </div>
 
-                {loading && inquiries.length === 0 ? (
+                {historyError ? <ErrorState message={historyError.message} onRetry={() => void refetchHistory()} /> : historyLoading ? (
                   <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
                     <ArrowPathIcon className="h-8 w-8 animate-spin text-cyan-500" />
                     <span className="text-xs font-bold">در حال بارگذاری اطلاعات استعلام‌ها...</span>
@@ -1042,11 +821,13 @@ export default function FuelInquiryPage() {
                   </div>
                 ) : (
                   <div className="space-y-8 py-6">
-                    {groupedInquiries.map((group, idx) => (
-                      <div key={`${group.driverName}-${group.plateNumber}-${idx}`} className="mx-6 rounded-2xl border border-white/5 bg-slate-900/20 overflow-hidden shadow-sm">
+                    {groupedInquiries.map((group) => (
+                      <div key={group.key} className="mx-6 rounded-2xl border border-white/5 bg-slate-900/20 overflow-hidden shadow-sm">
                         <div className="bg-slate-900/40 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5">
                           <div className="flex flex-wrap items-center gap-3">
                             <span className="text-sm font-black text-white">راننده: {group.driverName}</span>
+                            <span className="text-xs text-slate-300">روز ثبت: {toPersianDigitsPreserveZero(group.day)} (تهران)</span>
+                            {group.currentName && <span className="text-xs text-amber-300">نام فعلی راننده؛ نام تاریخی ثبت نشده</span>}
                             <span className="inline-flex items-center rounded-lg bg-cyan-500/10 border border-cyan-500/25 px-2.5 py-1 text-xs font-sans font-semibold text-cyan-400">
                               پلاک: {toPersianDigitsPreserveZero(group.plateNumber)}
                             </span>
@@ -1058,11 +839,11 @@ export default function FuelInquiryPage() {
                           )}
                         </div>
 
-                        <div className="hidden md:block overflow-x-auto min-w-[600px]">
+                        <div className="hidden md:block overflow-x-auto">
                           <table className="w-full border-collapse text-right min-w-[600px]">
                             <thead>
                               <tr className="border-b border-white/5 bg-white/[0.01] text-xs font-bold text-slate-400">
-                                <th className="px-6 py-4">زمان استعلام</th>
+                                <th className="px-6 py-4">زمان درخواست / نتیجه</th>
                                 <th className="px-6 py-4">دوره استعلام</th>
                                 <th className="px-6 py-4">کد رهگیری</th>
                                 <th className="px-6 py-4">سهمیه پایه / عملکردی</th>
@@ -1074,7 +855,8 @@ export default function FuelInquiryPage() {
                               {group.items.map((item) => (
                                 <tr key={item.id} className="hover:bg-white/[0.02] transition">
                                   <td className="px-6 py-4 text-xs font-sans font-medium text-slate-400">
-                                    {toPersianDigitsPreserveZero(formatDateTime(item.created_at))}
+                                    {formatDateTime(item.created_at)}
+                                    {item.finished_at && <span className="mt-1 block text-cyan-300">دریافت نتیجه: {formatDateTime(item.finished_at)}</span>}
                                   </td>
                                   <td className="px-6 py-4 text-xs font-sans font-medium text-slate-300">
                                     {item.year && item.month ? (
@@ -1153,6 +935,11 @@ export default function FuelInquiryPage() {
                     ))}
                   </div>
                 )}
+                <nav aria-label="صفحه‌بندی تاریخچه سوخت" className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 p-4 text-xs text-slate-300">
+                  <button type="button" disabled={historyPage <= 1 || historyLoading} onClick={() => setHistoryPage(page => page - 1)} className="touch-target rounded-xl border border-white/10 px-4 disabled:opacity-40">صفحه قبل</button>
+                  <span>صفحه {toPersianDigitsPreserveZero(historyPage)} از {toPersianDigitsPreserveZero(Math.max(1, Math.ceil(historyTotal / 20)))}</span>
+                  <button type="button" disabled={historyPage * 20 >= historyTotal || historyLoading} onClick={() => setHistoryPage(page => page + 1)} className="touch-target rounded-xl border border-white/10 px-4 disabled:opacity-40">صفحه بعد</button>
+                </nav>
               </div>
             </div>
           </div>

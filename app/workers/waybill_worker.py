@@ -1373,6 +1373,28 @@ async def _execute_job(
                 await rpa_runtime.release_lock(driver_lock_key)
                 return {"status": TaskStatus.SUCCESS.value, "result": job.result_json, "reused": True}
 
+            from app.services.otp_challenge_guard import find_unresolved_driver_otp_job
+
+            pending_otp_job = await find_unresolved_driver_otp_job(
+                session, client_id=job.client_id, driver_id=job.driver_id
+            )
+            if pending_otp_job is not None:
+                same_job = pending_otp_job.job_id == job.job_id
+                blocked_status = TaskStatus.NEEDS_REVIEW.value if same_job else TaskStatus.WAITING_RETRY.value
+                otp_retry_at = None if same_job else _utcnow_naive() + timedelta(seconds=60)
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    blocked_status,
+                    next_retry_at=otp_retry_at,
+                    submit_after=otp_retry_at,
+                    retryable=not same_job,
+                    error_category="otp_required" if same_job else "driver_otp_pending",
+                    last_error="راننده یک سند در انتظار OTP دارد؛ ابتدا همان سند باید تعیین تکلیف شود",
+                )
+                await session.commit()
+                return {"status": blocked_status, "error_category": job.error_category}
+
             # Persist durable mutation intent & digest before submit
             import hashlib
 

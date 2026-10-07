@@ -104,10 +104,11 @@ def test_parse_history_date_bounds_is_strict_about_the_documented_format(value):
     assert exc.value.status_code == 400
 
 
-def test_parse_history_date_bounds_rejects_reversed_range():
+@pytest.mark.parametrize("start,end", [("2026-10-05", "2026-10-02"), ("2026-10-03", "2026-10-02")])
+def test_parse_history_date_bounds_rejects_reversed_range(start, end):
     """A reversed range used to return an empty page with no hint of why."""
     with pytest.raises(HTTPException) as exc:
-        _parse_history_date_bounds("2026-10-05", "2026-10-02")
+        _parse_history_date_bounds(start, end)
     assert exc.value.status_code == 400
     assert "شروع" in exc.value.detail and "پایان" in exc.value.detail
     # An equal (single-day) range is valid, not reversed.

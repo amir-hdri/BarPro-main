@@ -139,6 +139,69 @@ async def test_finish_applies_waybill_destination_to_faketraveler(
     )
 
 
+@pytest.mark.parametrize("destination", [False, True])
+async def test_original_pin_request_applies_snapped_street_to_android_and_mobile(
+    faketraveler_runtime: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, destination: bool
+) -> None:
+    runtime = faketraveler_runtime
+    state = runtime.state
+    state.coordinate_source = "road_snapped"
+    original_origin = {"lat": state.origin_lat + 0.0005, "lng": state.origin_lng}
+    original_dest = {"lat": state.dest_lat + 0.0005, "lng": state.dest_lng}
+    state.route_snapshot = {
+        "road_anchor_verified": True,
+        "requested_origin": original_origin,
+        "requested_destination": original_dest,
+        "origin": {"lat": state.origin_lat, "lng": state.origin_lng},
+        "destination": {"lat": state.dest_lat, "lng": state.dest_lng},
+        "snap_metadata": {"origin": {"distance_m": 55.6, "source": "neshan_road_endpoint"}},
+        "polyline": "fixture",
+    }
+    applied = AsyncMock()
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", new=applied):
+        if destination:
+            state.status = "in_transit"
+            monkeypatch.setattr(routes, "load_shipping_state", AsyncMock(return_value=state))
+            result = await routes.finish_shipping(
+                routes.ShippingFinishRequest(
+                    job_id=state.job_id, latitude=original_dest["lat"], longitude=original_dest["lng"]
+                ),
+                user_context={},
+            )
+            applied.assert_awaited_once_with(state.dest_lat, state.dest_lng)
+            terminal = runtime.transport.register_end_of_shipping.await_args.kwargs["gps_list"][-1]
+            assert (terminal["Latitude"], terminal["Longitude"]) == (state.dest_lat, state.dest_lng)
+        else:
+            result = await routes.start_shipping(
+                routes.ShippingStartRequest(
+                    job_id=state.job_id,
+                    doc_no=state.doc_no,
+                    latitude=original_origin["lat"],
+                    longitude=original_origin["lng"],
+                ),
+                user_context={},
+            )
+            applied.assert_awaited_once_with(state.origin_lat, state.origin_lng)
+            wire = runtime.transport.register_start_of_shipping.await_args.kwargs
+            assert (wire["latitude"], wire["longitude"]) == (state.origin_lat, state.origin_lng)
+    assert result["requested_origin"] == original_origin
+    assert result["requested_destination"] == original_dest
+
+
+async def test_start_rejects_unverified_road_snapshot_before_android(faketraveler_runtime: SimpleNamespace) -> None:
+    faketraveler_runtime.state.coordinate_source = "map_pin_unverified"
+    applied = AsyncMock()
+    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", new=applied):
+        with pytest.raises(HTTPException) as error:
+            await routes.start_shipping(
+                routes.ShippingStartRequest(job_id="test-job", doc_no="test-document", latitude=35.7, longitude=51.4),
+                user_context={},
+            )
+    assert error.value.status_code == 422
+    applied.assert_not_awaited()
+    faketraveler_runtime.transport.register_start_of_shipping.assert_not_awaited()
+
+
 async def test_start_fails_closed_when_apply_fails(
     faketraveler_runtime: SimpleNamespace,
 ) -> None:

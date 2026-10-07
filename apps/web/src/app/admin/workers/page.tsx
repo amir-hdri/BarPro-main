@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDateTime } from "@/lib/format";
+
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
@@ -308,7 +310,7 @@ export default function AdminWorkersPage() {
 
       {/* Footer Timestamp */}
       <div className="text-center text-xs text-slate-500 pt-2">
-        آخرین به‌روزرسانی در {lastRefreshed.toLocaleTimeString("fa-IR")}
+        آخرین به‌روزرسانی در {formatDateTime(lastRefreshed.toISOString())}
       </div>
     </div>
   );

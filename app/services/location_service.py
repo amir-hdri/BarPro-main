@@ -55,7 +55,7 @@ def match_location_to_known_dataset(raw_province: str, raw_city: str) -> tuple[s
     found_prov_data = None
     for p in IRAN_PROVINCES_DATA:
         p_clean = clean_location_name(p["name"])
-        if clean_prov and (clean_prov == p_clean or clean_prov in p_clean or p_clean in clean_prov):
+        if clean_prov and clean_prov == p_clean:
             matched_province = p["name"]
             found_prov_data = p
             break
@@ -65,7 +65,7 @@ def match_location_to_known_dataset(raw_province: str, raw_city: str) -> tuple[s
     for p in search_provinces:
         for c in p["cities"]:
             c_clean = clean_location_name(c["name"])
-            if clean_cit and (clean_cit == c_clean or clean_cit in c_clean or c_clean in clean_cit):
+            if clean_cit and clean_cit == c_clean:
                 matched_city = c["name"]
                 if not found_prov_data:
                     matched_province = p["name"]
@@ -83,11 +83,12 @@ class LocationService:
         self._cache_ttl_seconds = 86400  # اعتبار کش: ۲۴ ساعت
 
     def _get_from_cache(self, lat: float, lng: float) -> dict[str, Any] | None:
-        key = (round(lat, 3), round(lng, 3))
+        key = (round(lat, 5), round(lng, 5))
         entry = self._cache.get(key)
         if entry:
             ts, data = entry
-            if time.time() - ts < self._cache_ttl_seconds:
+            ttl = 60 if data.get("is_approximate") else self._cache_ttl_seconds
+            if time.time() - ts < ttl:
                 cached_data = dict(data)
                 cached_data["source"] = "cache"
                 return cached_data
@@ -96,9 +97,10 @@ class LocationService:
         return None
 
     def _set_cache(self, lat: float, lng: float, data: dict[str, Any]) -> None:
-        key = (round(lat, 3), round(lng, 3))
+        # Street-level pins must not share the old ~100m cache cell.
+        key = (round(lat, 5), round(lng, 5))
         # محدودسازی اندازه کش جهت جلوگیری از نشت حافظه (حداکثر ۲۰۰۰ آیتم)
-        if len(self._cache) > 2000:
+        if len(self._cache) >= 2000 and key not in self._cache:
             oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][0])
             del self._cache[oldest_key]
         self._cache[key] = (time.time(), data)
@@ -122,7 +124,8 @@ class LocationService:
             "lon": lng,
             "format": "json",
             "accept-language": "fa",
-            "zoom": 12,
+            "zoom": 18,
+            "addressdetails": 1,
         }
         headers = {"User-Agent": "BarPro-Automation/2.0"}
         raw_data = None
@@ -159,23 +162,26 @@ class LocationService:
         # اگر پاسخ از آنلاین دریافت شد
         if raw_data and isinstance(raw_data, dict):
             addr = raw_data.get("address", {})
+            if not isinstance(addr, dict):
+                addr = {}
             raw_prov = addr.get("state") or addr.get("province") or addr.get("county") or ""
             raw_cit = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("county") or ""
             dist = addr.get("suburb") or addr.get("district") or addr.get("neighbourhood") or ""
             disp = raw_data.get("display_name", "")
 
             prov, cit = match_location_to_known_dataset(raw_prov, raw_cit)
+            street_known = bool(addr.get("road") or addr.get("pedestrian") or addr.get("house_number"))
 
-            if prov or cit:
+            if (prov or cit) and addr.get("country_code", "ir").lower() == "ir":
                 result = {
                     "success": True,
                     "province": prov,
                     "city": cit,
                     "district": dist,
-                    "address": disp,
+                    "address": disp if street_known else "",
                     "display_name": disp,
                     "source": "online_geocode",
-                    "is_approximate": False,
+                    "is_approximate": not street_known,
                 }
                 self._set_cache(lat, lng, result)
                 return result
@@ -205,7 +211,8 @@ class LocationService:
                 "province": best_match["province"],
                 "city": best_match["city"],
                 "district": "",
-                "address": f"محدوده {best_match['city']}، {best_match['province']}",
+                # A nearest city is useful context, never an exact street address.
+                "address": "",
                 "display_name": f"محدوده {best_match['city']}، {best_match['province']}",
                 "source": "offline_dataset",
                 "is_approximate": True,

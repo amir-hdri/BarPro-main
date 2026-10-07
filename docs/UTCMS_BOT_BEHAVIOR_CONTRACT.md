@@ -1,5 +1,7 @@
 # قوانین و رفتار الزامی ربات BarPro در مواجهه با سامانه UTCMS
 
+> به‌روزرسانی کد 2026-10-06: قرارداد تکمیل OTP اکنون در [چرخه OTP](SMS_FORWARDER_AND_OTP_LIFECYCLE.md) شرح داده شده است: intake پایدار، dispatch به ورکر مالک، مجوز همان challenge، fence پیش از POST و منع ارسال مجدد نتیجه مبهم. حلقه انتظار inline حذف شده است. snapshotهای قدیمی، شاهد نسخه فعلی یا production نیستند.
+
 **آخرین بازبینی: 2026-09-26**
 **دامنه: `barname.utcms.ir` (صدور بارنامه) و `utcms.ir/ShowFuelQuota.aspx` (استعلام سوخت)**
 

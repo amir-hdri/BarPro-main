@@ -11,6 +11,8 @@ from sqlmodel import SQLModel
 from app.models_rpa import WorkerRegistry
 from app.orchestrator.worker_lifecycle import _heartbeat_loop, on_worker_start, on_worker_stop, send_heartbeat
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
 def worker_session_factory():

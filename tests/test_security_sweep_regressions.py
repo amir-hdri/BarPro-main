@@ -1,14 +1,16 @@
 """Regression tests for the 2026-10-01 security + reliability sweep fixes.
 
 Covers:
-- H1: OTP / solved-captcha secrets must never reach logs (static tripwire).
+- H1: OTP / solved-captcha secrets must never reach logs (runtime + static tripwires).
 - M1: alertmanager webhook is fail-closed (503) in production without a secret.
 - M2: /healthz and /readyz bypass fail-closed rate limiting.
 - M3: InMemoryRateLimiter namespaces buckets by rule key_prefix.
 - L2: national codes are masked in automation logs.
 """
 
+import logging
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -16,9 +18,12 @@ from starlette.requests import Request
 
 from app.api.routes.admin_alerts import alertmanager_webhook
 from app.automation.gps_shipping_manager import _mask_national_code
+from app.automation.waybill_bot_multitenant import WaybillAutomationBot
 from app.core.config import utcms_config
 from app.core.rate_limiter import InMemoryRateLimiter, RateLimitConfig
 from app.main import _is_rate_limit_exempt_path
+from tests.test_mobile_waybill_bot import _FakeMobileClient, _mobile_payload
+from tests.test_otp_delivery_contract import delivery_api as delivery_api
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,19 +33,56 @@ def _read(relative: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# H1: OTP / captcha secrets must not be logged (static tripwire)
+# H1: OTP / captcha secrets must not be logged
 # ---------------------------------------------------------------------------
 
 
-def test_otp_values_never_logged_in_multitenant_bot() -> None:
+async def test_otp_values_never_logged_in_multitenant_bot(delivery_api, monkeypatch, caplog) -> None:
     src = _read("app/automation/waybill_bot_multitenant.py")
     # Historical patterns that leaked the live OTP value into logs.
     assert "with OTP=%s" not in src
     assert '": %s", k, otp_code' not in src
     assert 'answer=%s", issue_cap_token' not in src
-    # The surviving log lines mention the event, not the secret.
-    assert 'logger.info("Received a current OTP for the mobile document")' in src
-    assert 'logger.info("Submitting IssueDocumentByOtp for docId=%s", document_id)' in src
+    # Exercise the current challenge handoff; no particular informational log
+    # wording is required, but neither formatted nor structured logs may leak.
+    otp = "74318207"
+    captcha = "test-sensitive-issuance-captcha"
+    clients = []
+
+    class PrivacyClient(_FakeMobileClient):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            clients.append(self)
+
+        async def insert_document(self, payload, *, allow_live_submit, cap_token=None):
+            assert cap_token == captcha
+            return await super().insert_document(payload, allow_live_submit=allow_live_submit, cap_token="issue-cap")
+
+    caplog.set_level(logging.DEBUG, logger="app.automation.waybill_bot_multitenant")
+    monkeypatch.setenv("WORKER_ID", "2")
+    payload = _mobile_payload()
+    bot = WaybillAutomationBot(MagicMock(), MagicMock(), proxy_url="http://assigned-squid:3128")
+    with (
+        patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_TRANSPORT", "mobile"),
+        patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_CAPTCHA_VALUE", "login-cap"),
+        patch("app.automation.waybill_bot_multitenant.build_enhanced_waybill_payload", return_value=payload),
+        patch("app.automation.waybill_bot_multitenant.validate_live_waybill_payload", return_value=[]),
+        patch("app.automation.utcms_mobile_client.UtcmsMobileClient", PrivacyClient),
+    ):
+        result = await bot.execute_waybill_job(
+            username="user",
+            password="password",
+            payload={**payload, "mobile_issue_cap_token": captcha, "otp_code": otp},
+            job_id="job-mobile-privacy",
+            client_id=1,
+            allow_live_submit=True,
+        )
+    assert sum(client.insert_calls for client in clients) == 1
+    assert result["status"] == "unknown" and result["error_category"] == "otp_required"
+    assert await delivery_api[1].xlen("rpa:otp:stream") == 0
+    logged = caplog.text + repr([record.__dict__ for record in caplog.records])
+    assert otp not in logged
+    assert captcha not in logged
 
 
 def test_otp_value_never_logged_in_enhanced_bot() -> None:

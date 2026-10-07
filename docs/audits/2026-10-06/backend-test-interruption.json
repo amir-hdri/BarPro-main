@@ -1,0 +1,9 @@
+{
+  "test": "tests/test_e2e_bot.py::test_e2e_self_healing_bot_flow",
+  "reason": "No progress beyond 632 completed tests for more than 7 minutes; isolate remaining suite rather than leave the full suite blocked.",
+  "action": "SIGINT current pytest only; rerun with that test deselected",
+  "timestamp_utc": "2026-10-06T11:16:20.101847+00:00",
+  "final_completed_tests": 657,
+  "elapsed_seconds": 454.83,
+  "qualification": "Last observed slow node at632 was e2e_bot. Progress advanced to657 before interrupt was delivered; not proof of permanent hang. Static follow-up found unmocked external login path."
+}

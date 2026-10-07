@@ -1,0 +1,64 @@
+{
+  "documentType": "codex-security.scan-manifest",
+  "scan": {
+    "artifacts": [
+      {
+        "mediaType": "application/json",
+        "path": "findings.json",
+        "sha256": "0b86b967aa9388573b81e86294c39b151282b59295c8228f643de7f893145840"
+      },
+      {
+        "mediaType": "application/json",
+        "path": "coverage.json",
+        "sha256": "f1f0f07451cea6ce2b29f5f40f4f7fd3ac205241b45ab9b60d5d2959f9da07a7"
+      },
+      {
+        "mediaType": "application/octet-stream",
+        "path": "artifacts/02_discovery/candidate_ledger.jsonl",
+        "sha256": "390f67722a321490643d475d567139a9553d1ba7ea3535b43d395de386a4533c"
+      },
+      {
+        "mediaType": "application/octet-stream",
+        "path": "artifacts/02_discovery/in_scope_files.txt",
+        "sha256": "844a80c1d72d97f397d090c007fac8afb87492da82bda5819a44a2b12e8a4886"
+      }
+    ],
+    "completedAt": "2026-10-06T11:58:11.170764Z",
+    "coverageRef": "coverage.json",
+    "findingsRef": "findings.json",
+    "id": "bff93b78-6a79-411a-b862-df97c6650b78",
+    "preservedSources": {
+      "checkpoints/253fceb4cef95e317802f9dfb7526ae4085deadcfe815dd8eba9deb66db2e52e.json": "253fceb4cef95e317802f9dfb7526ae4085deadcfe815dd8eba9deb66db2e52e",
+      "checkpoints/427c0c355a5fbba7de0e7ac5909cf6851d018549d0d52d4cdee990c1e284d70f.json": "0f62532120a81ea7d67b52463a4090cacf6d31154a92961112aa7bdf42b7b908",
+      "checkpoints/a4bed44eda30960ec7a8181f16cb56caca91a0234fd0f37ca1575f8be997db56.json": "f3f9746d9e60b188c75861724d70bfb0d08d740c20e0768608bf60a8980ac113"
+    },
+    "producer": {
+      "name": "codex-security-plugin",
+      "version": "0.1.24"
+    },
+    "scope": {
+      "excludePaths": [],
+      "includePaths": [
+        "."
+      ],
+      "runtimeStatus": "No production access",
+      "summary": "Security diff e664e544..6c5564e; all10 production inventory rows reviewed.",
+      "validationMode": "Isolated local ASGI/SQLite/Redis; mocked external mutation"
+    },
+    "sealedAt": "2026-10-06T11:58:11.170764Z",
+    "startedAt": "2026-10-06T11:04:45.639927Z",
+    "status": "completed",
+    "target": {
+      "baseRevision": "e664e54478da852b1db6674fa515fcd6b1e57f11",
+      "displayName": "BarPro-main",
+      "headRevision": "6c5564ea7483f127f2e23e785148009114bae49b",
+      "kind": "git_diff",
+      "snapshotDigest": "codex-security-snapshot/v1:sha256:70fbdc62eb5e54dfdfce8836268e320a08c4d7cc707b869e82acc6076cf6ce9b",
+      "targetId": "target_sha256_c6736a28c3b34c5f3fce57a0f19ef17a240825709ce94c7a776811a0d4e003fd"
+    },
+    "threatModel": {
+      "summary": "# BarPro security threat model \u2014 2026-10-06\n\n## Overview\nBarPro exposes FastAPI tenant and OTP endpoints through Nginx, stores waybill/driver ownership in SQLModel/PostgreSQL, uses Redis OTP keys and Streams plus Celery workers, and invokes the authenticated external UTCMS mobile service to issue documents (app/main.py:445-454; infra/nginx/http-server.conf:50-60; app/models_multitenant.py:324-339; app/services/otp_wakeup_consumer.py:312-354; app/services/waybill_job_service.py:738-742). The supplied canonical knowledge graph describes central plus remote Iranian-egress workers; actual production topology is unverified in this offline review.\n\n## Assets, boundaries and assumptions\nTenant assets are driver credentials, phone OTPs, pending document/session pointers, job state and registration integrity. The API authenticates clients by JWT plus active tenant record; manual OTP ingress verifies job.client_id before storing the job key (app/auth_multitenant.py:421-464; app/api/routes/otp_forwarder.py:486-518). Background completion reconstructs master_admin authority from an event rather than preserving caller identity (app/services/otp_wakeup_consumer.py:279-289), so every passed job/phone association must be trusted and bound. Redis keys are global by normalized phone, not tenant prefix (app/automation/otp_keys.py:52-61); cleanup can delete both OTP and pending pointers (app/automation/otp_keys.py:135-151).\n\nForwarder ingress has a deployment-wide OTP_WEBHOOK_SECRET credential, accepted from headers/Bearer/query; gateway also checks a signed envelope and origin match (app/api/routes/otp_forwarder.py:47-78,172-198). Durable OTP intake validates recipient/time and uses Lua for ordering/dedup/write (app/services/otp_delivery.py:77-118). Nginx separately logs the full request line to access.log (infra/nginx/nginx.conf:44-47); Python sanitization does not apply to that edge sink. The Compose edge mounts those exact Nginx files (compose/web.yml:69-71). The committed edge config serves HTTP:80 and has disabled TLS example (infra/nginx/nginx.conf:69-95); runtime TLS and whether a forwarder actually uses query authentication remain unverified.\n\nRealistic attackers include authenticated tenant clients controlling manual-OTP JSON and knowing another driver's phone, untrusted network clients without secrets, and actors who can read operational edge logs but cannot read server .env. Ordinary operators already holding the global ingress secret have ingress-wide authority; do not invent an extra driver-scoped boundary for that credential. The new driver fallback lookup includes tenant filters when client_id is set (app/services/waybill_job_service.py:703-715), and job.client_id is required (app/models_multitenant.py:328).\n\n## Hypotheses and controls\nInvestigate caller-provided phone passing through an owned-job authorization into privileged cleanup; investigate newly accepted query credentials reaching Nginx full request logs. Hypotheses require separate validation. The route alias retains the same auth dependency; health/ping expose no credential values; React renders changed fields as text rather than raw HTML. Replay time normalization, Stream recovery and lease semantics can affect integrity/availability, but attacker capability gain must be distinguished from ordinary correctness failures and existing baselines.\n\nSecurity objectives: no cross-tenant mutation/read/delete; secrets never enter logs; OTP freshness and consume semantics survive retries; mutations require authorized job/driver/session; ALLOW_LIVE_SUBMIT remains false in this audit. No production calls, SSH, deployment or persistent security configuration changes are authorized here. Source and isolated local HTTP/SQLite/Redis experiments provide code evidence only, not live server evidence.\n\n## Calibration and coverage\nHigh severity requires meaningful cross-tenant compromise or credential disclosure with broad usable authority. Medium covers authenticated cross-tenant disruption and conditional exposure of a shared ingress secret to a distinct log-reader audience. Self-only malformed input or privileged actors performing already-authorized operations are not vulnerabilities without further evidence. The range is e664e54478da852b1db6674fa515fcd6b1e57f11..6c5564ea7483f127f2e23e785148009114bae49b. Ten changed production source files are in the authoritative inventory; tests/docs are supporting context. Architecture pass was sequential because all four agent slots were occupied; not an independent architecture review.\n"
+    }
+  },
+  "schemaVersion": "1.0"
+}

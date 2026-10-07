@@ -13,8 +13,9 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models_multitenant import Client, Driver, TaskStatus, WaybillJob
 from app.schemas.task import build_tracking_received_result
@@ -71,7 +72,7 @@ async def async_db():
     )
     async_session.add(job)
     await async_session.commit()
-    async_session.flush()
+    await async_session.flush()
 
     yield async_session, job, client, driver
 

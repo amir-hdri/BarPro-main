@@ -62,8 +62,8 @@ async def parse_address_endpoint(request: ParseAddressRequest):
 
 @router.get("/reverse-geocode")
 async def reverse_geocode_location(
-    lat: float = Query(..., description="عرض جغرافیایی"),
-    lng: float = Query(..., description="طول جغرافیایی"),
+    lat: float = Query(..., ge=-90, le=90, allow_inf_nan=False, description="عرض جغرافیایی"),
+    lng: float = Query(..., ge=-180, le=180, allow_inf_nan=False, description="طول جغرافیایی"),
     user_context: dict[str, Any] = Depends(get_current_user_or_admin),
 ):
     """تبدیل مختصات جغرافیایی به استان، شهر و آدرس با کَش درون‌حافظه‌ای و حد فاصله فال‌بک"""

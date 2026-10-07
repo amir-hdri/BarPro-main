@@ -15,6 +15,7 @@ from app.automation.gps_shipping_manager import (
 )
 from app.automation.utcms_mobile_client import UtcmsMobileClient
 from app.automation.waybill_bot_multitenant import WaybillAutomationBot
+from app.travel.geometry import GeoPoint, encode_polyline
 
 
 def test_city_coordinates_includes_all_schedule_cities():
@@ -56,22 +57,42 @@ async def test_init_shipping_stores_doc_id():
 
 
 @pytest.mark.asyncio
-async def test_mobile_execution_enriches_compact_payload_and_starts_shipping():
-    """Verify that a compact schedule payload without explicit coordinates or cargo items
-    is properly enriched, submitted, and immediately triggers RegisterStartOfShipping.
-    """
+@pytest.mark.parametrize("with_selected_pins", [False, True])
+async def test_mobile_execution_starts_shipping_only_with_selected_road_pins(with_selected_pins: bool):
+    """The mobile transport requires explicit pins; shipping uses verified road endpoints."""
     bot = WaybillAutomationBot(proxy_url="http://squid:3128")
 
     compact_payload = {
-        "origin": "آذربایجان غربی، شوط، دیزج",
-        "destination": "آذربایجان غربی، شوط، مرگان",
+        "origin": "آذربایجان غربی، شوط، دیزج خیابان آزمایشی یک",
+        "destination": "آذربایجان غربی، شوط، مرگان خیابان آزمایشی دو",
         "cargo_type": "محصولات کشاورزی",
         "cargo_weight": 2500,
         "cargo_value": "50000000",
         "plate_number": "32ع444ایران27",
         "driver_national_code": "4929889601",
         "fare": "5,000,000",
+        "metadata_json": {
+            "origin": {"postal_code": "1456789312"},
+            "destination": {"postalCode": "3156789312"},
+            "sender": {
+                "name": "علی رضایی",
+                "phone": "09121234567",
+                "national_code": "0084575948",
+                "postal_code": "1456789312",
+            },
+            "receiver": {
+                "name": "حسن محمدی",
+                "phone": "09129876543",
+                "national_code": "0012345679",
+                "postalCode": "3156789312",
+            },
+        },
     }
+    if with_selected_pins:
+        compact_payload["metadata_json"]["origin"]["coordinates"] = {"lat": 39.22001, "lng": 45.03001}
+        compact_payload["metadata_json"]["destination"]["coordinates"] = {"lat": 39.11001, "lng": 45.06001}
+        # Older flattened pins must never replace the selected metadata pins.
+        compact_payload.update(originLat=35.7, originLng=51.4, destLat=35.8, destLng=51.5)
 
     mock_client = AsyncMock(spec=UtcmsMobileClient)
     mock_client.token = "test-token"
@@ -95,6 +116,16 @@ async def test_mobile_execution_enriches_compact_payload_and_starts_shipping():
     with (
         patch("app.automation.utcms_mobile_client.UtcmsMobileClient", return_value=mock_client),
         patch("app.automation.gps_shipping_manager.save_shipping_state", AsyncMock()),
+        patch(
+            "app.services.route_authority._fetch_neshan_route",
+            AsyncMock(
+                return_value={
+                    "polyline": encode_polyline([GeoPoint(39.22, 45.03), GeoPoint(39.11, 45.06)]),
+                    "distance_m": 15000,
+                    "duration_s": 1500,
+                }
+            ),
+        ) as fetch_route,
     ):
         result = await bot._execute_mobile_waybill_job(
             username="4929889601",
@@ -105,18 +136,38 @@ async def test_mobile_execution_enriches_compact_payload_and_starts_shipping():
             allow_live_submit=True,
         )
 
-    assert result["status"] == "success"
+    if not with_selected_pins:
+        assert result["status"] == "needs_review"
+        assert result["error_category"] == "mobile_payload_validation_failed"
+        assert "عرض جغرافیایی مبدا" in result["error"]
+        assert "طول جغرافیایی مقصد" in result["error"]
+        mock_client.login.assert_not_awaited()
+        mock_client.insert_document.assert_not_awaited()
+        mock_client.register_start_of_shipping.assert_not_awaited()
+        fetch_route.assert_not_awaited()
+        return
+
+    assert result["status"] == "success", result
     assert result["tracking_code"] == "1349757758"
     assert result["document_id"] == 226164459
+    submitted = mock_client.insert_document.await_args.args[0]
+    assert submitted["origin"]["postal_code"] == "1456789312"
+    assert submitted["destination"]["postal_code"] == "3156789312"
+    assert submitted["sender"]["postal_code"] == "1456789312"
+    assert submitted["receiver"]["postal_code"] == "3156789312"
+    assert submitted["origin"]["address"] == "دیزج خیابان آزمایشی یک"
+    assert submitted["receiver"]["name"] == "حسن محمدی"
 
     # Verify that RegisterStartOfShipping was called with integer DocId and coordinates
     mock_client.register_start_of_shipping.assert_awaited_once()
     call_kwargs = mock_client.register_start_of_shipping.await_args.kwargs
     assert call_kwargs["document_id"] == 226164459
     assert call_kwargs["allow_live_submit"] is True
-    # Coordinates should be from شوط (origin)
-    assert round(call_kwargs["latitude"], 2) == 39.22
-    assert round(call_kwargs["longitude"], 2) == 45.03
+    # Wire coordinates are the provider's effective road endpoint, not a city
+    # centroid, stale flat pair or the nearby requested point.
+    assert call_kwargs["latitude"] == 39.22
+    assert call_kwargs["longitude"] == 45.03
+    fetch_route.assert_awaited_once_with(39.22001, 45.03001, 39.11001, 45.06001)
 
 
 @pytest.mark.asyncio

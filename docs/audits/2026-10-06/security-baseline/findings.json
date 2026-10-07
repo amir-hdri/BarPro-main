@@ -1,0 +1,168 @@
+{
+  "documentType": "codex-security.findings",
+  "findings": [
+    {
+      "attackPath": {
+        "dataFlow": "query token -> webhook authentication; Nginx $request -> access.log -> log reader",
+        "impact": "Conditional disclosure to distinct log-reader audience; actual query usage and log access unverified.",
+        "limitations": [
+          "Runtime deployment/access unverified; no registration compromise claimed."
+        ],
+        "preconditions": [
+          "Operator sends secret in supported query parameter",
+          "Attacker reads edge logs without environment-secret access"
+        ]
+      },
+      "confidence": {
+        "level": "high",
+        "rationale": "Baseline source traced and validated in isolated ASGI/SQLite/private Redis reproduction."
+      },
+      "extensions": {
+        "candidateId": "candidate-011dcef62fee3a7a"
+      },
+      "findingId": "csf_8eb8d57ef17a6c7fe3eb09f8",
+      "fingerprints": {
+        "algorithm": "codex-security/v1",
+        "primary": "codex-security/v1:sha256:8e5470769c4cff44a95659efb2c500d0c592f8e97e2e754361ca30ebed421a5c"
+      },
+      "identity": {
+        "anchor": "candidate-011dcef62fee3a7a"
+      },
+      "locations": [
+        {
+          "endLine": 70,
+          "path": "app/api/routes/otp_forwarder.py",
+          "role": "root_control",
+          "startLine": 68
+        },
+        {
+          "endLine": 47,
+          "path": "infra/nginx/nginx.conf",
+          "role": "sink",
+          "startLine": 44
+        }
+      ],
+      "occurrenceId": "occ_1a7193896b66bc9a50537f9b",
+      "preventiveControls": [
+        "Bind credentials and resource authorization at ingress"
+      ],
+      "provenance": {
+        "source": "local_plugin"
+      },
+      "remediation": "Remove query authentication; use headers/Bearer. Update configuration guidance and rotate if historical query usage is confirmed.",
+      "remediationTests": [
+        "Assert malicious input rejected before dispatch or cleanup",
+        "Retain intended authenticated workflow"
+      ],
+      "ruleId": "barpro.otp.query-secret-logging",
+      "severity": {
+        "level": "medium",
+        "rationale": "Conditional disclosure to distinct log-reader audience; actual query usage and log access unverified."
+      },
+      "summary": "At baseline6c5564e valid query token authenticates HEALTH_CHECK withHTTP200; Nginx logs the entire $request including query. Log readers can obtain the shared ingress credential when an operator uses this supported transport.",
+      "taxonomy": {
+        "category": "Credential exposure",
+        "cwe": [
+          "CWE-532",
+          "CWE-598"
+        ]
+      },
+      "title": "Forwarder query authentication exposes shared secret to access logs",
+      "validation": {
+        "evidence": [
+          "artifacts/02_discovery/validation_artifacts/candidate-011dcef62fee3a7a/security-reproductions.log"
+        ],
+        "limitations": [
+          "No production access; SQLite substitutes PostgreSQL."
+        ],
+        "method": "Local ASGI with real SQLite/Redis and mocked external issuer",
+        "status": "confirmed"
+      }
+    },
+    {
+      "attackPath": {
+        "dataFlow": "manual JSON.phone + owned job -> privileged wake-up -> consume_scoped_otp -> victim keys deleted",
+        "impact": "Authenticated cross-tenant OTP availability/integrity disruption; no OTP disclosure or unauthorized issuance proven.",
+        "limitations": [
+          "Runtime deployment/access unverified; no registration compromise claimed."
+        ],
+        "preconditions": [
+          "Authenticated tenant owns successful job",
+          "Known victim phone has pending OTP keys"
+        ]
+      },
+      "confidence": {
+        "level": "high",
+        "rationale": "Baseline source traced and validated in isolated ASGI/SQLite/private Redis reproduction."
+      },
+      "extensions": {
+        "candidateId": "candidate-df3a748befb13b29"
+      },
+      "findingId": "csf_f02c88af5a059db1d85babfc",
+      "fingerprints": {
+        "algorithm": "codex-security/v1",
+        "primary": "codex-security/v1:sha256:1fd6d6663ee3fa142551bbf2f5d79fb40a68654a94e3f1d69e56580a51b56e8c"
+      },
+      "identity": {
+        "anchor": "candidate-df3a748befb13b29"
+      },
+      "locations": [
+        {
+          "path": "app/api/routes/otp_forwarder.py",
+          "role": "source",
+          "startLine": 522
+        },
+        {
+          "endLine": 274,
+          "path": "app/services/otp_wakeup_consumer.py",
+          "role": "root_control",
+          "startLine": 254
+        },
+        {
+          "endLine": 151,
+          "path": "app/automation/otp_keys.py",
+          "role": "sink",
+          "startLine": 135
+        }
+      ],
+      "occurrenceId": "occ_e838e8b34f5d60bfeb4adc65",
+      "preventiveControls": [
+        "Bind credentials and resource authorization at ingress"
+      ],
+      "provenance": {
+        "source": "local_plugin"
+      },
+      "remediation": "Derive phone from authorized durable job/driver; validate state/challenge before dispatch and bind cleanup to that association.",
+      "remediationTests": [
+        "Assert malicious input rejected before dispatch or cleanup",
+        "Retain intended authenticated workflow"
+      ],
+      "ruleId": "barpro.otp.cross-tenant-cleanup",
+      "severity": {
+        "level": "medium",
+        "rationale": "Authenticated cross-tenant OTP availability/integrity disruption; no OTP disclosure or unauthorized issuance proven."
+      },
+      "summary": "At baseline6c5564e caller phone bypasses job ownership boundary into privileged cleanup. Tenant1's owned successful job and tenant2's phone returnedHTTP200 and deleted victim Redis keys2->0. External issuer was not called.",
+      "taxonomy": {
+        "category": "Tenant authorization",
+        "cwe": [
+          "CWE-639",
+          "CWE-862"
+        ]
+      },
+      "title": "An owned job allows deletion of another tenant's pending OTP state",
+      "validation": {
+        "evidence": [
+          "artifacts/02_discovery/validation_artifacts/candidate-df3a748befb13b29/security-reproductions.log"
+        ],
+        "limitations": [
+          "No production access; SQLite substitutes PostgreSQL."
+        ],
+        "method": "Local ASGI with real SQLite/Redis and mocked external issuer",
+        "status": "confirmed"
+      }
+    }
+  ],
+  "scanId": "bff93b78-6a79-411a-b862-df97c6650b78",
+  "schemaVersion": "1.0"
+}

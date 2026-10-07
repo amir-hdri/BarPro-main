@@ -1,5 +1,7 @@
 'use client';
 
+import { sessionQueryKey } from '@/lib/session-query';
+
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CubeIcon, TruckIcon, PlayIcon, CheckCircleIcon, ExclamationCircleIcon, MapPinIcon } from '@heroicons/react/24/outline';
@@ -57,7 +59,7 @@ function saveRecent(batches: RecentBatch[]) {
 }
 
 export default function BatchesPage() {
-  const { role } = useSession();
+  const { role, client } = useSession();
 
   // ── form state ──
   const [driverId, setDriverId] = useState<number | null>(null);
@@ -88,9 +90,9 @@ export default function BatchesPage() {
   }, []);
 
   const { data: drivers = [] } = useQuery({
-    queryKey: ['drivers'],
-    queryFn: async () => {
-      const res = await api.get<Driver[]>('/api/v1/drivers?page_size=1000');
+    queryKey: sessionQueryKey(client, 'drivers'),
+    queryFn: async ({ signal }) => {
+      const res = await api.get<Driver[]>('/api/v1/drivers?page_size=1000', undefined, { signal });
       return res.success && Array.isArray(res.data) ? res.data : [];
     },
     staleTime: 120000,
@@ -98,9 +100,9 @@ export default function BatchesPage() {
   });
 
   const { data: templates = [] } = useQuery({
-    queryKey: ['route-templates'],
-    queryFn: async () => {
-      const res = await api.get<WaybillRouteTemplate[]>('/api/v1/route-templates');
+    queryKey: sessionQueryKey(client, 'route-templates'),
+    queryFn: async ({ signal }) => {
+      const res = await api.get<WaybillRouteTemplate[]>('/api/v1/route-templates', undefined, { signal });
       return res.success && Array.isArray(res.data) ? res.data : [];
     },
     staleTime: 30000,

@@ -1,5 +1,7 @@
 """Mobile transport integration tests at the bot and scheduler boundaries."""
 
+import hashlib
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,6 +16,7 @@ from app.automation.waybill_bot_multitenant import WaybillAutomationBot
 from app.models_multitenant import Client, Driver, TaskStatus, WaybillJob
 from app.orchestrator.reconciliation_service import _is_operator_otp_pending
 from app.services.scheduled_waybill_executor import _execute_single_job
+from tests.test_otp_delivery_contract import delivery_api as delivery_api
 
 
 @pytest.fixture
@@ -123,6 +126,44 @@ def _mobile_payload() -> dict:
     }
 
 
+@pytest.mark.parametrize(
+    "section,field,value",
+    [
+        ("origin", "address", ""),
+        ("origin", "address", "اب"),
+        ("destination", "address", ""),
+        ("origin", "postal_code", None),
+        ("destination", "postal_code", None),
+        ("sender", "first_name", None),
+        ("sender", "phone", None),
+        ("sender", "national_code", None),
+        ("sender", "postal_code", None),
+        ("receiver", "phone", None),
+        ("receiver", "national_code", None),
+        ("receiver", "postal_code", None),
+    ],
+)
+async def test_missing_explicit_location_or_party_data_stops_before_mobile_login(section, field, value):
+    payload = _mobile_payload()
+    payload["vehicle"]["driver_phone"] = "09120000000"
+    payload[section][field] = value
+    client = AsyncMock(spec=UtcmsMobileClient)
+    with patch("app.automation.utcms_mobile_client.UtcmsMobileClient", return_value=client) as factory:
+        result = await WaybillAutomationBot(proxy_url="http://squid:3128")._execute_mobile_waybill_job(
+            username="test-user",
+            password="test-password",
+            payload=payload,
+            job_id="invalid-explicit-mobile-fields",
+            client_id=1,
+            allow_live_submit=True,
+        )
+    assert result["status"] == "needs_review"
+    assert result["error_category"] in {"mobile_payload_validation_failed", "payload_validation_failed"}
+    factory.assert_not_called()
+    client.login.assert_not_awaited()
+    client.insert_document.assert_not_awaited()
+
+
 class _FakeMobileClient:
     extract_document_id = staticmethod(UtcmsMobileClient.extract_document_id)
     extract_tracking_code = staticmethod(UtcmsMobileClient.extract_tracking_code)
@@ -143,10 +184,13 @@ class _FakeMobileClient:
 
 
 @pytest.mark.asyncio
-async def test_mobile_bot_preserves_server_otp_signal_without_resubmitting():
+async def test_mobile_bot_preserves_server_otp_signal_without_resubmitting(delivery_api, monkeypatch):
     page = MagicMock()
     context = MagicMock()
-    bot = WaybillAutomationBot(page, context)
+    _, redis = delivery_api
+    monkeypatch.setenv("WORKER_ID", "2")
+    proxy = "http://assigned-squid:3128"
+    bot = WaybillAutomationBot(page, context, proxy_url=proxy)
     payload = _mobile_payload()
 
     with (
@@ -160,7 +204,7 @@ async def test_mobile_bot_preserves_server_otp_signal_without_resubmitting():
         result = await bot.execute_waybill_job(
             username="user",
             password="password",
-            payload={**payload, "mobile_issue_cap_token": "issue-cap"},
+            payload={**payload, "mobile_issue_cap_token": "issue-cap", "otp_code": "11111"},
             job_id="job-mobile-otp",
             client_id=1,
         )
@@ -172,6 +216,14 @@ async def test_mobile_bot_preserves_server_otp_signal_without_resubmitting():
     assert result["document_id"] == "doc-1"
     assert result["result"]["otp_required"] is True
     assert result["result"]["document_id"] == "doc-1"
+
+    challenge = result["result"]["_otp_challenge"]
+    assert challenge["worker_id"] == "2" and challenge["allow_live_submit"] is True
+    assert challenge["egress_digest"] == hashlib.sha256(proxy.encode()).hexdigest()
+    cached = json.loads(await redis.get("rpa:job:pending_doc:job-mobile-otp"))
+    assert cached["driver_phone"] == "09121234567" and cached["client_id"] == 1
+    assert cached["document_id"] == "doc-1" and cached["token"] == "token-1"
+    assert await redis.xlen("rpa:otp:stream") == 0  # Pre-challenge codes cannot acquire a fresh timestamp.
 
 
 @pytest.mark.asyncio
@@ -263,7 +315,7 @@ async def test_scheduled_mobile_otp_closes_gate_and_skips_reconciliation(async_d
 
 @pytest.mark.asyncio
 async def test_mobile_bot_auto_solves_login_captcha():
-    """Verify that if cap_token is missing, client.auto_solve_captcha(form_id='login') is called."""
+    """A cache miss without a cap_token must solve the login CAPTCHA."""
     payload = _mobile_payload()
     payload.pop("mobile_cap_token", None)
     payload.pop("cap_token", None)
@@ -300,6 +352,12 @@ async def test_mobile_bot_auto_solves_login_captcha():
         patch("app.automation.waybill_bot_multitenant.build_enhanced_waybill_payload", return_value=payload),
         patch("app.automation.waybill_bot_multitenant.validate_live_waybill_payload", return_value=[]),
         patch("app.automation.utcms_mobile_client.UtcmsMobileClient", _AutoSolveMockClient),
+        # This tests a fresh login, independently of any token left by another
+        # test in a live test Redis. Never read or seed the shared vault here.
+        patch("app.automation.gps_shipping_manager.get_cached_token", AsyncMock(return_value=None)) as get_token,
+        patch("app.automation.gps_shipping_manager.get_cached_refresh_token", AsyncMock(return_value=None)),
+        patch("app.automation.gps_shipping_manager.cache_token", AsyncMock()) as cache_token,
+        patch("app.automation.gps_shipping_manager.cache_refresh_token", AsyncMock()) as cache_refresh,
     ):
         result = await bot.execute_waybill_job(
             username="user",
@@ -310,6 +368,9 @@ async def test_mobile_bot_auto_solves_login_captcha():
         )
 
     assert auto_solve_calls == ["login"]
+    get_token.assert_awaited_once_with("user", client_id=1)
+    cache_token.assert_awaited_once_with("user", "token-auto", client_id=1)
+    cache_refresh.assert_not_awaited()
     assert len(login_calls) == 1
     # ``auto_solve_captcha`` returns (display answer, server proof token);
     # login must send the proof token accepted by the mobile API.
@@ -511,49 +572,27 @@ async def test_waybill_worker_executes_mobile_without_browser(async_db):
 
 
 @pytest.mark.asyncio
-async def test_submit_otp_success_and_state_machine_transition(async_db):
-    session, job, client, driver = async_db
-    job.status = TaskStatus.UNKNOWN.value
-    job.result_json = {"document_id": "doc-otp-123", "transport": "mobile"}
-    job.last_error = "سند در سامانه UTCMS با شناسه doc-otp-123 ایجاد شد؛ منتظر دریافت کد یکبار مصرف (OTP) راننده است"
-    job.error_category = "otp_required"
-    session.add(job)
-    await session.commit()
+async def test_submit_otp_legacy_challenge_fails_closed(async_db):
+    """Old pending documents cannot silently inherit a fresh live mutation grant."""
+    from fastapi import HTTPException
 
     from app.services.waybill_job_service import WaybillJobService
 
-    user_context = {"role": "client", "user": client, "client_id": client.id}
-
-    mock_mobile_client = MagicMock()
-    mock_mobile_client.token = "fake-token"
-    mock_mobile_client.auto_solve_captcha = AsyncMock(return_value=("5", "5"))
-    mock_mobile_client.login = AsyncMock(return_value=MagicMock(token="fake-token"))
-    mock_mobile_client.issue_document_by_otp = AsyncMock(
-        return_value={"resultCode": 200, "obj": {"docNo": "TRK-FINAL-OTP-888"}}
-    )
-    mock_mobile_client.extract_tracking_code = MagicMock(return_value="TRK-FINAL-OTP-888")
-
-    with (
-        patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=None),
-        patch("app.automation.utcms_mobile_client.UtcmsMobileClient", return_value=mock_mobile_client),
-        patch("app.auth_multitenant.decrypt_driver_password", return_value="plain-pw"),
-        patch("app.automation.worker_proxy.get_worker_proxy_url", return_value="http://test-proxy.invalid:3128"),
-    ):
-        updated = await WaybillJobService.submit_otp(user_context, job.job_id, session, "12345")
-
-    assert updated.status == TaskStatus.SUCCESS.value
-    assert updated.result_json["tracking_code"] == "TRK-FINAL-OTP-888"
-    assert updated.operator_acknowledged is True
-    mock_mobile_client.issue_document_by_otp.assert_awaited_once_with("doc-otp-123", "12345", allow_live_submit=True)
-
-    # Verify database persistence and JobStateMachine constraints
-    async with AsyncSession(session.bind) as check_session:
-        db_job = (await check_session.exec(select(WaybillJob).where(WaybillJob.job_id == job.job_id))).first()
-        assert db_job is not None
-        assert db_job.status == TaskStatus.SUCCESS.value
-        assert db_job.result_json["tracking_code"] == "TRK-FINAL-OTP-888"
-        assert db_job.mutation_status == "confirmed"
-        assert db_job.reconciled_at is not None
+    session, job, client, _ = async_db
+    job.status = TaskStatus.UNKNOWN.value
+    job.result_json = {"document_id": "doc-otp-123", "transport": "mobile"}
+    job.error_category = "otp_required"
+    session.add(job)
+    await session.commit()
+    constructor = MagicMock()
+    with patch("app.automation.utcms_mobile_client.UtcmsMobileClient", constructor):
+        with pytest.raises(HTTPException) as failure:
+            await WaybillJobService.submit_otp({"role": "client", "user": client}, job.job_id, session, "12345")
+    assert failure.value.status_code == 409
+    constructor.assert_not_called()
+    await session.refresh(job)
+    assert job.status == TaskStatus.UNKNOWN.value
+    assert "tracking_code" not in job.result_json
 
 
 def test_weight_normalization_and_fleet_matching():

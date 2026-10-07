@@ -1,0 +1,41 @@
+[
+  {
+    "check": "backend-pytest-integration-marker",
+    "command": [
+      ".venv/bin/pytest",
+      "tests/",
+      "-m",
+      "integration",
+      "-q"
+    ],
+    "exit": 5,
+    "seconds": 7.96
+  },
+  {
+    "check": "backend-pytest-not-slow",
+    "command": [
+      ".venv/bin/pytest",
+      "tests/",
+      "-m",
+      "not slow",
+      "-q",
+      "--deselect=tests/test_fuel_scraper_live.py::test_fuel_scraper_form_elements",
+      "--cov=app",
+      "--cov-report=term",
+      "--cov-report=json:docs/audits/2026-10-06/backend-coverage.json"
+    ],
+    "exit": 2,
+    "seconds": 462.24
+  },
+  {
+    "check": "backend-pytest-ci-integration-paths",
+    "command": [
+      ".venv/bin/pytest",
+      "tests/test_integration/",
+      "tests/integration/",
+      "-q"
+    ],
+    "exit": 0,
+    "seconds": 3.48
+  }
+]

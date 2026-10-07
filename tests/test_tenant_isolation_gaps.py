@@ -183,12 +183,13 @@ def test_gap2_client_cannot_poison_foreign_job(tenant_a_client, mock_redis, patc
     assert not any("job_b123" in k for k in written_keys)
 
 
-def test_gap2_client_can_submit_for_own_job(tenant_a_client, mock_redis, patch_session_factory):
+def test_gap2_ownership_does_not_bypass_challenge_eligibility(tenant_a_client, mock_redis, patch_session_factory):
     resp = tenant_a_client.post(
         "/api/v1/otp/submit-manual",
         json={"code": "123456", "job_id": "job_a456"},
     )
-    assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text[:200]}"
+    assert resp.status_code == 409, f"expected 409, got {resp.status_code}: {resp.text[:200]}"
+    mock_redis.set.assert_not_awaited()
 
 
 def test_gap2_client_without_job_id_rejected(tenant_a_client, mock_redis, patch_session_factory):
@@ -196,9 +197,10 @@ def test_gap2_client_without_job_id_rejected(tenant_a_client, mock_redis, patch_
     assert resp.status_code == 403, f"expected 403, got {resp.status_code}: {resp.text[:200]}"
 
 
-def test_gap2_admin_can_submit_global(admin_client, mock_redis):
+def test_gap2_admin_needs_job_or_recipient_phone(admin_client, mock_redis):
     resp = admin_client.post("/api/v1/otp/submit-manual", json={"code": "123456"})
-    assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text[:200]}"
+    assert resp.status_code == 422, f"expected 422, got {resp.status_code}: {resp.text[:200]}"
+    mock_redis.set.assert_not_awaited()
 
 
 # --- GAP-3: GET /waybill/tasks/{task_id} is tenant-scoped ---

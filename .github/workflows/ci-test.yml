@@ -114,6 +114,10 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
           REDIS_URL: redis://localhost:6379/0
+          BARPRO_TEST_POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
+          BARPRO_TEST_REDIS_URL: redis://localhost:6379/0
+          BARPRO_REQUIRE_PG_INTEGRATION: "1"
+          BARPRO_REQUIRE_REDIS_INTEGRATION: "1"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           DRIVER_ENCRYPTION_KEY: ${{ env.DRIVER_ENCRYPTION_KEY }}
 
@@ -150,6 +154,10 @@ jobs:
       - name: Run Frontend Linting
         working-directory: apps/web
         run: npm run lint
+
+      - name: Run Frontend Tests
+        working-directory: apps/web
+        run: npm test
 
       - name: Audit Frontend Dependencies
         working-directory: apps/web
@@ -205,10 +213,14 @@ jobs:
         run: |
           # Warning policy lives in pytest.ini (filterwarnings = error + scoped
           # ignores). A -W flag here would silently outrank it.
-          pytest tests/test_integration/ tests/integration/ -v --tb=short
+          pytest tests/test_integration/ tests/integration/ -m integration -v --tb=short
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
           REDIS_URL: redis://localhost:6379/0
+          BARPRO_TEST_POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@localhost:5432/utcms_rpa_test
+          BARPRO_TEST_REDIS_URL: redis://localhost:6379/0
+          BARPRO_REQUIRE_PG_INTEGRATION: "1"
+          BARPRO_REQUIRE_REDIS_INTEGRATION: "1"
           JWT_SECRET: ${{ env.JWT_SECRET }}
           DRIVER_ENCRYPTION_KEY: ${{ env.DRIVER_ENCRYPTION_KEY }}
 

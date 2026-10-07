@@ -26,10 +26,25 @@ if previous then
     local ok, entry = pcall(cjson.decode, previous)
     if ok and tonumber(entry.received_at or 0) > tonumber(ARGV[3]) then return -1 end
 end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+local payload = cjson.decode(ARGV[1])
+local pending = redis.call('GET', 'rpa:otp:pending_by_phone:' .. payload.phone)
+if pending then
+    local raw = redis.call('GET', 'rpa:job:pending_doc:' .. pending)
+    if raw then
+        local ok, challenge = pcall(cjson.decode, raw)
+        if ok and tonumber(payload.received_at) >= tonumber(challenge.created_at or 0) then
+            payload.job_id = pending
+            payload.document_id = tostring(challenge.document_id or challenge.doc_id or '')
+        end
+    end
+end
+local encoded = cjson.encode(payload)
+-- Append first: failed XADD must not leave a dedup marker that hides lost delivery.
+-- Entries are deleted only after terminal ACK; never trim unacknowledged OTPs.
+redis.call('XADD', 'rpa:otp:stream', '*', 'payload', encoded)
+redis.call('SET', KEYS[1], encoded, 'EX', ARGV[2])
 redis.call('SET', KEYS[2], '1', 'EX', ARGV[4])
-redis.call('PUBLISH', ARGV[5], ARGV[1])
-pcall(redis.call, 'XADD', 'rpa:otp:stream', 'MAXLEN', '~', 1000, '*', 'payload', ARGV[1], 'phone', KEYS[1], 'message_id', KEYS[2])
+redis.call('PUBLISH', ARGV[5], encoded)
 return 1
 """
 

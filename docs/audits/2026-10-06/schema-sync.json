@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "zod_files_found": [
+    "waybillSchema.ts"
+  ],
+  "pydantic_files_found": [
+    "__init__.py",
+    "admin.py",
+    "enterprise_reporting.py",
+    "itmb_ws.py",
+    "management.py",
+    "multiroute.py",
+    "multitenant.py",
+    "panel.py",
+    "rpa_phase1.py",
+    "task.py",
+    "waybill.py"
+  ],
+  "warnings": []
+}

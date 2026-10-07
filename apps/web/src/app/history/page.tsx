@@ -1,15 +1,17 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { ErrorState } from '@/components/layout/States';
+import { RecordFilters } from '@/components/RecordFilters';
+import { EMPTY_RECORD_FILTERS, recordFilterParams, recordFiltersFromSearch, type RecordFilters as Filters } from '@/lib/record-filters';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
-import { canonicalizePlate } from '@/lib/plate';
+import { copyText } from '@/lib/clipboard';
 import dynamic from 'next/dynamic';
 
 const ShippingRouteMap = dynamic(
@@ -31,6 +33,7 @@ import {
   trackingAcknowledged,
 } from '@/lib/format';
 import type {
+  Driver,
   FuelInquiryItem,
   FuelInquiryListResponse,
   JobTimelineResponse,
@@ -48,7 +51,6 @@ import {
   Edit2,
   Eye,
   FileText,
-  Filter,
   Fuel,
   Gauge,
   Key,
@@ -57,7 +59,6 @@ import {
   MoreVertical,
   Package,
   RotateCcw,
-  Search,
   Trash2,
   Truck,
   X,
@@ -296,9 +297,9 @@ const JobCard = memo(function JobCard({
                 <span><span className="font-bold">کد رهگیری دریافت شد:</span> {ack.code}</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(ack.code);
-                    toast.success('کد رهگیری کپی شد');
+                  onClick={async () => {
+                    if (await copyText(ack.code)) toast.success('کد رهگیری کپی شد');
+                    else toast.error('کپی خودکار ممکن نشد؛ کد را دستی کپی کنید.');
                   }}
                   className="rounded-lg bg-emerald-500/20 p-1.5 hover:bg-emerald-500/30 transition text-emerald-300"
                   title="کپی کد رهگیری"
@@ -414,18 +415,44 @@ function JobProgressChart({ progress = 10, status = 'pending' }: { progress: num
 }
 
 export default function HistoryPage() {
-  const { isAdmin, role } = useSession();
+  const { isAdmin, role, client } = useSession();
 
   // Category Tab state: 'waybills' or 'fuel'
   const [activeCategory, setActiveCategory] = useState<'waybills' | 'fuel'>('waybills');
 
   // Multi-Filter & Pagination toolbar state
   const [currentPage, setCurrentPage] = useState(1);
-  const [driverNameFilter, setDriverNameFilter] = useState('');
-  const [plateFilter, setPlateFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [dateFromFilter, setDateFromFilter] = useState('');
-  const [dateToFilter, setDateToFilter] = useState('');
+  const [filters, setFilters] = useState<Filters>({ ...EMPTY_RECORD_FILTERS });
+  const [filtersReady, setFiltersReady] = useState(false);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [driversError, setDriversError] = useState<string | null>(null);
+  const jobsController = useRef<AbortController | null>(null);
+  const fuelController = useRef<AbortController | null>(null);
+  const timelineController = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    setFilters(recordFiltersFromSearch(window.location.search));
+    setActiveCategory(new URLSearchParams(window.location.search).get('category') === 'fuel' ? 'fuel' : 'waybills');
+    setFiltersReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!client) return;
+    const controller = new AbortController();
+    setDrivers([]);
+    void api.get<Driver[]>('/api/v1/drivers', { page_size: 1000 }, { signal: controller.signal }).then(response => {
+      if (controller.signal.aborted) return;
+      setDrivers(response.success && Array.isArray(response.data) ? response.data : []);
+      setDriversError(response.success ? null : 'لیست رانندگان دریافت نشد؛ صفحه را به‌روزرسانی کنید.');
+    });
+    return () => controller.abort();
+  }, [client]);
+
+  const changeFilters = (next: Filters) => {
+    setCurrentPage(1);
+    setSelectedJobId(null);
+    setFilters(next);
+  };
 
   // Waybill Jobs state
   const [jobs, setJobs] = useState<WaybillJob[]>([]);
@@ -476,20 +503,15 @@ export default function HistoryPage() {
 
   // Load Waybill Jobs
   const loadJobs = useCallback(async () => {
+    if (!client) return;
     setLoadingJobs(true);
     setJobsError(null);
-    const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
-    if (statusFilter) params.status = statusFilter;
-    if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
-    // The backend matches the plate as a raw substring against the canonical
-    // stored form (`12ب345ایران67`), so the needle must be canonicalized too —
-    // normalizing digits alone misses Arabic ي/ك and «ايران».
-    const plateKeyword = canonicalizePlate(plateFilter);
-    if (plateKeyword) params.plate_number = plateKeyword;
-    if (dateFromFilter) params.date_from = dateFromFilter;
-    if (dateToFilter) params.date_to = dateToFilter;
-
-    const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', params);
+    jobsController.current?.abort();
+    const controller = new AbortController();
+    jobsController.current = controller;
+    const params = { page: String(currentPage), page_size: '20', ...recordFilterParams(filters) };
+    const response = await api.get<WaybillTaskListResponse>('/api/v1/waybill-jobs', params, { signal: controller.signal });
+    if (controller.signal.aborted) return;
 
     if (!response.success || !response.data) {
       setJobsError(response.error || 'تاریخچه کارهای بارنامه بارگذاری نشد.');
@@ -502,28 +524,21 @@ export default function HistoryPage() {
     const jobList = Array.isArray(response.data.tasks) ? response.data.tasks : [];
     setJobs(jobList);
     setJobsTotal(typeof response.data.total === 'number' ? response.data.total : jobList.length);
-    const firstJobId = jobList[0]?.job_id || null;
-    setSelectedJobId((prev) => prev || firstJobId);
+    setSelectedJobId((prev) => jobList.some(job => job.job_id === prev) ? prev : null);
     setLoadingJobs(false);
-  }, [currentPage, statusFilter, driverNameFilter, plateFilter, dateFromFilter, dateToFilter]);
+  }, [currentPage, filters, client]);
 
   // Load Fuel Inquiries
   const loadFuelInquiries = useCallback(async () => {
+    if (!client) return;
     setLoadingFuel(true);
     setFuelError(null);
-    const params: Record<string, string> = { page: String(currentPage), page_size: '20' };
-    // "registered" is a waybill-only aggregate (tracking-panel «ثبت» set);
-    // fuel inquiries have their own status vocabulary. `handleCategoryChange`
-    // clears it on the way into the fuel tab and the option is not rendered
-    // there, so the control can never display a filter this request drops.
-    if (statusFilter && statusFilter !== 'registered') params.status = statusFilter;
-    if (driverNameFilter.trim()) params.driver_name = driverNameFilter.trim();
-    const plateKeyword = canonicalizePlate(plateFilter);
-    if (plateKeyword) params.plate_number = plateKeyword;
-    if (dateFromFilter) params.date_from = dateFromFilter;
-    if (dateToFilter) params.date_to = dateToFilter;
-
-    const response = await api.get<FuelInquiryListResponse>('/api/v1/fuel-inquiries', params);
+    fuelController.current?.abort();
+    const controller = new AbortController();
+    fuelController.current = controller;
+    const params = { page: String(currentPage), page_size: '20', ...recordFilterParams(filters) };
+    const response = await api.get<FuelInquiryListResponse>('/api/v1/fuel-inquiries', params, { signal: controller.signal });
+    if (controller.signal.aborted) return;
 
     if (!response.success || !response.data) {
       setFuelError(response.error || 'تاریخچه استعلام‌های سوخت بارگذاری نشد.');
@@ -537,17 +552,18 @@ export default function HistoryPage() {
     setFuelInquiries(fuelList);
     setFuelTotal(typeof response.data.total === 'number' ? response.data.total : fuelList.length);
     setLoadingFuel(false);
-  }, [currentPage, statusFilter, driverNameFilter, plateFilter, dateFromFilter, dateToFilter]);
+  }, [currentPage, filters, client]);
 
   useEffect(() => {
-    if (role) {
+    if (role && filtersReady) {
       if (activeCategory === 'waybills') {
         loadJobs();
       } else {
         loadFuelInquiries();
       }
     }
-  }, [role, activeCategory, loadJobs, loadFuelInquiries]);
+    return () => { jobsController.current?.abort(); fuelController.current?.abort(); };
+  }, [role, filtersReady, activeCategory, loadJobs, loadFuelInquiries]);
 
   // Auto-refresh when jobs or fuel inquiries are in active/in-progress states
   const hasActiveItems = useMemo(() => {
@@ -572,6 +588,9 @@ export default function HistoryPage() {
   }, [activeCategory, jobs, fuelInquiries]);
 
   const loadTimeline = useCallback(async (jobId: string) => {
+    timelineController.current?.abort();
+    const controller = new AbortController();
+    timelineController.current = controller;
     setTimelineLoading(true);
     setTimelineError(null);
     setTimeline(null);
@@ -579,7 +598,8 @@ export default function HistoryPage() {
       include_payload: 'true',
       page: '1',
       page_size: '20',
-    });
+    }, { signal: controller.signal });
+    if (controller.signal.aborted) return;
     if (response.success && response.data) {
       setTimeline(response.data);
     } else {
@@ -601,32 +621,8 @@ export default function HistoryPage() {
     return () => clearInterval(interval);
   }, [hasActiveItems, activeCategory, loadJobs, selectedJobId, loadTimeline, loadFuelInquiries]);
 
-  const handleApplyFilters = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (activeCategory === 'waybills') {
-      void loadJobs();
-    } else {
-      void loadFuelInquiries();
-    }
-  };
-
-  const handleResetFilters = () => {
-    setDriverNameFilter('');
-    setPlateFilter('');
-    setStatusFilter('');
-    setDateFromFilter('');
-    setDateToFilter('');
-    setTimeout(() => {
-      if (activeCategory === 'waybills') void loadJobs();
-      else void loadFuelInquiries();
-    }, 50);
-  };
-
-  // «ثبت‌شده» is a waybill-only aggregate that `loadFuelInquiries` drops from
-  // the request. Clearing it on the way into the fuel tab keeps the control
-  // from displaying a filter the fuel list is not actually filtered by.
   const handleCategoryChange = (category: 'waybills' | 'fuel') => {
-    if (category !== 'waybills' && statusFilter === 'registered') setStatusFilter('');
+    changeFilters({ ...filters, status: '' });
     setActiveCategory(category);
   };
 
@@ -724,7 +720,7 @@ export default function HistoryPage() {
     });
     setIsSubmittingOtp(false);
     if (response.success) {
-      toast.success('بارنامه با موفقیت صادر و نهایی شد.');
+      toast.success('کد برای پردازش پذیرفته شد؛ نتیجه صدور را در پیگیری کارها بررسی کنید.');
       handleOtpModalClose();
       await loadJobs();
     } else {
@@ -772,9 +768,12 @@ export default function HistoryPage() {
 
 
   useEffect(() => {
+    setTimeline(null);
+    setTimelineError(null);
     if (selectedJobId && activeCategory === 'waybills') {
       void loadTimeline(selectedJobId);
     }
+    return () => timelineController.current?.abort();
   }, [selectedJobId, activeCategory, loadTimeline]);
 
   const handleCardClick = useCallback((jobId: string) => {
@@ -808,7 +807,7 @@ export default function HistoryPage() {
                 <FileText className="h-4 w-4" />
                 ثبت بارنامه
                 <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-400 border border-cyan-500/20">
-                  {toPersianDigits(jobsTotal)}
+                  {loadingJobs ? '…' : toPersianDigits(jobsTotal)}
                 </span>
               </button>
 
@@ -824,134 +823,13 @@ export default function HistoryPage() {
                 <Fuel className="h-4 w-4" />
                 استعلام سوخت
                 <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-400 border border-cyan-500/20">
-                  {toPersianDigits(fuelTotal)}
+                  {loadingFuel ? '…' : toPersianDigits(fuelTotal)}
                 </span>
               </button>
             </div>
           </div>
 
-          {/* Advanced Multi-Filter Toolbar */}
-          <form
-            onSubmit={handleApplyFilters}
-            className="rounded-[2rem] border border-white/5 bg-slate-900/40 p-6 shadow-xl backdrop-blur-md text-white"
-          >
-            <div className="flex items-center gap-2 border-b border-white/5 pb-4 mb-4 text-xs font-bold text-slate-300">
-              <Filter className="h-4 w-4 text-cyan-400" />
-              <span>فیلترهای جستجو و جستجوی پیشرفته ({activeCategory === 'waybills' ? 'ثبت بارنامه' : 'استعلام سوخت'})</span>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">نام راننده</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={driverNameFilter}
-                    onChange={(e) => setDriverNameFilter(e.target.value)}
-                    placeholder="مثال: علی رضایی"
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 transition"
-                  />
-                  {driverNameFilter && (
-                    <button
-                      type="button"
-                      onClick={() => setDriverNameFilter('')}
-                      className="absolute left-2.5 top-2.5 text-slate-500 hover:text-slate-300"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">پلاک خودرو</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={plateFilter}
-                    onChange={(e) => setPlateFilter(e.target.value)}
-                    placeholder="مثال: ۱۲ب۳۴۵"
-                    className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 transition"
-                  />
-                  {plateFilter && (
-                    <button
-                      type="button"
-                      onClick={() => setPlateFilter('')}
-                      className="absolute left-2.5 top-2.5 text-slate-500 hover:text-slate-300"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">وضعیت کار</label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
-                >
-                  <option value="">همه وضعیت‌ها</option>
-                  {/* Waybill-only aggregate: the fuel-inquiry endpoint has no
-                      «ثبت‌شده» status, so the option is not offered there. */}
-                  {activeCategory === 'waybills' && (
-                    <option value="registered" className="bg-slate-950">ثبت‌شده (موفق / صادرشده / در حال حمل / تحویل‌شده)</option>
-                  )}
-                  <option value="success" className="bg-slate-950">موفق (Completed)</option>
-                  <option value="pending" className="bg-slate-950">در صف (Pending)</option>
-                  <option value="queued" className="bg-slate-950">صف‌شده (Queued)</option>
-                  <option value="in_progress" className="bg-slate-950">در حال اجرا (Running)</option>
-                  <option value="waiting_auth" className="bg-slate-950">در انتظار ورود (Waiting Auth)</option>
-                  <option value="waiting_retry" className="bg-slate-950">در انتظار تلاش مجدد (Waiting Retry)</option>
-                  <option value="otp_backoff" className="bg-slate-950">انتظار OTP (OTP Backoff)</option>
-                  <option value="waiting_submission_window" className="bg-slate-950">انتظار بازه ثبت (Submission Window)</option>
-                  <option value="unknown" className="bg-slate-950">نامشخص (Unknown)</option>
-                  <option value="reconciling" className="bg-slate-950">در حال تطبیق (Reconciling)</option>
-                  <option value="failed" className="bg-slate-950">خطا (Failed)</option>
-                  <option value="needs_review" className="bg-slate-950">نیازمند بررسی (Needs Review)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">از تاریخ (YYYY-MM-DD)</label>
-                <input
-                  type="date"
-                  value={dateFromFilter}
-                  onChange={(e) => setDateFromFilter(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-300 mb-1.5">تا تاریخ (YYYY-MM-DD)</label>
-                <input
-                  type="date"
-                  value={dateToFilter}
-                  onChange={(e) => setDateToFilter(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-xs text-white outline-none focus:border-cyan-400 transition"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex justify-end gap-3 border-t border-white/5 pt-4">
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="rounded-xl border border-white/10 bg-slate-950 px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-900 transition flex items-center gap-1.5"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                پاک کردن فیلترها
-              </button>
-              <button
-                type="submit"
-                className="rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 text-xs font-black shadow-lg transition flex items-center gap-1.5"
-              >
-                <Search className="h-3.5 w-3.5" />
-                اعمال فیلترها
-              </button>
-            </div>
-          </form>
+          <RecordFilters value={filters} onChange={changeFilters} drivers={drivers} driversError={driversError} category={activeCategory} />
 
           {/* MAIN CATEGORY TAB CONTENT */}
           {activeCategory === 'waybills' ? (
@@ -962,8 +840,8 @@ export default function HistoryPage() {
               }`}>
                 <div className="flex items-center justify-between border-b border-white/5 pb-6">
                   <div>
-                    <h2 className="text-xl font-black text-white">صف ثبت بارنامه</h2>
-                    <p className="mt-1 text-xs text-slate-400">مشاهده صف، خطاها و روند پیشرفت هر بارنامه</p>
+                    <h2 className="text-xl font-black text-white">بارنامه‌های یافت‌شده</h2>
+                    <p className="mt-1 text-xs text-slate-400">برای دیدن جزئیات و وضعیت، یک بارنامه را انتخاب کنید.</p>
                   </div>
                   <span className="rounded-full bg-cyan-500/10 border border-cyan-500/20 px-4 py-1.5 text-xs font-black text-cyan-400 shadow-sm">
                     {toPersianDigits(jobsTotal)} مورد
@@ -1165,8 +1043,8 @@ export default function HistoryPage() {
                                   ? String((selectedJob.result_json as Record<string, unknown>).document_id || (selectedJob.result_json as Record<string, unknown>).tracking_code || '')
                                   : ''
                               }
-                              originAddress={selectedJobPayload?.originCity || ''}
-                              destAddress={selectedJobPayload?.destinationCity || ''}
+                              originAddress={selectedJobPayload?.originAddress || selectedJobPayload?.originCity || ''}
+                              destAddress={selectedJobPayload?.destinationAddress || selectedJobPayload?.destinationCity || ''}
                               originLat={originLat}
                               originLng={originLng}
                               destLat={destLat}
@@ -1189,9 +1067,9 @@ export default function HistoryPage() {
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    void navigator.clipboard.writeText(tc);
-                                    toast.success('کد رهگیری کپی شد');
+                                  onClick={async () => {
+                                    if (await copyText(tc)) toast.success('کد رهگیری کپی شد');
+                                    else toast.error('کپی خودکار ممکن نشد؛ کد را دستی کپی کنید.');
                                   }}
                                   className="rounded-lg bg-emerald-500/20 p-1.5 hover:bg-emerald-500/30 transition text-emerald-300"
                                   title="کپی کد رهگیری"
@@ -1212,9 +1090,9 @@ export default function HistoryPage() {
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      void navigator.clipboard.writeText(ack.code);
-                                      toast.success('کد رهگیری کپی شد');
+                                    onClick={async () => {
+                                      if (await copyText(ack.code)) toast.success('کد رهگیری کپی شد');
+                                      else toast.error('کپی خودکار ممکن نشد؛ کد را دستی کپی کنید.');
                                     }}
                                     className="rounded-lg bg-emerald-500/20 p-1.5 hover:bg-emerald-500/30 transition text-emerald-300"
                                     title="کپی کد رهگیری"
@@ -1353,6 +1231,9 @@ export default function HistoryPage() {
                             <p className="font-bold text-slate-100 text-sm">
                               {inquiry.driver_name || `راننده #${inquiry.driver_id}`}
                             </p>
+                            {inquiry.driver_name_source === 'current_driver' && <p className="text-amber-300">نام فعلی راننده؛ نام تاریخی ثبت نشده</p>}
+                            {inquiry.plate_source === 'legacy_unknown' && <p className="text-slate-400">پلاک تاریخی ثبت نشده</p>}
+                            {inquiry.finished_at && <p className="text-cyan-300">دریافت نتیجه: {formatDateTime(inquiry.finished_at)}</p>}
                             {inquiry.plate_number && (
                               <p className="text-slate-400">
                                 پلاک: <span className="text-slate-200 font-bold">{toPersianDigitsPreserveZero(inquiry.plate_number)}</span>
@@ -1369,7 +1250,7 @@ export default function HistoryPage() {
                               </p>
                             )}
                             <p className="text-[11px] text-slate-400">
-                              تاریخ ثبت: {formatDateTime(inquiry.created_at)}
+                              زمان درخواست: {formatDateTime(inquiry.created_at)}
                             </p>
                           </div>
 
@@ -1802,10 +1683,10 @@ export default function HistoryPage() {
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                         </span>
-                        <span>دریافت خودکار از فورواردر پیامک فعال است</span>
+                        <span>در انتظار پیامک؛ اتصال فورواردر گوشی تأیید نشده است</span>
                       </div>
                       <p className="text-[11px] text-amber-300/80 leading-relaxed">
-                        اگر راننده اپلیکیشن SMS Forwarder را نصب داشته باشد، بارنامه به محض رسیدن پیامک خودکار صادر می‌شود. در غیر این صورت، کد دریافتی راننده را در کادر زیر وارد کنید:
+                        اگر فورواردر گوشی به‌درستی پیکربندی شده باشد، پیامک معتبر برای تکمیل سند پردازش می‌شود. دریافت پیامک به‌تنهایی اثبات صدور نیست. می‌توانید کد دریافتی راننده را در کادر زیر وارد کنید:
                       </p>
                     </div>
 

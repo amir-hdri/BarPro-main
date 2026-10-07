@@ -10,6 +10,7 @@ import logging
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
+from types import ModuleType
 from typing import Any
 
 import numpy as np
@@ -19,51 +20,55 @@ from app.automation.captcha.base import CaptchaProvider, CaptchaResult
 from app.automation.captcha.persian_number_parser import persian_words_to_number
 
 try:
-    import torch
-    import torch.nn as nn
+    import torch as _torch
+    import torch.nn as _nn
 except ImportError:
-    torch = None
-    nn = None
+    torch: ModuleType | None = None
+    nn: ModuleType | None = None
+else:
+    # Keep optional availability separate from the statically typed module aliases.
+    torch = _torch
+    nn = _nn
 
 logger = logging.getLogger(__name__)
 
 
-# Defined only when torch is importable: the class body evaluates nn.Module at
+# Defined only when torch is importable: the class body evaluates _nn.Module at
 # import time, so defining it unconditionally would crash the import and defeat
 # the graceful torch-less degradation (solve_text_captcha -> torch_not_installed).
 if nn is not None:  # pragma: no cover - requires real torch
 
-    class CRNN(nn.Module):
+    class CRNN(_nn.Module):
         def __init__(self, num_classes: int, img_channel: int = 1):
             super().__init__()
-            self.cnn = nn.Sequential(
+            self.cnn = _nn.Sequential(
                 # Layer 1: (H, W) -> (H/2, W/2)  (32, 320) -> (16, 160)
-                nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
-                nn.BatchNorm2d(32),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=(2, 2)),
+                _nn.Conv2d(img_channel, 32, kernel_size=3, padding=1),
+                _nn.BatchNorm2d(32),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=(2, 2)),
                 # Layer 2: (16, 160) -> (8, 80)
-                nn.Conv2d(32, 64, kernel_size=3, padding=1),
-                nn.BatchNorm2d(64),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=(2, 2)),
+                _nn.Conv2d(32, 64, kernel_size=3, padding=1),
+                _nn.BatchNorm2d(64),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=(2, 2)),
                 # Layer 3: (8, 80) -> (4, 80)
-                nn.Conv2d(64, 128, kernel_size=3, padding=1),
-                nn.BatchNorm2d(128),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=(2, 1)),
+                _nn.Conv2d(64, 128, kernel_size=3, padding=1),
+                _nn.BatchNorm2d(128),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=(2, 1)),
                 # Layer 4: (4, 80) -> (2, 80)
-                nn.Conv2d(128, 256, kernel_size=3, padding=1),
-                nn.BatchNorm2d(256),
-                nn.ReLU(),
-                nn.MaxPool2d(kernel_size=(2, 1)),
+                _nn.Conv2d(128, 256, kernel_size=3, padding=1),
+                _nn.BatchNorm2d(256),
+                _nn.ReLU(),
+                _nn.MaxPool2d(kernel_size=(2, 1)),
                 # Layer 5: (2, 80) -> (1, 80)
-                nn.Conv2d(256, 256, kernel_size=(2, 1)),
-                nn.BatchNorm2d(256),
-                nn.ReLU(),
+                _nn.Conv2d(256, 256, kernel_size=(2, 1)),
+                _nn.BatchNorm2d(256),
+                _nn.ReLU(),
             )
 
-            self.rnn = nn.GRU(
+            self.rnn = _nn.GRU(
                 input_size=256,
                 hidden_size=128,
                 num_layers=2,
@@ -72,7 +77,7 @@ if nn is not None:  # pragma: no cover - requires real torch
                 dropout=0.25,
             )
 
-            self.fc = nn.Linear(128 * 2, num_classes)
+            self.fc = _nn.Linear(128 * 2, num_classes)
 
         def forward(self, x):
             features = self.cnn(x)  # [B, 256, 1, W_seq]
@@ -134,9 +139,19 @@ class DntCaptchaProvider(CaptchaProvider):
 
             num_classes = len(self._vocab) + 1  # blank token at index len(vocab)
             self._model = CRNN(num_classes)
-            self._device = torch.device("cpu")
+            self._device = _torch.device("cpu")
 
-            checkpoint = torch.load(self.model_path, map_location=self._device)
+            checkpoint = _torch.load(self.model_path, map_location=self._device, weights_only=True)
+            # train_dnt_captcha.py saves a plain tensor state_dict; arbitrary
+            # pickled Python objects are not part of the supported model format.
+            if (
+                not isinstance(checkpoint, dict)
+                or not checkpoint
+                or not all(
+                    isinstance(key, str) and isinstance(value, _torch.Tensor) for key, value in checkpoint.items()
+                )
+            ):
+                raise ValueError("DNT checkpoint must contain a tensor state_dict")
             self._model.load_state_dict(checkpoint)
             self._model.eval()
             self._initialized = True
@@ -154,11 +169,11 @@ class DntCaptchaProvider(CaptchaProvider):
 
             arr = np.array(img, dtype=np.float32) / 255.0
             arr = (arr - 0.5) / 0.5
-            tensor = torch.tensor(arr, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self._device)
+            tensor = _torch.tensor(arr, dtype=_torch.float32).unsqueeze(0).unsqueeze(0).to(self._device)
 
-            with torch.no_grad():
+            with _torch.no_grad():
                 preds = self._model(tensor)  # [W_seq, 1, num_classes]
-                argmax_preds = torch.argmax(preds, dim=2)[:, 0].cpu().numpy()
+                argmax_preds = _torch.argmax(preds, dim=2)[:, 0].cpu().numpy()
 
             decoded_chars = []
             prev_idx = -1

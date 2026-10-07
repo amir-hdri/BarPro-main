@@ -23,7 +23,7 @@ from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     validate_live_waybill_payload,
 )
-from app.automation.waybill_enhanced import EnhancedWaybillManager, fetch_scoped_otp
+from app.automation.waybill_enhanced import EnhancedWaybillManager
 from app.core.config import utcms_config
 from app.core.exceptions import WaybillError
 from app.models_multitenant import TaskStatus
@@ -224,69 +224,35 @@ class WaybillAutomationBot:
         try:
             normalized_payload = build_enhanced_waybill_payload(payload)
 
-            from app.automation.gps_shipping_manager import extract_coordinates_from_payload, find_city_coordinates
+            from app.automation.gps_shipping_manager import extract_coordinates_from_payload
 
             coord_info = extract_coordinates_from_payload(payload)
 
-            # Preserve & enhance mobile-specific locations and coordinates
+            # Use the same selected-pin authority as the map and shipping API.
+            # Text-only issuance must never invent a GPS pin from a city name.
             for location_key in ("origin", "destination"):
                 # Behavior-identical to the inline ternary: dict.get() is pure,
                 # so evaluating it once instead of twice changes nothing.
                 _raw_location = payload.get(location_key)
                 raw_location: dict[Any, Any] = _raw_location if isinstance(_raw_location, dict) else {}
                 normalized_location = normalized_payload.setdefault(location_key, {})
-                for source_key in (
-                    "postal_code",
-                    "postalCode",
-                    "lat",
-                    "latitude",
-                    "lon",
-                    "lng",
-                    "longitude",
-                    "coordinates",
-                ):
+                for source_key in ("postal_code", "postalCode"):
                     if raw_location.get(source_key) is not None:
                         normalized_location[source_key] = raw_location[source_key]
 
-                # Fallback coordinates from coord_info or city name
+                # Clear alternate copies before projecting the canonical pair;
+                # invalid selected metadata must not fall back to an older pin.
+                for coordinate_key in ("lat", "latitude", "lon", "lng", "longitude", "coordinates"):
+                    normalized_location.pop(coordinate_key, None)
                 prefix = "origin" if location_key == "origin" else "dest"
-                c_lat = (
-                    normalized_location.get("lat")
-                    or normalized_location.get("latitude")
-                    or coord_info.get(f"{prefix}_lat")
-                )
-                c_lon = (
-                    normalized_location.get("lon")
-                    or normalized_location.get("lng")
-                    or normalized_location.get("longitude")
-                    or coord_info.get(f"{prefix}_lng")
-                )
-                if c_lat is None or c_lon is None:
-                    city_name = normalized_location.get("city") or normalized_location.get("cityName")
-                    city_coords = find_city_coordinates(city_name)
-                    if city_coords:
-                        c_lat, c_lon = city_coords
+                c_lat = coord_info.get(f"{prefix}_lat")
+                c_lon = coord_info.get(f"{prefix}_lng")
 
                 if c_lat is not None and c_lon is not None:
                     normalized_location["lat"] = float(c_lat)
                     normalized_location["lon"] = float(c_lon)
                     normalized_location["lng"] = float(c_lon)
                     normalized_location["coordinates"] = {"lat": float(c_lat), "lng": float(c_lon)}
-
-                # Fallback postal code if missing
-                if not normalized_location.get("postal_code") and not normalized_location.get("postalCode"):
-                    default_post = "1111111111" if location_key == "origin" else "2222222222"
-                    normalized_location["postal_code"] = default_post
-                    normalized_location["postalCode"] = default_post
-
-                # Ensure address is at least 5 chars for live validator
-                addr = str(normalized_location.get("address") or "").strip()
-                if not addr or len(addr) < 5:
-                    c_name = normalized_location.get("city") or ""
-                    new_addr = f"{c_name}، {addr}".strip("، ")
-                    if len(new_addr) < 5:
-                        new_addr = f"خیابان اصلی {new_addr}".strip()
-                    normalized_location["address"] = new_addr
 
             # Enhance cargo items
             cargo = normalized_payload.setdefault("cargo", {})
@@ -371,27 +337,6 @@ class WaybillAutomationBot:
                     "have_insurance": bool(raw_ins.get("have_insurance") or raw_ins.get("haveInsurance")),
                     "cover": raw_ins.get("cover") or raw_ins.get("insuranceCover") or 0,
                 }
-
-            # Enhance sender/receiver fallbacks
-            sender = normalized_payload.setdefault("sender", {})
-            if not sender.get("name") and not sender.get("firstName") and not sender.get("first_name"):
-                sender["name"] = "فرستنده کالا"
-            if not sender.get("phone"):
-                sender["phone"] = "09123456789"
-            if not sender.get("national_code") and not sender.get("nationalCode"):
-                sender["national_code"] = "0084575948"
-            if not sender.get("postal_code") and not sender.get("postalCode"):
-                sender["postal_code"] = normalized_payload["origin"].get("postal_code", "1111111111")
-
-            receiver = normalized_payload.setdefault("receiver", {})
-            if not receiver.get("name") and not receiver.get("firstName") and not receiver.get("first_name"):
-                receiver["name"] = "گیرنده کالا"
-            if not receiver.get("phone"):
-                receiver["phone"] = "09123456780"
-            if not receiver.get("national_code") and not receiver.get("nationalCode"):
-                receiver["national_code"] = "0012345679"
-            if not receiver.get("postal_code") and not receiver.get("postalCode"):
-                receiver["postal_code"] = normalized_payload["destination"].get("postal_code", "2222222222")
 
             # Enhance vehicle fallbacks
             # dict[Any, Any]: the vehicle sub-payload; also (re)assigned below
@@ -643,6 +588,7 @@ class WaybillAutomationBot:
             response = None
             for ins_attempt in range(1, max_insert_attempts + 1):
                 try:
+                    otp_requested_at = time.time()
                     response = await client.insert_document(
                         normalized_payload,
                         allow_live_submit=True,
@@ -734,13 +680,10 @@ class WaybillAutomationBot:
                 * explicit rejection -> ``unknown`` plus the recorded UTCMS code
                   and message. UTCMS refused, so claiming ``in_transit`` would be
                   a lie and would send the sweeper after a trip that never began.
-                * the call RAISED (proxy/WAF/timeout) -> the POST may well have
-                  landed and UTCMS may already hold the trip at code 1, so the
-                  state is left SWEEPABLE (``in_transit``) with the error
-                  recorded. ``get_due_in_transit_jobs`` only selects
-                  ``in_transit``, and the terminal POST has an explicit
-                  missing-start (Rule 4011) recovery path, so this is the only
-                  option that cannot strand the trip forever.
+                * the call RAISED (proxy/WAF/timeout) -> ``unknown`` with the
+                  error recorded and no registered-origin witness. The POST
+                  may have landed, so reconciliation must resolve its outcome
+                  before any later shipping mutation.
                 """
                 from app.automation.shipping_contract import shipping_acknowledged
 
@@ -813,11 +756,10 @@ class WaybillAutomationBot:
                         allow_live_submit=True,
                     )
                 except Exception as ship_err:
-                    # Ambiguous: UTCMS may already hold the trip at code 1, so
-                    # keep it sweepable instead of stranding it at "ready".
+                    # An attempted origin is not a registered-origin witness.
+                    # Do not let the completion sweeper act on an unknown start.
                     logger.warning("Automated start of shipping unconfirmed: %s", ship_err)
-                    ship_state.status = "in_transit"
-                    ship_state.gps_list = _origin_witness()
+                    ship_state.status = "unknown"
                     ship_state.last_error_message = str(ship_err)[:200]
                     await _persist(ship_state)
                     result["steps"].append(
@@ -863,133 +805,55 @@ class WaybillAutomationBot:
                 return result
 
             if otp_required is True:
-                # Check if OTP code arrived in Redis from the driver forwarder webhook or direct payload
-                otp_code = (
-                    str(payload.get("driver_otp") or payload.get("otp_code") or payload.get("otp") or "").strip()
-                    or None
+                # Release the worker promptly. The same worker's OTP task will issue
+                # after this result/challenge has been committed by the outer worker.
+                import hashlib
+                import os
+
+                from app.automation.otp_keys import (
+                    OTP_ACTIVE_PENDING_JOBS_SET,
+                    normalize_phone_for_otp_key,
+                    otp_pending_phone_key,
                 )
+                from app.core.redis_client import redis_manager
+                from app.services.otp_wakeup_consumer import trigger_job_completion_on_otp_received
+
+                driver_phone = normalize_phone_for_otp_key(
+                    normalized_payload.get("vehicle", {}).get("driver_mobile")
+                    or normalized_payload.get("vehicle", {}).get("driver_phone")
+                )
+                challenge = {
+                    "document_id": str(document_id or ""),
+                    "created_at": otp_requested_at,
+                    "worker_id": os.environ.get("WORKER_ID"),
+                    "egress_digest": hashlib.sha256(str(proxy_url or self.proxy_url or "").encode()).hexdigest(),
+                    "allow_live_submit": effective_live_submit,
+                }
                 try:
-                    from app.core.redis_client import redis_manager
-
                     redis = await redis_manager.get()
-                    if redis is not None:
-                        driver_phone = str(normalized_payload.get("vehicle", {}).get("driver_mobile") or "").strip()
-                        # Cache pending document session for operator manual submit or webhook auto-completion
-                        if document_id and job_id:
-                            session_cache = {
-                                "document_id": str(document_id),
-                                "doc_id": str(document_id),
-                                "token": getattr(auth, "token", ""),
-                                "username": username,
-                                "job_id": job_id,
-                                "driver_phone": driver_phone,
-                                "client_id": client_id,
-                                "created_at": time.time(),
-                            }
-                            await redis.set(f"rpa:job:pending_doc:{job_id}", json.dumps(session_cache), ex=3600)
-                            from app.automation.otp_keys import (
-                                OTP_ACTIVE_PENDING_JOBS_SET,
-                                normalize_phone_for_otp_key,
-                                otp_pending_phone_key,
-                            )
-
-                            if hasattr(redis, "sadd"):
-                                await redis.sadd(OTP_ACTIVE_PENDING_JOBS_SET, job_id)
-                            clean_p = normalize_phone_for_otp_key(driver_phone)
-                            pending_p_key = otp_pending_phone_key(clean_p)
-                            if pending_p_key:
-                                await redis.set(pending_p_key, job_id, ex=3600)
-
-                        if not otp_code:
-                            # Tenant-isolation (C1): scoped keys only — job-scoped,
-                            # then phone-scoped. The unscoped global key is retired;
-                            # without job/phone context we fail closed (no OTP).
-                            deadline = time.monotonic() + min(300, max(0, utcms_config.UTCMS_OTP_WAIT_TIMEOUT_SECONDS))
-                            while time.monotonic() < deadline:
-                                # Check if job was already completed in background by event-driven wake-up
-                                if job_id:
-                                    completed_raw = await redis.get(f"rpa:job:completed_otp:{job_id}")
-                                    if completed_raw:
-                                        completed_info = json.loads(completed_raw)
-                                        otp_tracking = completed_info.get("tracking_code")
-                                        if otp_tracking:
-                                            result["status"] = TaskStatus.SUCCESS.value
-                                            result["mutation_status"] = "dispatched"
-                                            result["tracking_code"] = str(otp_tracking)
-                                            result["result"] = build_tracking_received_result(
-                                                str(otp_tracking),
-                                                document_id=document_id,
-                                                transport="mobile",
-                                            )
-                                            result["steps"].append(
-                                                {"step": "mobile_issue_by_otp_wakeup", "status": "success"}
-                                            )
-                                            await _finalize_shipping_start(str(otp_tracking), document_id)
-                                            return result
-
-                                found = await fetch_scoped_otp(
-                                    redis, job_id=job_id, driver_phone=driver_phone, wait_start=otp_requested_at
-                                )
-                                if found:
-                                    otp_code = found[0]
-                                    logger.info("Received a current OTP for the mobile document")
-                                    break
-                                await asyncio.sleep(min(1.0, max(0, deadline - time.monotonic())))
-                except Exception as redis_exc:
-                    logger.warning("Redis OTP lookup failed: %s", redis_exc)
-
-                if otp_code and document_id:
-                    from app.automation.otp_keys import (
-                        consume_scoped_otp,
-                        release_otp_issue_lease,
-                        reserve_otp_issue_lease,
-                    )
-
-                    lease = await reserve_otp_issue_lease(redis, job_id, ttl_seconds=30) if (redis and job_id) else True
-                    if not lease:
-                        await asyncio.sleep(2)
-                        completed_raw = await redis.get(f"rpa:job:completed_otp:{job_id}") if redis else None
-                        if completed_raw:
-                            completed_info = json.loads(completed_raw)
-                            otp_tracking = completed_info.get("tracking_code")
-                            if otp_tracking:
-                                result["status"] = TaskStatus.SUCCESS.value
-                                result["tracking_code"] = str(otp_tracking)
-                                return result
-                    else:
-                        try:
-                            logger.info("Submitting IssueDocumentByOtp for docId=%s", document_id)
-                            issue_res = await client.issue_document_by_otp(
-                                str(document_id), str(otp_code), allow_live_submit=True
-                            )
-                            otp_tracking = client.extract_tracking_code(issue_res) or (
-                                issue_res.get("obj", {}).get("docNo")
-                                if isinstance(issue_res.get("obj"), dict)
-                                else None
-                            )
-                            if otp_tracking:
-                                result["status"] = TaskStatus.SUCCESS.value
-                                result["mutation_status"] = "dispatched"
-                                result["tracking_code"] = str(otp_tracking)
-                                result["result"] = build_tracking_received_result(
-                                    str(otp_tracking),
-                                    document_id=document_id,
-                                    transport="mobile",
-                                )
-                                result["steps"].append({"step": "mobile_issue_by_otp", "status": "success"})
-                                await _finalize_shipping_start(str(otp_tracking), document_id)
-                                if redis:
-                                    await consume_scoped_otp(redis, job_id=job_id, driver_phone=driver_phone)
-                                return result
-                        except Exception as issue_exc:
-                            logger.warning("IssueDocumentByOtp call failed: %s", issue_exc)
-                        finally:
-                            if redis and job_id:
-                                await release_otp_issue_lease(redis, job_id)
-
+                    if redis is not None and document_id and job_id:
+                        session_cache = {
+                            **challenge,
+                            "doc_id": str(document_id),
+                            "token": getattr(auth, "token", ""),
+                            "username": username,
+                            "job_id": job_id,
+                            "driver_phone": driver_phone,
+                            "client_id": client_id,
+                        }
+                        await redis.set(f"rpa:job:pending_doc:{job_id}", json.dumps(session_cache), ex=3600)
+                        await redis.sadd(OTP_ACTIVE_PENDING_JOBS_SET, job_id)
+                        pending_key = otp_pending_phone_key(driver_phone)
+                        if pending_key:
+                            await redis.set(pending_key, job_id, ex=3600)
+                        # A code supplied before this challenge has no freshness
+                        # witness. Only later durable intake may bind an OTP to it.
+                        trigger_job_completion_on_otp_received(job_id=job_id)
+                except Exception:
+                    logger.warning("otp_challenge_wakeup_deferred", exc_info=True)
                 result.update(
                     status=TaskStatus.UNKNOWN.value,
-                    error=f"سند در سامانه UTCMS با شناسه {document_id} ایجاد شد؛ منتظر دریافت کد یکبار مصرف (OTP) راننده است",
+                    error=f"سند در سامانه UTCMS با شناسه {document_id} ایجاد شد؛ منتظر کد یکبار مصرف راننده است",
                     error_category="otp_required",
                     mutation_status="dispatched" if document_id else "ambiguous",
                     needs_reconciliation=True,
@@ -998,7 +862,8 @@ class WaybillAutomationBot:
                         "transport": "mobile",
                         "document_id": document_id,
                         "otp_required": True,
-                        "tracking_code": tracking_code,
+                        "tracking_code": None,
+                        "_otp_challenge": challenge,
                     },
                 )
                 if document_id:

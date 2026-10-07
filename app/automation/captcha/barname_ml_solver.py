@@ -4,7 +4,8 @@ import base64
 import binascii
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -13,11 +14,15 @@ from app.automation.captcha.advanced_preprocessor import AdvancedPreprocessor
 from app.automation.captcha.advanced_segmentation import AdvancedSegmentation
 
 try:
-    import torch
-    import torch.nn as nn
+    import torch as _torch
+    import torch.nn as _nn
 except Exception:  # pragma: no cover
-    torch = None
-    nn = None
+    torch: ModuleType | None = None
+    nn: ModuleType | None = None
+else:
+    # Keep optional availability separate from the statically typed module aliases.
+    torch = _torch
+    nn = _nn
 
 
 MODEL_PATH = Path(__file__).with_name("assets") / "captcha_cnn.pth"
@@ -105,33 +110,33 @@ def _normalize_character(image: np.ndarray, target_size: int = 28) -> np.ndarray
     return _pad_and_resize(roi, target_size=target_size)
 
 
-# Defined only when torch is importable: the class body evaluates nn.Module at
+# Defined only when torch is importable: the class body evaluates _nn.Module at
 # import time, so defining it unconditionally would crash the import and defeat
 # the graceful torch-less degradation below (warmup() -> available == False).
 if nn is not None:  # pragma: no cover - requires real torch
 
-    class _SimpleCNN(nn.Module):
+    class _SimpleCNN(_nn.Module):
         def __init__(self, num_classes: int):
             super().__init__()
-            self.features = nn.Sequential(
-                nn.Conv2d(1, 32, 3, padding=1),
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, 3, padding=1),
-                nn.ReLU(),
-                nn.MaxPool2d(2),
+            self.features = _nn.Sequential(
+                _nn.Conv2d(1, 32, 3, padding=1),
+                _nn.ReLU(),
+                _nn.MaxPool2d(2),
+                _nn.Conv2d(32, 64, 3, padding=1),
+                _nn.ReLU(),
+                _nn.MaxPool2d(2),
             )
-            self.classifier = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(64 * 7 * 7, 128),
-                nn.ReLU(),
-                nn.Dropout(0.5),
-                nn.Linear(128, num_classes),
+            self.classifier = _nn.Sequential(
+                _nn.Flatten(),
+                _nn.Linear(64 * 7 * 7, 128),
+                _nn.ReLU(),
+                _nn.Dropout(0.5),
+                _nn.Linear(128, num_classes),
             )
 
-        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        def forward(self, inputs: _torch.Tensor) -> _torch.Tensor:
             features = self.features(inputs)
-            return self.classifier(features)
+            return cast(_torch.Tensor, self.classifier(features))
 
 
 class BarnameMlCaptchaSolver:
@@ -140,7 +145,7 @@ class BarnameMlCaptchaSolver:
         self._loaded = False
         self._available = False
         self._classes: list[str] = []
-        self._device = None
+        self._device: _torch.device | None = None
         # Any: torch is an optional dependency (try/except import); the
         # CRNN instance is only created after a successful lazy load.
         self._model: Any = None
@@ -162,14 +167,14 @@ class BarnameMlCaptchaSolver:
             self._available = False
             return
 
-        if torch.backends.mps.is_available():
-            self._device = torch.device("mps")
-        elif torch.cuda.is_available():
-            self._device = torch.device("cuda")
+        if _torch.backends.mps.is_available():
+            self._device = _torch.device("mps")
+        elif _torch.cuda.is_available():
+            self._device = _torch.device("cuda")
         else:
-            self._device = torch.device("cpu")
+            self._device = _torch.device("cpu")
         try:
-            checkpoint = torch.load(self.model_path, map_location=self._device, weights_only=True)
+            checkpoint = _torch.load(self.model_path, map_location=self._device, weights_only=True)
         except Exception:
             self._available = False
             return
@@ -288,10 +293,10 @@ class BarnameMlCaptchaSolver:
             return {}
 
         normalized = _normalize_character(image, 28)
-        tensor = torch.from_numpy(normalized).float().div(255.0).unsqueeze(0).unsqueeze(0).to(self._device)
-        with torch.no_grad():
+        tensor = _torch.from_numpy(normalized).float().div(255.0).unsqueeze(0).unsqueeze(0).to(self._device)
+        with _torch.no_grad():
             logits = self._model(tensor)
-            probabilities = torch.softmax(logits, dim=1)[0]
+            probabilities = _torch.softmax(logits, dim=1)[0]
 
         scores: dict[str, float] = {}
         for index, class_name in enumerate(self._classes):
@@ -463,9 +468,9 @@ class BarnameMlCaptchaSolver:
             canvas = np.zeros((28, 28), dtype=np.float32)
             canvas[(28 - nh) // 2 : (28 - nh) // 2 + nh, (28 - nw) // 2 : (28 - nw) // 2 + nw] = res_gray
 
-            with torch.no_grad():
-                out = model._model(torch.from_numpy(canvas.reshape(1, 1, 28, 28)))
-                probs = torch.softmax(out, dim=1)[0].numpy()
+            with _torch.no_grad():
+                out = model._model(_torch.from_numpy(canvas.reshape(1, 1, 28, 28)))
+                probs = _torch.softmax(out, dim=1)[0].numpy()
             probs_list.append(probs)
 
         n = len(probs_list)

@@ -92,7 +92,9 @@ def test_observer_parse_dump_prefers_last_fix() -> None:
     Last Known Locations:
       gps: provider=gps lat=35.100000 lon=51.200000 age=5s
       fused: provider=fused lat=35.100050 lon=51.200050 age=3s
-    Mocked by cl.coders.faketraveler
+    Mock Providers:
+      fused provider:
+        Mocked by cl.coders.faketraveler
     """
     parsed = AdbLocationObserver.parse_dump(dump)
     assert parsed is not None

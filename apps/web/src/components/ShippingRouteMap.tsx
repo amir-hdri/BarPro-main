@@ -11,6 +11,9 @@ import {
 import toast from "react-hot-toast";
 import type * as LType from "leaflet";
 import { api } from "@/lib/api";
+import { mapPopup } from "@/lib/map-popup";
+import { createMapTiles, type MapTileStatus } from "@/lib/map-tiles";
+import { requireShippingResult } from "@/lib/shipping-result";
 
 /* ─────────────────── Types ─────────────────── */
 
@@ -26,6 +29,13 @@ interface ShippingWaypoint {
 
 interface ShippingStatus {
   status: string;
+  requested_origin?: { lat: number; lng: number };
+  requested_destination?: { lat: number; lng: number };
+  road_anchor_verified?: boolean;
+  coordinate_source?: string;
+  requires_reselection?: boolean;
+  snap_metadata?: { origin?: { distance_m: number }; destination?: { distance_m: number } };
+  route_points?: [number, number][];
   origin?: { lat: number; lng: number; address: string; city?: string };
   destination?: { lat: number; lng: number; address: string; city?: string };
   distance_km: number;
@@ -92,8 +102,10 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   const [loading, setLoading] = useState(false);
   const [measuredDistanceKm, setMeasuredDistanceKm] = useState("");
   const abortRef = useRef<AbortController | null>(null);
-  const tileLayerRef = useRef<LType.TileLayer | null>(null);
-  const tileErrors = useRef(0);
+  const actionControllerRef = useRef<AbortController | null>(null);
+  const tilesRef = useRef<ReturnType<typeof createMapTiles> | null>(null);
+  const [tileStatus, setTileStatus] = useState<MapTileStatus>("loading");
+  const [statusError, setStatusError] = useState<string | null>(null);
   const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleInvalidate = useCallback((delayMs = 120) => {
@@ -113,13 +125,19 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         signal: controller.signal,
       });
       if (controller.signal.aborted) return null;
-      if (res?.data) {
+      if (res.success && res.data) {
+        setStatusError(null);
         setStatus(res.data);
         return res.data;
       }
+      setStatus(null);
+      setStatusError(res.error || "اطلاعات مسیر دریافت نشد؛ دوباره تلاش کنید.");
       return null;
     } catch {
-      // Not started yet / aborted — use props
+      if (!controller.signal.aborted) {
+        setStatus(null);
+        setStatusError("اطلاعات مسیر دریافت نشد؛ دوباره تلاش کنید.");
+      }
       return null;
     }
   }, [jobId]);
@@ -133,36 +151,61 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
     actualPolylineRef.current?.remove();
     truckMarkerRef.current?.remove();
 
-    if (!st.waypoints || st.waypoints.length === 0) return;
-
-    const latLngs: [number, number][] = st.waypoints.map((wp) => [wp.lat, wp.lon]);
+    const latLngs: [number, number][] = st.waypoints.length
+      ? st.waypoints.map((wp) => [wp.lat, wp.lon])
+      : st.route_points?.length
+        ? st.route_points
+        : [st.origin, st.destination]
+          .filter((point): point is NonNullable<typeof point> => !!point && Number.isFinite(point.lat) && Number.isFinite(point.lng))
+          .map((point) => [point.lat, point.lng]);
+    if (latLngs.length < 2) return;
 
     // Origin marker — shows EXACT user address
     const oAddr = st.origin?.address || originAddress || "مبدأ";
     const originIcon = L.divIcon({
       className: "",
-      html: `<div style="background:#16a34a;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35)">📍</div>`,
+      html: '<div class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-green-600 text-base text-white shadow-lg">📍</div>',
       iconSize: [32, 32],
       iconAnchor: [16, 16],
     });
     const m1 = L.marker(latLngs[0], { icon: originIcon })
       .addTo(map)
-      .bindPopup(`<div dir="rtl" style="font-family:Vazirmatn,Tahoma;text-align:right"><b>🟢 مبدأ</b><br/>${oAddr}</div>`);
+      .bindPopup(mapPopup("مبدأ", oAddr));
     markersRef.current.push(m1);
 
     // Destination marker — shows EXACT user address
     const dAddr = st.destination?.address || destAddress || "مقصد";
     const destIcon = L.divIcon({
       className: "",
-      html: `<div style="background:#dc2626;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35)">🏁</div>`,
+      html: '<div class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-red-600 text-base text-white shadow-lg">🏁</div>',
       iconSize: [32, 32],
       iconAnchor: [16, 16],
     });
     const lastPt = latLngs[latLngs.length - 1];
     const m2 = L.marker(lastPt, { icon: destIcon })
       .addTo(map)
-      .bindPopup(`<div dir="rtl" style="font-family:Vazirmatn,Tahoma;text-align:right"><b>🔴 مقصد</b><br/>${dAddr}</div>`);
+      .bindPopup(mapPopup("مقصد", dAddr));
     markersRef.current.push(m2);
+
+    // Keep the original map selection visible without drawing invented roads.
+    const requestedPoints: [number, number][] = [];
+    for (const [label, point, snap] of [
+      ["مبدأ", st.requested_origin, st.snap_metadata?.origin],
+      ["مقصد", st.requested_destination, st.snap_metadata?.destination],
+    ] as const) {
+      if (!point || !snap || snap.distance_m < 1) continue;
+      const position: [number, number] = [point.lat, point.lng];
+      requestedPoints.push(position);
+      const icon = L.divIcon({
+        className: "rounded-full border-2 border-amber-700 bg-white shadow",
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+      markersRef.current.push(L.marker(position, { icon }).addTo(map).bindPopup(mapPopup(
+        `نقطه اولیه ${label}`,
+        `${Math.round(snap.distance_m).toLocaleString("fa-IR")} متر جابه‌جایی به خیابان قابل تردد`,
+      )));
+    }
 
     // Planned route polyline. These points are not GPS evidence.
     const poly = L.polyline(latLngs, {
@@ -186,53 +229,54 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
     }
 
     // Truck marker at current position
-    const currentIdx = Math.min(st.current_step, st.waypoints.length - 1);
+    if (st.waypoints.length) {
+    const currentIdx = Math.max(0, Math.min(Math.trunc(st.current_step || 0), st.waypoints.length - 1));
     const currentWp = st.waypoints[currentIdx];
     const truckIcon = L.divIcon({
       className: "",
-      html: `<div style="background:#f59e0b;color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.4)">🚚</div>`,
+      html: '<div class="flex h-9 w-9 items-center justify-center rounded-full border-[3px] border-white bg-amber-500 text-xl text-white shadow-lg">🚚</div>',
       iconSize: [36, 36],
       iconAnchor: [18, 18],
     });
     const truck = L.marker([currentWp.lat, currentWp.lon], { icon: truckIcon, zIndexOffset: 1000 })
       .addTo(map)
-      .bindPopup(
-        `<div dir="rtl" style="font-family:Vazirmatn,Tahoma;text-align:right">` +
-          `<b>🚚 موقعیت فعلی</b><br/>` +
-          `مسافت طی‌شده: ${st.traveled_km.toFixed(1)} کیلومتر<br/>` +
-          `پیشرفت: ${st.progress_pct.toFixed(0)}%</div>`
-      );
+      .bindPopup(mapPopup(
+        "پیشرفت ثبت‌شده مسیر",
+        `مسافت ثبت‌شده: ${st.traveled_km.toFixed(1)} کیلومتر`,
+        `پیشرفت: ${st.progress_pct.toFixed(0)}٪`,
+        "این نشانگر موقعیت زنده خودرو نیست.",
+      ));
     truckMarkerRef.current = truck;
     markersRef.current.push(truck);
+    }
 
     // Planned waypoint dots (not telemetry)
     st.waypoints.forEach((wp, i) => {
       if (i === 0 || i === st.waypoints.length - 1) return; // skip origin/dest
       const visited = i <= st.current_step;
-      const color = visited ? "#16a34a" : "#9ca3af";
       const wpIcon = L.divIcon({
         className: "",
-        html: `<div style="background:${color};border-radius:50%;width:10px;height:10px;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></div>`,
+        html: `<div class="h-2.5 w-2.5 rounded-full border-2 border-white shadow ${visited ? "bg-green-600" : "bg-gray-400"}"></div>`,
         iconSize: [10, 10],
         iconAnchor: [5, 5],
       });
       const wpMarker = L.marker([wp.lat, wp.lon], { icon: wpIcon })
         .addTo(map)
-        .bindPopup(
-          `<div dir="rtl" style="font-family:Vazirmatn,Tahoma;text-align:right">` +
-            `<b>نقطه ${i}</b><br/>` +
-            `فاصله: ${wp.cum_km.toFixed(1)} کیلومتر<br/>` +
-            `سرعت: ${wp.speed.toFixed(0)} کیلومتر/ساعت</div>`
-        );
+        .bindPopup(mapPopup(
+          `نقطه برنامه‌ریزی‌شده ${i}`,
+          `فاصله مسیر: ${wp.cum_km.toFixed(1)} کیلومتر`,
+          `سرعت مبنای تخمین: ${wp.speed.toFixed(0)} کیلومتر/ساعت`,
+        ));
       markersRef.current.push(wpMarker);
     });
 
-    map.fitBounds(poly.getBounds(), { padding: [50, 50] });
+    map.fitBounds([...latLngs, ...requestedPoints], { padding: [50, 50] });
   }, [destAddress, originAddress]);
 
   /* ── Initialize Leaflet map ── */
   useEffect(() => {
     let isMounted = true;
+    setStatus(null);
 
     async function initMap() {
       if (typeof window === "undefined" || !mapRef.current || leafletMap.current) return;
@@ -246,33 +290,10 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       const map = L.map(mapRef.current).setView([cLat, cLng], 7);
       leafletMap.current = map;
 
-      const addTileLayer = (url: string, maxZoom = 20) => {
-        tileLayerRef.current?.remove();
-        tileErrors.current = 0;
-        const isGoogle = url.includes("google.com");
-        const layer = L.tileLayer(url, {
-          subdomains: isGoogle ? "0123" : "abcd",
-          maxZoom,
-          attribution: isGoogle ? "© Google Maps" : "© OpenStreetMap contributors, © CARTO",
-        });
-        // Real fallback: voyager (CARTO) -> dark_all -> OSM (de) -> Google (google sanctioned/blocked in Iran, last resort).
-        layer.on("tileerror", () => {
-          if (tileLayerRef.current !== layer) return;
-          tileErrors.current += 1;
-          if (tileErrors.current < 3) return;
-          const order = [
-            "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-            "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-            "https://tile.openstreetmap.de/{z}/{x}/{y}.png",
-            "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
-          ];
-          const next = order[order.indexOf(url) + 1] || order[0];
-          if (next && next !== url && leafletMap.current === map) addTileLayer(next, 19);
-        });
-        layer.addTo(map);
-        tileLayerRef.current = layer;
-      };
-      addTileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png");
+      tilesRef.current = createMapTiles(L, map, (_theme, state) => {
+        if (isMounted) setTileStatus(state);
+      });
+      tilesRef.current.select();
 
       // Staged size recalculation to prevent blank/grey tiles on conditional mount.
       [50, 200, 500].forEach((delayMs) => {
@@ -287,27 +308,27 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       const st = await fetchStatus();
       if (st && isMounted) {
         renderRoute(L, map, st);
-      } else if (originLat && originLng && destLat && destLng) {
+      } else if (isMounted && originLat != null && originLng != null && destLat != null && destLng != null) {
         // Render basic origin/dest markers from props
         const originIcon = L.divIcon({
           className: "",
-          html: `<div style="background:#16a34a;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)">📍</div>`,
+          html: '<div class="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-green-600 text-sm text-white shadow-lg">📍</div>',
           iconSize: [28, 28],
           iconAnchor: [14, 14],
         });
         const destIcon = L.divIcon({
           className: "",
-          html: `<div style="background:#dc2626;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)">🏁</div>`,
+          html: '<div class="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-red-600 text-sm text-white shadow-lg">🏁</div>',
           iconSize: [28, 28],
           iconAnchor: [14, 14],
         });
 
         const m1 = L.marker([originLat, originLng], { icon: originIcon })
           .addTo(map)
-          .bindPopup(`<b>مبدأ</b><br/>${originAddress || "نقطه شروع"}`);
+          .bindPopup(mapPopup("مبدأ", originAddress || "نقطه شروع"));
         const m2 = L.marker([destLat, destLng], { icon: destIcon })
           .addTo(map)
-          .bindPopup(`<b>مقصد</b><br/>${destAddress || "نقطه پایان"}`);
+          .bindPopup(mapPopup("مقصد", destAddress || "نقطه پایان"));
         markersRef.current = [m1, m2];
 
         polylineRef.current = L.polyline(
@@ -325,7 +346,12 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
       }
     }
 
-    initMap();
+    void initMap().catch(() => {
+      if (isMounted) {
+        setTileStatus('unavailable');
+        setStatusError('نقشه بارگذاری نشد؛ صفحه را دوباره باز کنید.');
+      }
+    });
 
     // Attach debounced ResizeObserver to auto-adjust when container resizes.
     let resizeObserver: ResizeObserver | null = null;
@@ -339,9 +365,11 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
     return () => {
       isMounted = false;
       abortRef.current?.abort();
+      actionControllerRef.current?.abort();
       if (resizeTimer.current) clearTimeout(resizeTimer.current);
       resizeObserver?.disconnect();
-      tileLayerRef.current = null;
+      tilesRef.current?.dispose();
+      tilesRef.current = null;
       if (leafletMap.current) {
         leafletMap.current.remove();
         leafletMap.current = null;
@@ -356,25 +384,33 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   /* ── Actions ── */
 
   const handleStart = async () => {
+    if (status?.coordinate_source === "map_pin_unverified") {
+      toast.error("ابتدا نقطه‌ای روی خیابان انتخاب و مسیر را دوباره بررسی کنید");
+      return;
+    }
     if (!docNo) {
       toast.error("شماره سند بارنامه مشخص نیست");
       return;
     }
     setLoading(true);
+    const controller = new AbortController();
+    actionControllerRef.current = controller;
     try {
-      const latitude = originLat ?? status?.origin?.lat;
-      const longitude = originLng ?? status?.origin?.lng;
+      const latitude = status?.origin?.lat ?? originLat;
+      const longitude = status?.origin?.lng ?? originLng;
       if (latitude == null || longitude == null) {
         throw new Error("مختصات مبدأ در بارنامه ثبت نشده است");
       }
-      await api.post("/shipping/start", {
+      const response = await api.post<{ status: string }>("/shipping/start", {
         job_id: jobId,
         doc_no: docNo,
         latitude,
         longitude,
         altitude: 0,
         speed: 0,
-      });
+      }, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      requireShippingResult(response, "start");
       toast.success("✅ حمل شروع شد");
       const st = await fetchStatus();
       if (st && leafletMap.current) {
@@ -382,10 +418,12 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         renderRoute(L, leafletMap.current, st);
       }
     } catch (err: unknown) {
+      if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : "خطا در شروع حمل";
       toast.error(msg);
+      await fetchStatus();
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
@@ -394,25 +432,29 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
   // means "auto" and the backend computes it (never blocks finish on 422).
   const handleFinish = async () => {
     setLoading(true);
+    const controller = new AbortController();
+    actionControllerRef.current = controller;
     try {
       const trimmed = measuredDistanceKm.trim();
       const measuredOverride = trimmed ? Number(trimmed) : undefined;
       if (trimmed && (!Number.isFinite(measuredOverride) || (measuredOverride as number) <= 0)) {
         throw new Error("مسافت واردشده معتبر نیست — خالی بگذارید تا خودکار محاسبه شود");
       }
-      const latitude = destLat ?? status?.destination?.lat;
-      const longitude = destLng ?? status?.destination?.lng;
+      const latitude = status?.destination?.lat ?? destLat;
+      const longitude = status?.destination?.lng ?? destLng;
       if (latitude == null || longitude == null) {
         throw new Error("مختصات مقصد در بارنامه ثبت نشده است");
       }
-      await api.post("/shipping/finish", {
+      const response = await api.post<{ status: string }>("/shipping/finish", {
         job_id: jobId,
         latitude,
         longitude,
         altitude: 0,
         speed: 0,
         ...(measuredOverride !== undefined ? { measured_distance_km: measuredOverride } : {}),
-      });
+      }, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      requireShippingResult(response, "finish");
       toast.success("✅ حمل با موفقیت پایان یافت");
       const st = await fetchStatus();
       if (st && leafletMap.current) {
@@ -420,16 +462,20 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         renderRoute(L, leafletMap.current, st);
       }
     } catch (err: unknown) {
+      if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : "خطا در پایان حمل";
       toast.error(msg);
+      await fetchStatus();
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
   /* ── Render ── */
   const isStarted = status?.status === "in_transit";
   const isDelivered = status?.status === "delivered";
+  const canStart = status?.status === "ready" || status?.status === "not_started";
+  const unverifiedRoad = status?.coordinate_source === "map_pin_unverified";
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden shadow-sm">
@@ -438,7 +484,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         <div className="flex items-center gap-2">
           <TruckIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-            نقشه مسیر حمل GPS
+            نقشه و پیشرفت حمل
           </h3>
         </div>
 
@@ -453,7 +499,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
                     : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
               }`}
             >
-              {isDelivered ? "تحویل شده ✅" : isStarted ? "در حال حمل 🚚" : "آماده شروع"}
+              {isDelivered ? "تحویل شده" : isStarted ? "در حال حمل" : canStart ? unverifiedRoad ? "نیازمند بررسی نقطه" : "آماده شروع" : status.status === "starting" ? "در حال ثبت شروع" : status.status === "finishing" ? "در حال ثبت پایان" : "نیازمند بررسی"}
             </span>
             {status.distance_km > 0 && (
               <span className="text-gray-600 dark:text-gray-300 font-medium">
@@ -487,6 +533,9 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         )}
       </div>
 
+      <p className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300">نقشه مسیر انتخاب‌شده و پیشرفت ثبت‌شده را نشان می‌دهد؛ ردیابی زنده خودرو نیست.</p>
+      {statusError && <p role="alert" className="px-4 py-3 text-sm text-rose-700 dark:text-rose-300">{statusError}</p>}
+
       {/* Address info bar */}
       <div className="flex flex-col sm:flex-row gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-700 text-xs">
         <div className="flex items-center gap-1.5">
@@ -506,8 +555,26 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
         </div>
       </div>
 
+      {status?.road_anchor_verified && (
+        <div className="px-4 py-3 text-xs text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-900/20">
+          <p>مختصات حمل روی نزدیک‌ترین خیابان قابل تردد قرار گرفت. دایره‌های کوچک، نقطه‌های اولیه انتخاب شما هستند.</p>
+          <p className="mt-1">جابه‌جایی مبدأ: {Math.round(status.snap_metadata?.origin?.distance_m ?? 0).toLocaleString("fa-IR")} متر؛ مقصد: {Math.round(status.snap_metadata?.destination?.distance_m ?? 0).toLocaleString("fa-IR")} متر.</p>
+        </div>
+      )}
+      {unverifiedRoad && (
+        <p role="status" className="px-4 py-3 text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20">
+          {status?.requires_reselection
+            ? "خیابان معتبری در فاصله مجاز نقطه انتخابی پیدا نشد. نقطه را نزدیک‌تر به خیابان انتخاب کنید؛ شروع حمل تا تأیید مسیر غیرفعال است."
+            : "اتصال نقطه به خیابان هنوز تأیید نشده است. دوباره مسیر را به‌روزرسانی کنید؛ شروع حمل تا تأیید مسیر غیرفعال است."}
+        </p>
+      )}
+
       {/* Map container */}
-      <div ref={mapRef} className="w-full h-[350px] sm:h-[400px]" />
+      <div ref={mapRef} className="w-full h-[350px] sm:h-[400px]" aria-label="نقشه مسیر حمل" />
+      {tileStatus !== 'ready' && <div role="status" className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+        <span>{tileStatus === 'loading' ? 'در حال بارگذاری نقشه…' : 'تصویر نقشه دریافت نشد؛ اتصال اینترنت را بررسی کنید.'}</span>
+        {tileStatus === 'unavailable' && <button type="button" className="min-h-11 rounded-lg border px-3" onClick={() => tilesRef.current?.select()}>تلاش دوباره</button>}
+      </div>}
 
       {/* Progress bar */}
       {status && status.status !== "not_started" && (
@@ -543,8 +610,8 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
           <>
             <button
               onClick={handleStart}
-              disabled={loading || !docNo}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
+              disabled={loading || !docNo || !canStart || unverifiedRoad}
+              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
             >
               <PlayIcon className="h-4 w-4" />
               شروع حمل
@@ -571,7 +638,7 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
             <button
               onClick={handleFinish}
               disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
+              className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors"
             >
               <StopIcon className="h-4 w-4" />
               پایان حمل
@@ -592,10 +659,12 @@ export const ShippingRouteMap = memo(function ShippingRouteMap({
             if (st && leafletMap.current) {
               const L = (await import("leaflet")).default;
               renderRoute(L, leafletMap.current, st);
+              toast.success("نقشه به‌روزرسانی شد");
+            } else {
+              toast.error("اطلاعات مسیر دریافت نشد؛ دوباره تلاش کنید");
             }
-            toast.success("نقشه به‌روزرسانی شد");
           }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium transition-colors mr-auto"
+          className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium transition-colors ms-auto"
         >
           <ArrowPathIcon className="h-3.5 w-3.5" />
           بروزرسانی

@@ -169,6 +169,26 @@ async def _execute_single_job(
     # client/driver are DB-fetched rows; their PKs are always set at runtime.
     assert client.id is not None, "client must be a persisted row"
     assert driver.id is not None, "driver must be a persisted row"
+    from app.services.otp_challenge_guard import find_unresolved_driver_otp_job
+
+    pending_otp_job = await find_unresolved_driver_otp_job(session, client_id=client.id, driver_id=driver.id)
+    if pending_otp_job is not None:
+        same_job = pending_otp_job.job_id == job.job_id
+        blocked_status = TaskStatus.NEEDS_REVIEW.value if same_job else TaskStatus.WAITING_RETRY.value
+        retry_at = None if same_job else _utcnow() + timedelta(seconds=60)
+        JobStateMachine.transition(
+            session,
+            job,
+            blocked_status,
+            next_retry_at=retry_at,
+            submit_after=retry_at,
+            retryable=not same_job,
+            error_category="otp_required" if same_job else "driver_otp_pending",
+            last_error="راننده یک سند در انتظار OTP دارد؛ ابتدا همان سند باید تعیین تکلیف شود",
+        )
+        await session.commit()
+        return {"status": blocked_status, "error_category": job.error_category}
+
     if attempt == 1:
         start_jitter = random.uniform(1.0, 5.0)
         logger.info(f"Adding start jitter of {start_jitter:.2f}s for scheduled job {job.job_id}")

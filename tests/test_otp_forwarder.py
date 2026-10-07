@@ -59,22 +59,23 @@ def test_clean_phone_number():
 
 
 @pytest.mark.asyncio
-async def test_submit_manual_otp_stores_redis():
-    from unittest.mock import AsyncMock, patch
+async def test_submit_manual_otp_delegates_to_authorized_service():
+    from types import SimpleNamespace
+    from unittest.mock import ANY, AsyncMock, patch
 
     from app.api.routes.otp_forwarder import ManualOtpRequest, submit_manual_otp
 
-    mock_redis = AsyncMock()
-    with patch("app.core.redis_client.redis_manager.get", new_callable=AsyncMock, return_value=mock_redis):
+    context = {"role": "master_admin"}
+    service = AsyncMock(return_value=SimpleNamespace(status="unknown"))
+    with patch("app.services.waybill_job_service.WaybillJobService.submit_otp", service):
         req = ManualOtpRequest(code="۵۴۳۲۱", phone="09121234567", job_id="job-test-123")
-        res = await submit_manual_otp(req, user_context={"role": "master_admin"})
+        res = await submit_manual_otp(req, user_context=context)
 
-    assert res["status"] == "success"
+    assert res["status"] == "accepted"
+    assert res["job_status"] == "unknown"
     assert "code" not in res  # codes must not be echoed back in API responses
     assert res["job_id"] == "job-test-123"
-    # Verify set called for rpa:otp:latest and rpa:otp:job:job-test-123
-    assert mock_redis.set.await_count == 1
-    assert mock_redis.set.call_args.args[0] == "rpa:otp:job:job-test-123"
+    service.assert_awaited_once_with(user_context=context, job_id="job-test-123", session=ANY, otp_code="54321")
 
 
 # ── Webhook authentication (C2 fix) ────────────────────────────────────────────
@@ -174,8 +175,8 @@ _AUTH_DEP = "app.auth_multitenant.get_current_user_or_admin"
 def test_sensitive_otp_routes_require_auth():
     """OTP routes must carry JWT auth dependencies.
 
-    GET /latest is admin-only (tenant-isolation GAP-1: the global OTP key
-    carries every tenant's codes). POST /submit-manual keeps the
+    GET /latest remains admin-only for legacy diagnostic keys even though
+    current intake never writes them. POST /submit-manual keeps the
     user-or-admin dependency and enforces job ownership in the handler
     (tenant-isolation GAP-2).
     """

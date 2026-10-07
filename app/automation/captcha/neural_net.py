@@ -17,19 +17,25 @@ import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import Any, cast
 
 import cv2
 import numpy as np
 
 try:
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
+    import torch as _torch
+    import torch.nn as _nn
+    import torch.nn.functional as _F
 except ImportError:  # pragma: no cover - torch is optional at runtime
-    torch = None
-    nn = None
-    F = None
+    torch: ModuleType | None = None
+    nn: ModuleType | None = None
+    F: ModuleType | None = None
+else:
+    # Keep optional availability separate from the statically typed module aliases.
+    torch = _torch
+    nn = _nn
+    F = _F
 from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
@@ -44,15 +50,15 @@ _FLAT_SIZE = _IMG_SIZE * _IMG_SIZE
 _MODEL_DIR = Path(__file__).parent / "_model_cache"
 _MODEL_VERSION = "v13_torch"
 
-_DEVICE = torch.device("cpu") if torch is not None else None
+_DEVICE = _torch.device("cpu") if torch is not None else None
 
 
-# Everything below up to _model_lock requires torch. It is defined only when
+# Everything below up to _model_lock requires _torch. It is defined only when
 # torch is importable so that a torch-less install degrades gracefully
 # (get_model() raises a clear error) instead of crashing the app import.
 if nn is not None:  # pragma: no cover - requires real torch
 
-    class CaptchaCNN(nn.Module):
+    class CaptchaCNN(_nn.Module):
         """Compact CNN for captcha character classification.
 
         Architecture:
@@ -64,38 +70,38 @@ if nn is not None:  # pragma: no cover - requires real torch
 
         def __init__(self) -> None:
             super().__init__()
-            self.features = nn.Sequential(
-                nn.Conv2d(1, 32, 3, padding=1),
-                nn.BatchNorm2d(32),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(32, 32, 3, padding=1),
-                nn.BatchNorm2d(32),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, 3, padding=1),
-                nn.BatchNorm2d(64),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(64, 64, 3, padding=1),
-                nn.BatchNorm2d(64),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),
+            self.features = _nn.Sequential(
+                _nn.Conv2d(1, 32, 3, padding=1),
+                _nn.BatchNorm2d(32),
+                _nn.ReLU(inplace=True),
+                _nn.Conv2d(32, 32, 3, padding=1),
+                _nn.BatchNorm2d(32),
+                _nn.ReLU(inplace=True),
+                _nn.MaxPool2d(2),
+                _nn.Conv2d(32, 64, 3, padding=1),
+                _nn.BatchNorm2d(64),
+                _nn.ReLU(inplace=True),
+                _nn.Conv2d(64, 64, 3, padding=1),
+                _nn.BatchNorm2d(64),
+                _nn.ReLU(inplace=True),
+                _nn.MaxPool2d(2),
             )
-            self.classifier = nn.Sequential(
-                nn.Dropout(0.25),
-                nn.Linear(64 * 7 * 7, 256),
-                nn.BatchNorm1d(256),
-                nn.ReLU(inplace=True),
-                nn.Dropout(0.4),
-                nn.Linear(256, 64),
-                nn.BatchNorm1d(64),
-                nn.ReLU(inplace=True),
-                nn.Linear(64, _NUM_CLASSES),
+            self.classifier = _nn.Sequential(
+                _nn.Dropout(0.25),
+                _nn.Linear(64 * 7 * 7, 256),
+                _nn.BatchNorm1d(256),
+                _nn.ReLU(inplace=True),
+                _nn.Dropout(0.4),
+                _nn.Linear(256, 64),
+                _nn.BatchNorm1d(64),
+                _nn.ReLU(inplace=True),
+                _nn.Linear(64, _NUM_CLASSES),
             )
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
+        def forward(self, x: _torch.Tensor) -> _torch.Tensor:
             x = self.features(x)
             x = x.view(x.size(0), -1)
-            return self.classifier(x)
+            return cast(_torch.Tensor, self.classifier(x))
 
     class MiniMLP:
         """Wrapper around CaptchaCNN providing the same API as the old NumPy MLP."""
@@ -108,11 +114,11 @@ if nn is not None:  # pragma: no cover - requires real torch
             flat = x.reshape(x.shape[0], -1) if x.ndim > 2 else x
             batch_size = flat.shape[0]
             images = flat.reshape(batch_size, 1, _IMG_SIZE, _IMG_SIZE)
-            tensor = torch.from_numpy(images.astype(np.float32)).to(_DEVICE)
+            tensor = _torch.from_numpy(images.astype(np.float32)).to(_DEVICE)
 
-            with torch.no_grad():
+            with _torch.no_grad():
                 logits = self._model(tensor)
-                probs = F.softmax(logits, dim=1)
+                probs = _F.softmax(logits, dim=1)
                 confidences, preds = probs.max(dim=1)
 
             return preds.cpu().numpy(), confidences.cpu().numpy()
@@ -136,19 +142,19 @@ if nn is not None:  # pragma: no cover - requires real torch
         num_samples = flat.shape[0]
         imgs_4d = flat.reshape(num_samples, 1, _IMG_SIZE, _IMG_SIZE)
 
-        dataset_x = torch.from_numpy(imgs_4d.astype(np.float32)).to(_DEVICE)
-        dataset_y = torch.from_numpy(labels.astype(np.int64)).to(_DEVICE)
+        dataset_x = _torch.from_numpy(imgs_4d.astype(np.float32)).to(_DEVICE)
+        dataset_y = _torch.from_numpy(labels.astype(np.int64)).to(_DEVICE)
 
-        optimizer = torch.optim.Adam(net.parameters(), lr=config.lr, weight_decay=1e-4)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs, eta_min=1e-5)
+        optimizer = _torch.optim.Adam(net.parameters(), lr=config.lr, weight_decay=1e-4)
+        scheduler = _torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs, eta_min=1e-5)
         label_smooth = 0.05
-        criterion = nn.CrossEntropyLoss(label_smoothing=label_smooth)
+        criterion = _nn.CrossEntropyLoss(label_smoothing=label_smooth)
 
         best_acc = 0.0
         best_state = None
 
         for _epoch_idx in range(config.epochs):
-            indices = torch.randperm(num_samples, device=_DEVICE)
+            indices = _torch.randperm(num_samples, device=_DEVICE)
             net.train()
             for start in range(0, num_samples, config.batch_size):
                 batch_idx = indices[start : start + config.batch_size]
@@ -164,7 +170,7 @@ if nn is not None:  # pragma: no cover - requires real torch
             scheduler.step()
 
             net.eval()
-            with torch.no_grad():
+            with _torch.no_grad():
                 eval_n = min(3000, num_samples)
                 eval_logits = net(dataset_x[:eval_n])
                 eval_preds = eval_logits.argmax(dim=1)
@@ -349,7 +355,7 @@ if nn is not None:  # pragma: no cover - requires real torch
         candidate_paths: list[Path] = [
             cache_path,
             assets_dir / f"captcha_cnn_{_MODEL_VERSION}.pkl",
-            assets_dir / "captcha_cnn_v13_torch.pkl",
+            assets_dir / "captcha_cnn_v13__torch.pkl",
         ]
 
         if _MODEL_DIR.exists():
@@ -367,7 +373,7 @@ if nn is not None:  # pragma: no cover - requires real torch
             if path.is_file() and path.stat().st_size > 100_000:
                 try:
                     with open(path, "rb") as fh:
-                        state_dict = torch.load(fh, map_location=_DEVICE, weights_only=True)
+                        state_dict = _torch.load(fh, map_location=_DEVICE, weights_only=True)
                     model = MiniMLP()
                     model._model.load_state_dict(state_dict)
                     model._model.eval()
@@ -387,7 +393,7 @@ if nn is not None:  # pragma: no cover - requires real torch
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             with open(cache_path, "wb") as fh:
-                torch.save(model._model.state_dict(), fh)
+                _torch.save(model._model.state_dict(), fh)
             logger.info("neural_captcha_model_saved", extra={"extra_fields": {"path": str(cache_path)}})
         except Exception:
             logger.warning("neural_captcha_model_save_failed")

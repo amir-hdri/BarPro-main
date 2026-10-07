@@ -1,5 +1,7 @@
 'use client';
 
+import { formatDateTime } from '@/lib/format';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
@@ -612,7 +614,7 @@ export default function UserReportsPage() {
                               </td>
                               <td className="py-3.5 px-4 text-xs text-slate-400">{job.source}</td>
                               <td className="py-3.5 px-4 text-xs text-slate-400">
-                                {new Date(job.created_at).toLocaleString('fa-IR')}
+                                {formatDateTime(job.created_at)}
                               </td>
                             </tr>
                           ))}
@@ -658,7 +660,7 @@ export default function UserReportsPage() {
                              </div>
                              <div>
                                <span className="text-xs text-slate-400">تاریخ:</span>
-                               <div className="text-xs text-slate-300 mt-1">{new Date(job.created_at).toLocaleString('fa-IR')}</div>
+                               <div className="text-xs text-slate-300 mt-1">{formatDateTime(job.created_at)}</div>
                              </div>
                            </div>
                          </div>
@@ -781,7 +783,7 @@ export default function UserReportsPage() {
                             </span>
                           </div>
                           <span className="text-xs text-slate-400">
-                            {new Date(err.created_at).toLocaleString('fa-IR')}
+                            {formatDateTime(err.created_at)}
                           </span>
                         </div>
                         {err.last_error && (

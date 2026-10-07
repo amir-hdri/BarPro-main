@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-07",
+  "timezone": "Asia/Tehran",
+  "base_commit": "6c5564ea7483f127f2e23e785148009114bae49b",
+  "backend": {
+    "python": "3.12.13",
+    "passed": 2334,
+    "failed": 0,
+    "skipped": [
+      {
+        "test": "tests.test_fuel_scraper_live::test_fuel_scraper_form_elements",
+        "reason": "Explicit BARPRO_RUN_LIVE_UTCMS=1 required"
+      },
+      {
+        "test": "tests.test_keras_ocr::test_keras_ocr_solver",
+        "reason": "KERAS_OCR_SAMPLE_IMAGE is not set (OCR dataset not available). Skipping."
+      }
+    ],
+    "subtests_passed": 2,
+    "seconds": 417.86,
+    "coverage": {
+      "covered_lines": 24096,
+      "num_statements": 37060,
+      "percent_covered": 65.01888828926066,
+      "percent_covered_display": "65",
+      "missing_lines": 12964,
+      "excluded_lines": 535,
+      "percent_statements_covered": 65.01888828926066,
+      "percent_statements_covered_display": "65"
+    }
+  },
+  "integration": {
+    "passed": 8,
+    "seconds": 1.25,
+    "postgres": "16.15",
+    "redis": "8.10.1",
+    "production": false
+  },
+  "frontend": {
+    "node": "20.20.2",
+    "tests_passed": 55,
+    "static_pages": 21,
+    "lint": 0,
+    "typecheck": 0,
+    "build": 0,
+    "browser": 0,
+    "audit": {
+      "exit_code": 1,
+      "high": 8,
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "first_patched_version": null
+    },
+    "runtime_audit": {
+      "exit_code": 0,
+      "vulnerabilities": 0
+    }
+  },
+  "quality": {
+    "ruff": 0,
+    "black_files": 426,
+    "mypy_files": 216,
+    "pip_audit": 0,
+    "bandit_medium_high": 0,
+    "bandit_low": 308
+  },
+  "history": {
+    "previous_final_run": {
+      "passed": 2327,
+      "failed": 5,
+      "skipped": 2
+    },
+    "initial_prior_run": {
+      "passed": 2278,
+      "failed": 3,
+      "skipped": 3
+    }
+  },
+  "deploy_ready": false,
+  "production_checked": false,
+  "docker": "running; result pending before Git commit"
+}

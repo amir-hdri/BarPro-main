@@ -1,5 +1,7 @@
 'use client';
 
+import { sessionQueryKey } from '@/lib/session-query';
+
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PlusIcon, MapPinIcon, TrashIcon, PencilIcon, StarIcon, XMarkIcon } from '@heroicons/react/24/outline';
@@ -47,7 +49,7 @@ const emptyForm: FormState = {
 };
 
 export default function RouteTemplatesPage() {
-  const { role } = useSession();
+  const { role, client } = useSession();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -57,9 +59,9 @@ export default function RouteTemplatesPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const { data: templates = [], isLoading, refetch } = useQuery({
-    queryKey: ['route-templates'],
-    queryFn: async () => {
-      const res = await api.get<WaybillRouteTemplate[]>('/api/v1/route-templates');
+    queryKey: sessionQueryKey(client, 'route-templates'),
+    queryFn: async ({ signal }) => {
+      const res = await api.get<WaybillRouteTemplate[]>('/api/v1/route-templates', undefined, { signal });
       if (!res.success || !Array.isArray(res.data)) return [];
       return res.data;
     },

@@ -1,0 +1,64 @@
+[
+  {
+    "package": "braces",
+    "instances": [
+      {
+        "version": "3.0.3",
+        "location": "node_modules/braces",
+        "dependents": [
+          {
+            "package": "chokidar",
+            "version": "3.6.0",
+            "wanted": "~3.0.2"
+          },
+          {
+            "package": "micromatch",
+            "version": "4.0.8",
+            "wanted": "^3.0.3"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "package": "postcss-selector-parser",
+    "instances": [
+      {
+        "version": "6.1.4",
+        "location": "node_modules/postcss-selector-parser",
+        "dependents": [
+          {
+            "package": "postcss-nested",
+            "version": "6.2.0",
+            "wanted": "^6.1.1"
+          },
+          {
+            "package": "tailwindcss",
+            "version": "3.4.19",
+            "wanted": "^6.1.2"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "package": "js-yaml",
+    "instances": [
+      {
+        "version": "4.3.2",
+        "location": "node_modules/js-yaml",
+        "dependents": [
+          {
+            "package": "@eslint/eslintrc",
+            "version": "3.3.7",
+            "wanted": "^4.3.2"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "package": "sprintf-js",
+    "instances": []
+  }
+]

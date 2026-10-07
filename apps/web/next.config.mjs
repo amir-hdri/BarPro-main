@@ -25,13 +25,13 @@ const withPWA = withPWAInit({
           cacheName: "apis",
         },
       },
-      // Map tiles (CARTO voyager/dark + OSM fallback) are immutable raster
+      // Public OpenStreetMap raster tiles use bounded provider fallback.
       // assets: serve stale-while-revalidate so pan/zoom never blocks on network
       // and sanction-related tile blips degrade gracefully.
       {
         urlPattern: ({ url }) =>
-          url.hostname.endsWith("basemaps.cartocdn.com") ||
-          url.hostname.endsWith("tile.openstreetmap.org"),
+          url.hostname === "tile.openstreetmap.de" ||
+          url.hostname === "tile.openstreetmap.org",
         handler: "StaleWhileRevalidate",
         options: {
           cacheName: "map-tiles",

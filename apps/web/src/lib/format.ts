@@ -364,6 +364,8 @@ export interface ParsedWaybillPayload {
   plateNumber: string | null;
   originCity: string | null;
   destinationCity: string | null;
+  originAddress: string | null;
+  destinationAddress: string | null;
   cargoName: string | null;
   cargoWeight: string | number | null;
   cargoDescription: string | null;
@@ -383,6 +385,8 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
     plateNumber: null,
     originCity: null,
     destinationCity: null,
+    originAddress: null,
+    destinationAddress: null,
     cargoName: null,
     cargoWeight: null,
     cargoDescription: null,
@@ -556,24 +560,35 @@ export function parseWaybillPayload(payloadJson: unknown): ParsedWaybillPayload 
   const topDest = payload.destination && typeof payload.destination === 'object'
     ? (payload.destination as Record<string, unknown>)
     : null;
+  const addressText = (...values: unknown[]): string | null =>
+    values.find((value): value is string => typeof value === 'string' && Boolean(value.trim())) ?? null;
+  result.originAddress = addressText(metaOrigin?.address, topOrigin?.address, payload.origin_address, payload.sourceAddress);
+  result.destinationAddress = addressText(metaDest?.address, topDest?.address, payload.destination_address, payload.destAddress);
   // GPS anchors — priority matches backend _resolve_nested_coords:
   //   1. metadata_json.*.coordinates  (new waybill form)
   //   2. payload.*.coordinates        (API dict)
   //   3. flat keys originLat/destLat  (legacy)
-  result.originCoords =
-    coordsOrNull(metaOrigin?.coordinates) ??
-    coordsOrNull(topOrigin?.coordinates) ??
-    coordsOrNull({ lat: originLat, lng: originLng }) ??
-    coordsOrNull(metaOrigin) ??
-    coordsOrNull(topOrigin) ??
-    null;
-  result.destinationCoords =
-    coordsOrNull(metaDest?.coordinates) ??
-    coordsOrNull(topDest?.coordinates) ??
-    coordsOrNull({ lat: destLat, lng: destLng }) ??
-    coordsOrNull(metaDest) ??
-    coordsOrNull(topDest) ??
-    null;
+  const selectedCoords = (...sources: unknown[]): { lat: number; lng: number } | null => {
+    for (const source of sources) {
+      if (source == null) continue;
+      if (typeof source !== 'object' || Array.isArray(source)) return null;
+      const point = source as Record<string, unknown>;
+      const lat = point.lat ?? point.latitude;
+      const lng = point.lng ?? point.lon ?? point.longitude;
+      if (lat == null && lng == null) continue;
+      // A selected malformed pin requires correction, never an older pin.
+      return coordsOrNull(source);
+    }
+    return null;
+  };
+  result.originCoords = selectedCoords(
+    metaOrigin?.coordinates, topOrigin?.coordinates,
+    { lat: originLat, lng: originLng }, metaOrigin, topOrigin,
+  );
+  result.destinationCoords = selectedCoords(
+    metaDest?.coordinates, topDest?.coordinates,
+    { lat: destLat, lng: destLng }, metaDest, topDest,
+  );
 
   return result;
 }

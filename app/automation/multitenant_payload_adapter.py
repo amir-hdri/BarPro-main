@@ -378,7 +378,12 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             origin_dict = dict(raw_origin)
         else:
             province, city, address = _location_parts(raw_origin, origin_meta, metadata)
-            origin_dict = {"province": province, "city": city, "address": address}
+            origin_dict = {
+                "province": province,
+                "city": city,
+                "address": address,
+                "postal_code": _first_value(origin_meta.get("postal_code"), origin_meta.get("postalCode")),
+            }
 
         raw_destination = payload.get("destination")
         destination_meta = _metadata_section(metadata, "destination")
@@ -386,7 +391,12 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             dest_dict = dict(raw_destination)
         else:
             province, city, address = _location_parts(raw_destination, destination_meta, metadata)
-            dest_dict = {"province": province, "city": city, "address": address}
+            dest_dict = {
+                "province": province,
+                "city": city,
+                "address": address,
+                "postal_code": _first_value(destination_meta.get("postal_code"), destination_meta.get("postalCode")),
+            }
 
         raw_sender = payload.get("sender")
         sender = dict(raw_sender) if isinstance(raw_sender, dict) else dict(_metadata_section(metadata, "sender"))
@@ -532,6 +542,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "phone": _first_value(payload.get("sender_phone"), sender_meta.get("phone"), metadata.get("sender_phone")),
             "address": _first_value(sender_meta.get("address"), metadata.get("sender_address")),
             "national_code": _first_value(sender_meta.get("national_code"), metadata.get("sender_national_code")),
+            "postal_code": _first_value(sender_meta.get("postal_code"), sender_meta.get("postalCode")),
             "entity_type": _first_value(sender_meta.get("entity_type"), sender_meta.get("type")) or "individual",
         },
         "receiver": {
@@ -541,6 +552,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             "address": _first_value(receiver_meta.get("address"), metadata.get("receiver_address")),
             "national_code": _first_value(receiver_meta.get("national_code"), metadata.get("receiver_national_code")),
+            "postal_code": _first_value(receiver_meta.get("postal_code"), receiver_meta.get("postalCode")),
             "entity_type": _first_value(receiver_meta.get("entity_type"), receiver_meta.get("type")) or "individual",
         },
         "origin": {
@@ -548,6 +560,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "city": origin_city,
             "district": _first_value(origin_meta.get("district")),
             "address": str(_first_value(origin_address, metadata.get("origin_address")) or ""),
+            "postal_code": _first_value(origin_meta.get("postal_code"), origin_meta.get("postalCode")),
             "coordinates": _extract_valid_coordinates(origin_meta),
             "route_source": "user_text",
             "location_mode": "user_text",
@@ -557,6 +570,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "city": destination_city,
             "district": _first_value(destination_meta.get("district")),
             "address": str(_first_value(destination_address, metadata.get("destination_address")) or ""),
+            "postal_code": _first_value(destination_meta.get("postal_code"), destination_meta.get("postalCode")),
             "coordinates": _extract_valid_coordinates(destination_meta),
             "route_source": "user_text",
             "location_mode": "user_text",

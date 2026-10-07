@@ -22,6 +22,18 @@ from app.core.config import utcms_config
 logger = logging.getLogger(__name__)
 
 
+def _wire_security_key(serialized: str) -> str:
+    """Preserve the upstream MD5 checksum; it is not a local security primitive.
+
+    The official UTCMS contract requires this exact digest of compact UTF-8 JSON
+    (docs/UTCMS_MOBILE_TRANSPORT_REPORT.md, wrapper headers). Replacing the hash
+    would break both GET and POST compatibility; TLS/token checks remain separate.
+    """
+    payload = serialized.encode("utf-8")
+    digest = hashlib.md5(payload)  # nosec B324
+    return digest.hexdigest()
+
+
 class UtcmsMobileApiError(RuntimeError):
     """A sanitized mobile API failure; response bodies are never logged."""
 
@@ -183,7 +195,7 @@ class UtcmsMobileClient:
             {
                 "Content-Type": "application/json",
                 "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
-                "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
+                "SecurityKey": _wire_security_key(serialized),
             }
         )
         if self.token:
@@ -215,7 +227,7 @@ class UtcmsMobileClient:
             headers.update(
                 {
                     "ServicePassword": f"9#$K<31l0?+;{date}0KxsoSx)IFI&",
-                    "SecurityKey": hashlib.md5(serialized.encode("utf-8")).hexdigest(),
+                    "SecurityKey": _wire_security_key(serialized),
                 }
             )
             if self.token:
@@ -500,12 +512,12 @@ class UtcmsMobileClient:
         if not cap_token:
             cap_token = solution
 
-        # Keep image + prediction for side-by-side 4003 rejection artifacts.
+        # Keep the private image and confidence for rejection diagnosis, never
+        # the solved answer/expression in reusable diagnostic metadata.
         self.last_captcha_debug = {
             "image_base64": image_base64,
-            "solution": solution,
             "provider": result.provider,
-            "meta": dict(result.meta or {}),
+            "meta": {"confidence": (result.meta or {}).get("confidence")},
             "form_id": form_id,
         }
         return solution, cap_token
@@ -513,7 +525,7 @@ class UtcmsMobileClient:
     def dump_captcha_rejection(
         self, result_code: Any, *, directory: Any = None, extra: dict[str, Any] | None = None
     ) -> Any:
-        """Persist the last solved CAPTCHA image beside its model prediction after a server rejection."""
+        """Persist a private CAPTCHA image and non-sensitive rejection diagnostics."""
         debug = getattr(self, "last_captcha_debug", None)
         if not debug:
             return None
@@ -522,10 +534,8 @@ class UtcmsMobileClient:
         meta = debug.get("meta") or {}
         return save_rejection_artifact(
             debug.get("image_base64") or "",
-            prediction=debug.get("solution"),
             result_code=result_code,
             provider=debug.get("provider"),
-            expression=meta.get("expression"),
             confidence=meta.get("confidence"),
             form_id=debug.get("form_id"),
             directory=directory,

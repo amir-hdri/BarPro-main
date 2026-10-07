@@ -1,5 +1,10 @@
 'use client';
 
+import Link from 'next/link';
+import { normalizePersianText } from '@/lib/plate';
+import { tehranDateKey } from '@/lib/record-filters';
+import { sessionQueryKey } from '@/lib/session-query';
+
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -19,6 +24,7 @@ import { DriverTrackingPanel } from '@/components/DriverTrackingPanel';
 import { PlateInput } from '@/components/PlateInput';
 import { toast } from 'react-hot-toast';
 import { api } from '@/lib/api';
+import { copyText } from '@/lib/clipboard';
 import { formatDateTime, statusLabel, statusTone } from '@/lib/format';
 import { canonicalizePlate, normalizeDigits } from '@/lib/plate';
 import { useSession } from "@/hooks/useSession";
@@ -58,8 +64,20 @@ const VEHICLE_TYPE_PRESETS = [
   "تانکر",
 ];
 
+interface ForwarderConfig {
+  driver_id: number;
+  driver_phone: string;
+  webhook_path: string;
+  token_configured: boolean;
+  storage_ready: boolean;
+  intake_ready: boolean;
+  required_header_name: string;
+  authentication_instructions: string;
+  forwarder_connection_verified: boolean;
+}
+
 export default function DriversPage() {
-  const { role } = useSession();
+  const { role, client } = useSession();
   const [plates, setPlates] = useState<Plate[]>([]);
   const [schedules, setSchedules] = useState<DriverSchedule[]>([]);
   const [form, setForm] = useState<DriverCreateRequest>(initialDriver);
@@ -84,13 +102,32 @@ export default function DriversPage() {
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [driverSearch, setDriverSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'list' | 'add' | 'plates_schedules' | 'tracking'>('list');
   const dataLoadControllerRef = useRef<AbortController | null>(null);
 
+  const { data: forwarderConfig, isPending: forwarderLoading, isError: forwarderFailed } = useQuery({
+    queryKey: sessionQueryKey(client, 'otp-forwarder-config', forwarderDriver?.id),
+    enabled: Boolean(client && forwarderDriver),
+    queryFn: async ({ signal }) => {
+      const response = await api.get<ForwarderConfig>(
+        `/api/v1/otp/forwarder-config/${forwarderDriver?.id}`, undefined, { signal },
+      );
+      if (!response.success || !response.data) throw new Error(response.error || 'تنظیمات دریافت نشد');
+      return response.data;
+    },
+    staleTime: 0,
+  });
+  const forwarderUrl = forwarderConfig && typeof window !== 'undefined'
+    ? new URL(forwarderConfig.webhook_path, window.location.origin).href
+    : '';
+
+  useEffect(() => { setCopiedWebhook(false); }, [forwarderDriver?.id]);
+
   const { data: drivers = [], isLoading: driversLoading, refetch: refetchDrivers } = useQuery({
-    queryKey: ['drivers'],
-    queryFn: async () => {
-      const res = await api.get<Driver[]>('/api/v1/drivers?page_size=1000');
+    queryKey: sessionQueryKey(client, 'drivers'),
+    queryFn: async ({ signal }) => {
+      const res = await api.get<Driver[]>('/api/v1/drivers?page_size=1000', undefined, { signal });
       if (!res.success || !res.data || !Array.isArray(res.data)) {
         return [];
       }
@@ -343,6 +380,8 @@ export default function DriversPage() {
     return () => dataLoadControllerRef.current?.abort();
   }, [role, loadPlatesAndSchedules, refetchDrivers]);
 
+  const visibleDrivers = drivers.filter(driver => normalizePersianText(normalizeDigits(`${driver.full_name} ${driver.driver_national_code} ${driver.phone || ''}`)).includes(normalizePersianText(normalizeDigits(driverSearch.trim()))));
+
   return (
     <AuthGuard requiredRole="client">
       <AppShell>
@@ -479,13 +518,15 @@ export default function DriversPage() {
               <div className="flex items-center justify-between border-b border-white/5 pb-6">
                 <div>
                   <h2 className="text-xl font-black text-white">رانندگان ناوگان</h2>
-                  <p className="mt-1 text-sm text-slate-400">لیست تمامی رانندگان احراز هویت شده و وضعیت فعالیت آن‌ها</p>
+                  <p className="mt-1 text-sm text-slate-400">راننده را پیدا کنید و بارنامه‌های روز یا سابقه استعلام سوخت او را ببینید.</p>
                 </div>
                  <button type="button" onClick={() => { void refetchDrivers(); void loadPlatesAndSchedules(); }} className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950 px-5 py-3.5 text-xs font-bold text-slate-300 transition hover:bg-slate-900 hover:scale-105 active:scale-95 shadow-sm touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بروزرسانی لیست">
                    بروزرسانی لیست
                  </button>
               </div>
 
+              <label htmlFor="driver-search" className="mt-5 mb-2 block text-xs font-bold text-slate-300">جستجوی راننده</label>
+              <input id="driver-search" className="field touch-target" placeholder="نام، کد ملی یا شماره همراه" value={driverSearch} onChange={event => setDriverSearch(event.target.value)} />
               {driversLoading ? (
                 <div className="mt-8 space-y-4">
                   {[1, 2, 3].map((item) => <div key={item} className="h-32 skeleton rounded-3xl" />)}
@@ -494,9 +535,9 @@ export default function DriversPage() {
                 <div className="mt-12 flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-white/5 bg-slate-950/20 py-20">
                   <p className="text-sm font-medium text-slate-400">هنوز راننده‌ای در سامانه ثبت نشده است.</p>
                 </div>
-              ) : (
+              ) : visibleDrivers.length === 0 ? <p className="py-8 text-sm text-slate-400">راننده‌ای با این جستجو پیدا نشد.</p> : (
                 <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-1">
-                  {drivers.map((driver) => (
+                  {visibleDrivers.map((driver) => (
                     <article key={driver.id} className="group relative rounded-[2rem] border border-white/5 bg-slate-950/30 p-6 transition-all hover:border-cyan-500/30 hover:bg-slate-950/60 hover:shadow-lg">
                       <div className="flex flex-wrap items-start justify-between gap-6">
                         <div className="flex items-center gap-5">
@@ -564,6 +605,10 @@ export default function DriversPage() {
                         </div>
                       )}
 
+                      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                        <Link href={`/history?driver_id=${driver.id}&day=${tehranDateKey()}`} className="touch-target flex items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-xs font-bold text-cyan-300">بارنامه‌های امروز</Link>
+                        <Link href={`/fuel?driver_id=${driver.id}`} className="touch-target flex items-center justify-center rounded-xl border border-white/10 px-4 py-3 text-xs font-bold text-slate-200">سوابق استعلام سوخت</Link>
+                      </div>
                       <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-white/5 pt-6">
                         <button
                           type="button"
@@ -938,10 +983,12 @@ export default function DriversPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto"
           role="dialog"
           aria-modal="true"
+          aria-label="تنظیمات فورواردر پیامک راننده"
+          onKeyDown={event => { if (event.key === 'Escape') setForwarderDriver(null); }}
           onClick={() => setForwarderDriver(null)}
         >
           <div
-            className="w-full max-w-xl rounded-3xl border border-cyan-500/30 bg-slate-900 p-6 sm:p-8 shadow-2xl relative my-8 text-white animate-in fade-in zoom-in-95 duration-200"
+            className="w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-3xl border border-cyan-500/30 bg-slate-900 p-6 sm:p-8 shadow-2xl relative my-auto text-white animate-in fade-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
@@ -959,7 +1006,7 @@ export default function DriversPage() {
               <button
                 type="button"
                 onClick={() => setForwarderDriver(null)}
-                className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/5 transition"
+                className="touch-target p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/5 transition"
                 aria-label="بستن"
               >
                 <XMarkIcon className="h-5 w-5" />
@@ -977,25 +1024,22 @@ export default function DriversPage() {
                     type="text"
                     readOnly
                     dir="ltr"
-                    value={
-                      typeof window !== 'undefined'
-                        ? `${window.location.origin}/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`
-                        : `/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`
-                    }
+                    value={forwarderUrl}
                     className="w-full rounded-xl bg-slate-900 border border-white/10 px-3.5 py-2.5 text-xs font-mono text-cyan-300 select-all outline-none"
                   />
                   <button
                     type="button"
-                    onClick={() => {
-                      const url = typeof window !== 'undefined'
-                        ? `${window.location.origin}/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`
-                        : `/api/v1/otp/sms-forwarder/${forwarderDriver.phone || ''}`;
-                      void navigator.clipboard.writeText(url);
+                    disabled={!forwarderUrl}
+                    onClick={async () => {
+                      if (!await copyText(forwarderUrl)) {
+                        toast.error('کپی خودکار ممکن نشد؛ آدرس را انتخاب و دستی کپی کنید.');
+                        return;
+                      }
                       setCopiedWebhook(true);
                       toast.success('آدرس وب‌هوک کپی شد');
                       setTimeout(() => setCopiedWebhook(false), 2000);
                     }}
-                    className="shrink-0 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 text-xs transition flex items-center gap-1.5 shadow-md shadow-cyan-950"
+                    className="shrink-0 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 text-xs transition flex items-center gap-1.5 shadow-md shadow-cyan-950 touch-target disabled:opacity-50"
                   >
                     {copiedWebhook ? (
                       <>
@@ -1015,13 +1059,21 @@ export default function DriversPage() {
                 </p>
               </div>
 
-              {/* 3-Step Setup Instructions */}
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-200" role="status">
+                {forwarderLoading ? 'در حال بررسی آمادگی سرور…' : forwarderFailed ? (
+                  'آمادگی سرور و تنظیمات این راننده قابل بررسی نیست؛ اتصال فورواردر تأیید نشده است.'
+                ) : forwarderConfig?.intake_ready ? (
+                  'سرور آماده دریافت پیامک است؛ اتصال برنامه گوشی هنوز تأیید نشده است.'
+                ) : 'دریافت پیامک روی سرور آماده نیست؛ اپراتور باید تنظیمات و سرویس ذخیره‌سازی را بررسی کند.'}
+              </div>
+
+              {/* The global webhook secret is never sent to the browser. */}
               <div className="rounded-2xl bg-cyan-950/20 border border-cyan-500/20 p-4 space-y-3">
                 <h3 className="font-bold text-cyan-300 text-xs flex items-center gap-2">
                   <SignalIcon className="h-4 w-4 text-cyan-400" />
-                  راهنمای راه‌اندازی در ۳ مرحله روی گوشی اندروید راننده:
+                  راهنمای راه‌اندازی روی گوشی اندروید راننده:
                 </h3>
-                <ol className="list-decimal list-inside space-y-2 text-slate-300 text-[11px] pr-1">
+                <ol className="list-decimal list-inside space-y-2 text-slate-300 text-[11px] pe-1">
                   <li>
                     اپلیکیشن <span className="text-white font-bold">SecureSMS Forwarder</span> را روی گوشی راننده نصب کنید.
                   </li>
@@ -1031,11 +1083,20 @@ export default function DriversPage() {
                   <li>
                     نوع ارسال را روی <code className="bg-slate-900 px-1 py-0.5 rounded text-amber-300 font-mono">Webhook (POST)</code> قرار داده و آدرس وب‌هوک کپی‌شده در بالا را در آن قرار دهید.
                   </li>
+                  <li>
+                    بدنه را JSON و شامل متن پیامک (<code>text</code>)، فرستنده (<code>sender</code>) و زمان دریافت (<code>timestamp</code>) تنظیم کنید.
+                  </li>
+                  <li>
+                    اپراتور مجاز باید هدر <code dir="ltr">{forwarderConfig?.required_header_name || 'X-OTP-Webhook-Token'}</code> را با اعتبارنامه مناسب در گوشی تنظیم کند. بدون این هدر پیامک پذیرفته نمی‌شود؛ مقدار محرمانه در این صفحه نمایش داده نمی‌شود.
+                  </li>
+                  <li>
+                    پس از تنظیم هدر، یک درخواست آزمایشی با بدنه <code dir="ltr">{'{"event":"HEALTH_CHECK"}'}</code> ارسال و پاسخ <code>ready</code> را بررسی کنید. این تست فقط اتصال به سرور را می‌سنجد؛ دریافت SMS واقعی باید جداگانه بررسی شود.
+                  </li>
                 </ol>
               </div>
 
               <div className="rounded-2xl bg-slate-950/60 border border-white/5 p-4 text-[11px] text-slate-400">
-                <span className="font-bold text-amber-400">💡 نحوه عملکرد:</span> در ساعات شبانه سامانه بارنامه (۱۷:۳۰ الی ۰۸:۰۰ صبح)، به محض ارسال کد تایید به شماره همراه راننده، پیامک در کسری از ثانیه دریافت و بارنامه به صورت خودکار صادر و ثبت قطعی می‌شود.
+                <span className="font-bold text-amber-400">نحوه عملکرد:</span> نیاز به OTP را پاسخ فعلی سامانه تعیین می‌کند. پس از دریافت پیامک معتبر، درخواست تکمیل سند در صف قرار می‌گیرد؛ نتیجه صدور و کد رهگیری را در صفحه پیگیری کارها بررسی کنید.
               </div>
             </div>
 
@@ -1043,7 +1104,7 @@ export default function DriversPage() {
               <button
                 type="button"
                 onClick={() => setForwarderDriver(null)}
-                className="rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-2.5 text-xs transition"
+                className="touch-target rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-2.5 text-xs transition"
               >
                 بستن
               </button>

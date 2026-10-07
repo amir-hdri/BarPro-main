@@ -1,7 +1,7 @@
 """Regression tests for the 2026-10-02 tenant-isolation audit, batch C.
 
-C1: retired unscoped global OTP key; scoped job-scoped -> phone-scoped lookup;
-    two-tenant near-simultaneous OTP concurrency.
+C1: retired unscoped global OTP key; scoped job-scoped -> phone-scoped lookup.
+    HTTP/Lua intake isolation is covered by test_otp_delivery_contract.py.
 C2: legacy POST /waybill/create-with-map auth-state scoping (never global).
 C3: driver session-vault client_id threading at call sites.
 C4: shipping mutation lock is acquired only AFTER the ownership check.
@@ -18,7 +18,6 @@ import pytest
 from fastapi import HTTPException as _HTTPException
 from fastapi import Request as _Request
 
-from app.api.routes import otp_forwarder as otp_mod
 from app.api.routes import shipping_gps as sg_mod
 from app.api.routes import waybill_map as waybill_map_mod
 from app.automation.otp_keys import (
@@ -37,24 +36,13 @@ from app.services.session_vault import SessionVault
 
 
 class FakeRedis:
-    """Minimal async Redis double backed by a dict."""
+    """Minimal read-only Redis double for the active browser OTP reader."""
 
     def __init__(self):
         self.store: dict[str, str] = {}
-        self.published: list[tuple[str, str]] = []
 
     async def get(self, key: str):
         return self.store.get(key)
-
-    async def set(self, key: str, value: str, ex=None, **kwargs):
-        if kwargs.get("nx") and key in self.store:
-            return False
-        self.store[key] = value
-        return True
-
-    async def publish(self, channel: str, message: str):
-        self.published.append((channel, message))
-        return 1
 
 
 def _otp_payload(code: str, received_at: float | None = None) -> str:
@@ -127,20 +115,6 @@ def _tenant_client(client_id: int) -> Client:
 # ── C1: retired global OTP key ───────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_c1_store_otp_never_writes_global_key(monkeypatch):
-    """store_otp_in_redis must not write rpa:otp:latest (retired); only scoped keys."""
-    fake = FakeRedis()
-    monkeypatch.setattr(otp_mod.redis_manager, "get", AsyncMock(return_value=fake))
-
-    await otp_mod.store_otp_in_redis(code="12345", sender="20007777", text="کد: 12345", phone="09121234567")
-
-    assert "rpa:otp:latest" not in fake.store
-    assert fake.store.get("rpa:otp:phone:09121234567") is not None
-    # A gateway shortcode is shared by all drivers and must never become a routing key.
-    assert fake.store.get("rpa:otp:phone:20007777") is None
-
-
 def test_c1_otp_lookup_keys_scoped_order_and_no_global():
     assert otp_lookup_keys("job_1", "09121234567") == [
         "rpa:otp:job:job_1",
@@ -167,31 +141,6 @@ def test_c1_phone_normalization_matches_writer():
     assert otp_phone_key("") is None
     assert otp_phone_key(None) is None
     assert normalize_phone_for_otp_key("20007777") == "20007777"
-
-
-@pytest.mark.asyncio
-async def test_c1_two_tenants_consume_only_own_otp(monkeypatch):
-    """Near-simultaneous OTPs from two tenants: each job reads only its own code."""
-    fake = FakeRedis()
-    monkeypatch.setattr(otp_mod.redis_manager, "get", AsyncMock(return_value=fake))
-
-    # Tenant A and tenant B OTPs arrive back-to-back via the webhook path.
-    await otp_mod.store_otp_in_redis(code="11111", sender="20007777", text="کد: 11111", phone="09120000001")
-    await otp_mod.store_otp_in_redis(code="22222", sender="20007777", text="کد: 22222", phone="09120000002")
-    # Manual operator path also writes job-scoped keys.
-    fake.store[otp_job_key("job_a")] = _otp_payload("11111")
-    fake.store[otp_job_key("job_b")] = _otp_payload("22222")
-
-    now = time.time()
-    found_a = await fetch_scoped_otp(fake, job_id="job_a", driver_phone="09120000001", wait_start=now)
-    found_b = await fetch_scoped_otp(fake, job_id="job_b", driver_phone="09120000002", wait_start=now)
-
-    assert found_a is not None and found_a[0] == "11111", "tenant A must consume only its own code"
-    assert found_b is not None and found_b[0] == "22222", "tenant B must consume only its own code"
-    # The scoped keys each tenant looked at are disjoint.
-    keys_a = set(otp_lookup_keys("job_a", "09120000001"))
-    keys_b = set(otp_lookup_keys("job_b", "09120000002"))
-    assert keys_a.isdisjoint(keys_b)
 
 
 @pytest.mark.asyncio

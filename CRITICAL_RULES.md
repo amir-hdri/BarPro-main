@@ -251,7 +251,7 @@ bash manage.sh migrate   # یا: alembic upgrade head
 - Migration ها با **PostgreSQL session-level advisory lock** اجرا می‌شوند؛
   کلید قفل `MIGRATION_ADVISORY_LOCK_ID` است و timeout از
   `MIGRATION_LOCK_TIMEOUT_SECONDS` خوانده می‌شود.
-- HEAD فعلی مخزن: `041_driver_plate_tracking_fields` (با `alembic heads` بررسی شود؛ وضعیت DB زنده مستقل است)
+- HEAD فعلی مخزن: `042_fuel_request_identity` (با `alembic heads` بررسی شود؛ وضعیت DB زنده مستقل است)
 - هرگز migration را manually روی production DB اجرا نکنید — از `manage.sh migrate` استفاده کنید
 
 ### 15. محدودیت‌های منابع (16 GB RAM — Central Server)

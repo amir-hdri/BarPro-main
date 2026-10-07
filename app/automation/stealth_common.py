@@ -182,9 +182,9 @@ def pick_random_fingerprint() -> dict:
     }
 
 
-def add_random_delay(_page, min_seconds: float = 0.5, max_seconds: float = 2.0) -> None:
+async def add_random_delay(_page: object, min_seconds: float = 0.5, max_seconds: float = 2.0) -> None:
     """Add random delay for human-like behavior."""
     import asyncio
     import random
 
-    asyncio.get_event_loop().run_until_complete(asyncio.sleep(random.uniform(min_seconds, max_seconds)))
+    await asyncio.sleep(random.uniform(min_seconds, max_seconds))

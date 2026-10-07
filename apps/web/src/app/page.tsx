@@ -1,5 +1,7 @@
 "use client";
 
+import { sessionQueryKey } from "@/lib/session-query";
+
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -51,9 +53,9 @@ export default function DashboardPage() {
     isError: statsFailed,
     refetch: refetchStats,
   } = useQuery({
-    queryKey: ["client-stats"],
-    queryFn: async () => {
-      const res = await api.get<ClientStats>("/api/v1/auth/stats");
+    queryKey: sessionQueryKey(client, 'client-stats'),
+    queryFn: async ({ signal }) => {
+      const res = await api.get<ClientStats>("/api/v1/auth/stats", undefined, { signal });
       if (!res.success || !res.data) {
         throw new Error(res.error || "Query data cannot be undefined");
       }
@@ -70,10 +72,10 @@ export default function DashboardPage() {
     isError: jobsFailed,
     refetch: refetchJobs,
   } = useQuery({
-    queryKey: ["recent-jobs"],
-    queryFn: async () => {
+    queryKey: sessionQueryKey(client, 'recent-jobs'),
+    queryFn: async ({ signal }) => {
       const res = await api.get<{ tasks: WaybillJob[] }>(
-        "/api/v1/waybill-jobs?page=1&page_size=5"
+        "/api/v1/waybill-jobs?page=1&page_size=5", undefined, { signal }
       );
       if (!res.success || !res.data) {
         return [];

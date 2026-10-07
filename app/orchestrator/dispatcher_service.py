@@ -222,10 +222,10 @@ class DispatcherService:
                 task_name = "barpro.waybill.execute"
                 base_queue = "waybill_tasks"
 
-            from app.core.circuit_breaker import NoHealthyWorkerError, get_routed_queue
+            from app.core.circuit_breaker import NoHealthyWorkerError, get_routed_queue_async
 
             try:
-                routed_queue = get_routed_queue(base_queue)
+                routed_queue = await get_routed_queue_async(base_queue, use_cache=False)
             except NoHealthyWorkerError as exc:
                 intent.status = "failed"
                 intent.updated_at = datetime.now(UTC).replace(tzinfo=None)

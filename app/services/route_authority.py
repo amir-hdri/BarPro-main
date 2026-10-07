@@ -21,17 +21,37 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 from datetime import UTC, datetime
 from typing import Any
 
 from app.core.distance import estimate_time, road_estimate
-from app.travel.geometry import GeoPoint
+from app.travel.geometry import GeoPoint, haversine_km
 from app.travel.route import FALLBACK_SOURCE, RouteGeometry
 
 logger = logging.getLogger(__name__)
 
 ROUTE_VERSION = "route-authority/v1"
 NESHAN_SOURCE = "neshan"
+# Local planning policy, not an upstream acceptance claim. User-approved road
+# snapping retains the requested pin separately and never invents a connector.
+MAX_ROAD_SNAP_KM = 0.25
+
+
+def _validate_anchor(lat: Any, lng: Any) -> None:
+    for value, limit in ((lat, 90.0), (lng, 180.0)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or abs(value) > limit
+        ):
+            raise ValueError("invalid route anchor coordinates")
+
+
+def _validate_geometry(geometry: RouteGeometry) -> None:
+    for point in geometry.points:
+        _validate_anchor(point.lat, point.lon)
 
 
 def _anchor_hash(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> str:
@@ -114,12 +134,22 @@ def _geometry_from_neshan(
     """Build RouteGeometry from a Neshan response; None when unusable."""
     from app.travel.route import RouteSegment
 
-    polyline = (neshan.get("polyline") or "").strip()
+    raw_polyline = neshan.get("polyline")
+    polyline = raw_polyline.strip() if isinstance(raw_polyline, str) else ""
     distance_m = neshan.get("distance_m")
     duration_s = neshan.get("duration_s")
     try:
         if polyline:
             geometry = RouteGeometry.from_encoded(polyline, source=NESHAN_SOURCE)
+            _validate_geometry(geometry)
+            for value in (distance_m, duration_s):
+                if value is not None and (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    or value <= 0
+                ):
+                    raise ValueError("invalid provider route distance/duration")
             # Attach provider totals as segments when available so the speed
             # profile reflects the real road rather than a chosen number.
             if isinstance(distance_m, (int, float)) and isinstance(duration_s, (int, float)):
@@ -164,36 +194,72 @@ async def resolve_route(
           "created_at": UTC-Z, "route_version": str,
         }
     """
-    for name, value in (
-        ("origin_lat", origin_lat),
-        ("origin_lng", origin_lng),
-        ("dest_lat", dest_lat),
-        ("dest_lng", dest_lng),
-    ):
-        if not isinstance(value, (int, float)) or value != value:  # NaN guard
-            raise ValueError(f"مختصات {name} معتبر نیست")
+    _validate_anchor(origin_lat, origin_lng)
+    _validate_anchor(dest_lat, dest_lng)
 
     neshan = await _fetch_neshan_route(origin_lat, origin_lng, dest_lat, dest_lng)
     geometry: RouteGeometry | None = None
     distance_km: float | None = None
     duration_min: float | None = None
     source = FALLBACK_SOURCE
+    fallback_reason = "provider_unavailable"
+    snap_metadata: dict[str, Any] = {}
     if neshan:
         geometry, distance_km, duration_min = _geometry_from_neshan(origin_lat, origin_lng, dest_lat, dest_lng, neshan)
         if geometry is not None:
-            source = NESHAN_SOURCE
+            start, end = GeoPoint(origin_lat, origin_lng), GeoPoint(dest_lat, dest_lng)
+            origin_gap = haversine_km(*start, *geometry.start)
+            dest_gap = haversine_km(*end, *geometry.end)
+            if max(origin_gap, dest_gap) > MAX_ROAD_SNAP_KM:
+                geometry = None
+                fallback_reason = "provider_anchor_mismatch"
+            else:
+                from app.travel.route import RouteSegment
+
+                for label, gap in (("origin", origin_gap), ("destination", dest_gap)):
+                    snap_metadata[label] = {"distance_m": round(gap * 1000.0, 3), "source": "neshan_road_endpoint"}
+                distance_km = max(float(distance_km or 0), geometry.total_distance_km)
+                duration_min = max(float(duration_min or 0), distance_km / 65.0 * 60.0)
+                geometry.provider_duration_s = duration_min * 60.0
+                geometry.segments = [
+                    RouteSegment(
+                        0,
+                        0.0,
+                        geometry.total_distance_km,
+                        geometry.total_distance_km,
+                        geometry.provider_duration_s,
+                        "provider road route with bounded road-snapped endpoints",
+                    )
+                ]
+                source = NESHAN_SOURCE
+        else:
+            fallback_reason = "provider_geometry_invalid"
 
     if geometry is None:
         geometry, distance_km, duration_min = _haversine_geometry(origin_lat, origin_lng, dest_lat, dest_lng)
         source = FALLBACK_SOURCE
+        # Spherical interpolation can introduce floating-point endpoint drift.
+        geometry.points[0] = GeoPoint(origin_lat, origin_lng)
+        geometry.points[-1] = GeoPoint(dest_lat, dest_lng)
 
     assert geometry is not None and distance_km is not None
     duration_s = round(float(duration_min or 0.0) * 60.0, 1)
     snapshot = {
-        "origin": {"lat": float(origin_lat), "lng": float(origin_lng)},
-        "destination": {"lat": float(dest_lat), "lng": float(dest_lng)},
+        "requested_origin": {"lat": float(origin_lat), "lng": float(origin_lng)},
+        "requested_destination": {"lat": float(dest_lat), "lng": float(dest_lng)},
+        "origin": {"lat": geometry.start.lat, "lng": geometry.start.lon},
+        "destination": {"lat": geometry.end.lat, "lng": geometry.end.lon},
         "source": source,
         "is_real_route": source == NESHAN_SOURCE,
+        "road_anchor_verified": source == NESHAN_SOURCE,
+        "snap_metadata": snap_metadata,
+        "coordinate_source": "road_snapped" if source == NESHAN_SOURCE else "map_pin_unverified",
+        "requires_reselection": (
+            fallback_reason in {"provider_anchor_mismatch", "provider_geometry_invalid"}
+            if source == FALLBACK_SOURCE
+            else False
+        ),
+        "fallback_reason": fallback_reason if source == FALLBACK_SOURCE else None,
         "polyline": geometry.encode(),
         "points": [[p.lat, p.lon] for p in geometry.points],
         "distance_km": float(distance_km),
@@ -214,17 +280,24 @@ def geometry_from_snapshot(snapshot: dict[str, Any]) -> RouteGeometry:
     if isinstance(points, list) and len(points) >= 2:
         from app.travel.route import RouteSegment
 
+        for point in points:
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise ValueError("invalid route snapshot point")
+            _validate_anchor(point[0], point[1])
         segments = [RouteSegment.from_dict(s) for s in (snapshot.get("segments") or []) if isinstance(s, dict)]
-        return RouteGeometry.from_points(
+        geometry = RouteGeometry.from_points(
             [(float(p[0]), float(p[1])) for p in points],
             segments=segments,
             source=str(snapshot.get("source") or "unknown"),
             provider_duration_s=float(snapshot.get("provider_duration_s") or 0.0),
         )
-    polyline = str(snapshot.get("polyline") or "")
-    if not polyline:
-        raise ValueError("route snapshot has no polyline/points")
-    return RouteGeometry.from_encoded(polyline, source=str(snapshot.get("source") or "unknown"))
+    else:
+        polyline = str(snapshot.get("polyline") or "")
+        if not polyline:
+            raise ValueError("route snapshot has no polyline/points")
+        geometry = RouteGeometry.from_encoded(polyline, source=str(snapshot.get("source") or "unknown"))
+    _validate_geometry(geometry)
+    return geometry
 
 
 __all__ = ["ROUTE_VERSION", "geometry_from_snapshot", "resolve_route", "utc_now_iso"]

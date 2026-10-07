@@ -1,0 +1,66 @@
+{
+  "evidence": "Local served production build with synthetic API fixtures. Not live API/UTCMS.",
+  "modalDesktop": {
+    "buttons": [
+      {
+        "h": 36,
+        "text": "",
+        "w": 36
+      },
+      {
+        "h": 36,
+        "text": "کپی آدرس",
+        "w": 103.2890625
+      },
+      {
+        "h": 36,
+        "text": "بستن",
+        "w": 74.8671875
+      }
+    ],
+    "clientWidth": 1432,
+    "dialogText": "تنظیمات فورواردر پیامک راننده (SMS Forwarder)راننده: Audit Driver A (09120000000)آدرس وب‌هوک اختصاصی این راننده (Webhook URL)کپی آدرساین آدرس را در بخش URL برنامه فورواردر پیامک گوشی راننده قرار دهید تا پیامک‌های ارسالی بدون نیاز به تایپ دستی ثبت شوند.راهنمای راه‌اندازی در ۳ مرحله روی گوشی اندروید راننده:اپلیکیشن SecureSMS Forwarder را روی گوشی راننده نصب کنید.یک قانون (Rule) جدید اضافه کرده و فرستنده (Sender) را روی سرشماره‌های سامانه بارنامه کشوری (20007777 یا 30001923) قرار دهید.نوع ارسال را روی Webhook (POST) قرار داده و آدرس وب‌هوک کپی‌شده در بالا را در آن قرار دهید.💡 نحوه عملکرد: در ساعات شبانه سامانه بارنامه (۱۷:۳۰ الی ۰۸:۰۰ صبح)، به محض ارسال کد تایید به شماره همراه راننده، پیامک در کسری از ثانیه دریافت و بارنامه به صورت خودکار صادر و ثبت قطعی می‌شود.بستن",
+    "dir": "rtl",
+    "font": "vazirmatn, \"vazirmatn Fallback\", rubik, \"rubik Fallback\", ui-sans-serif, system-ui, -apple-system, \"system-ui\", \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
+    "heading": "تنظیمات فورواردر پیامک راننده (SMS Forwarder)",
+    "height": 1000,
+    "inputs": [
+      {
+        "fontSize": "12px",
+        "value": "http://localhost:3106/api/v1/otp/sms-forwarder/09120000000"
+      }
+    ],
+    "scrollWidth": 1432,
+    "width": 1440
+  },
+  "modalMobile": {
+    "clientWidth": 384,
+    "dialogRect": {
+      "height": 844,
+      "width": 384,
+      "x": 0,
+      "y": 0
+    },
+    "dir": "rtl",
+    "height": 844,
+    "innerRect": {
+      "height": 779.125,
+      "width": 346,
+      "x": 22,
+      "y": 36.86442184448242
+    },
+    "inputFont": "16px",
+    "scrollWidth": 384,
+    "width": 390
+  },
+  "httpCapability": {
+    "result": {
+      "type": "string",
+      "value": "{\"origin\":\"http://172.20.10.2:3106\",\"isSecureContext\":false,\"clipboardAvailable\":\"undefined\",\"writeTextAvailable\":\"undefined\"}"
+    }
+  },
+  "limitations": [
+    "Tenant-switch browser reproduction inconclusive because generic fixture interception accidentally intercepted RSC navigation; excluded from findings evidence.",
+    "Initial request mocks timed out; this scaffolding failure is not a product failure."
+  ]
+}

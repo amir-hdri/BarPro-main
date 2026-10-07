@@ -1,0 +1,13 @@
+{
+  "status": "failed",
+  "scanned_directory": "/Users/amirheidari/GitHub/BarPro-main/apps/web/src",
+  "violations": [
+    {
+      "file": "apps/web/src/components/DriverTrackingPanel.tsx",
+      "line": 111,
+      "rule": "no-inline-styles",
+      "message": "Inline styles detected. Use Tailwind utility classes instead.",
+      "match": "style={{ width: `${progress}%` }}"
+    }
+  ]
+}

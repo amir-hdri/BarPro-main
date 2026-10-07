@@ -953,10 +953,10 @@ export default function NewWaybillPage() {
                         initialLat={originCoords?.lat || 35.6892}
                         initialLng={originCoords?.lng || 51.3890}
                         onLocationSelected={(loc) => {
-                          if (loc.province) handleChange("origin_province", loc.province);
-                          if (loc.city) handleChange("origin", loc.city);
-                          if (loc.district) handleChange("origin_district", loc.district);
-                          if (loc.address) handleChange("origin_address", loc.address);
+                          handleChange("origin_province", loc.province);
+                          handleChange("origin", loc.city);
+                          handleChange("origin_district", loc.district);
+                          handleChange("origin_address", loc.address);
                           setOriginCoords({ lat: loc.lat, lng: loc.lng });
                         }}
                         onClose={() => setShowOriginMap(false)}
@@ -1075,10 +1075,10 @@ export default function NewWaybillPage() {
                         initialLat={destinationCoords?.lat || 32.6546}
                         initialLng={destinationCoords?.lng || 51.6680}
                         onLocationSelected={(loc) => {
-                          if (loc.province) handleChange("destination_province", loc.province);
-                          if (loc.city) handleChange("destination", loc.city);
-                          if (loc.district) handleChange("destination_district", loc.district);
-                          if (loc.address) handleChange("destination_address", loc.address);
+                          handleChange("destination_province", loc.province);
+                          handleChange("destination", loc.city);
+                          handleChange("destination_district", loc.district);
+                          handleChange("destination_address", loc.address);
                           setDestinationCoords({ lat: loc.lat, lng: loc.lng });
                         }}
                         onClose={() => setShowDestinationMap(false)}

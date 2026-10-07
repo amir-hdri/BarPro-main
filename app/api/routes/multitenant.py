@@ -121,9 +121,12 @@ def _parse_history_date_bounds(date_from: str | None, date_to: str | None) -> tu
             ) from None
         return parsed.year, parsed.month, parsed.day
 
-    dt_from = tehran_day_bounds_utc(*_parse(date_from, "شروع"))[0] if date_from else None
-    dt_to = tehran_day_bounds_utc(*_parse(date_to, "پایان"))[1] if date_to else None
-    if dt_from is not None and dt_to is not None and dt_from > dt_to:
+    try:
+        dt_from = tehran_day_bounds_utc(*_parse(date_from, "شروع"))[0] if date_from else None
+        dt_to = tehran_day_bounds_utc(*_parse(date_to, "پایان"))[1] if date_to else None
+    except (ValueError, OverflowError) as exc:
+        raise HTTPException(status_code=400, detail="تاریخ خارج از محدوده قابل پشتیبانی است") from exc
+    if dt_from is not None and dt_to is not None and dt_from >= dt_to:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="بازه تاریخ نامعتبر است: تاریخ شروع نباید بعد از تاریخ پایان باشد",

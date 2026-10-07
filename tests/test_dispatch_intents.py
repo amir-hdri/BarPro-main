@@ -1,4 +1,5 @@
-from unittest.mock import MagicMock, patch
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -6,10 +7,98 @@ from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core import circuit_breaker
 from app.models_multitenant import Client, Driver, TaskStatus, WaybillJob
 from app.models_rpa import DispatchIntent, DriverRuntimeState
 from app.orchestrator.dispatcher_service import DispatcherService
 from app.orchestrator.scheduler_service import SchedulerService
+
+
+@pytest.mark.parametrize(
+    "blocking,expected_queues",
+    [
+        ("none", ["waybill_tasks_2", "waybill_tasks_3", "waybill_tasks_1"]),
+        ("selected", ["waybill_tasks_2", "waybill_tasks_1", "waybill_tasks_3"]),
+        ("all", ["waybill_tasks_2"]),
+    ],
+)
+async def test_dispatch_batch_selects_each_worker_with_current_block_state(monkeypatch, blocking, expected_queues):
+    """Exercise the actual async router once per persisted intent, inside its cache TTL."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        async with session_factory() as session:
+            session.add(
+                Client(
+                    id=1,
+                    client_code="routing-tenant",
+                    name="Routing tenant",
+                    email="routing@example.invalid",
+                    username="routing-tenant",
+                    full_name="Routing tenant",
+                    hashed_password="unused",
+                )
+            )
+            for index in range(3):
+                session.add(
+                    WaybillJob(
+                        job_id=f"routing-job-{index}",
+                        idempotency_key=f"routing-job-{index}",
+                        client_id=1,
+                        status="queued",
+                        payload_json={},
+                    )
+                )
+                session.add(
+                    DispatchIntent(
+                        intent_id=f"routing-intent-{index}",
+                        job_id=f"routing-job-{index}",
+                        client_id=1,
+                        operation="submit",
+                        attempt_no=1,
+                        fencing_token=1,
+                        status="pending",
+                    )
+                )
+            await session.commit()
+
+        blocked = set()
+        redis = AsyncMock()
+        redis.exists.side_effect = lambda key: int(key.rsplit(":", 1)[1]) in blocked
+        redis.incr.side_effect = [1, 2, 3]
+        monkeypatch.setattr(circuit_breaker.redis_manager, "get", AsyncMock(return_value=redis))
+        monkeypatch.setattr(circuit_breaker, "get_available_ip_indices", lambda: [1, 2, 3])
+        monkeypatch.setattr(circuit_breaker, "_get_known_ip_indices", AsyncMock(return_value={1, 2, 3}))
+        monkeypatch.setattr(circuit_breaker, "_get_unavailable_ip_indices", AsyncMock(return_value=set()))
+        monkeypatch.setattr(circuit_breaker, "_ip_index_cache", 2)
+        monkeypatch.setattr(circuit_breaker, "_ip_index_cache_expires", time.monotonic() + 60)
+
+        queues = []
+
+        def send_task(_name, *, args, queue, priority):
+            queues.append(queue)
+            if len(queues) == 1:
+                if blocking == "selected":
+                    blocked.add(int(queue.rsplit("_", 1)[1]))
+                elif blocking == "all":
+                    blocked.update({1, 2, 3})
+
+        with (
+            patch("app.orchestrator.dispatcher_service.async_session_factory", session_factory),
+            patch("app.orchestrator.dispatcher_service.celery_app") as celery,
+        ):
+            celery.send_task.side_effect = send_task
+            assert await DispatcherService().run() == len(expected_queues)
+        assert queues == expected_queues
+        assert redis.incr.await_count == len(expected_queues)
+        if blocking == "all":
+            async with session_factory() as session:
+                jobs = (await session.exec(select(WaybillJob))).all()
+                assert sorted(job.status for job in jobs) == ["claimed", "waiting_retry", "waiting_retry"]
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -85,7 +174,7 @@ async def test_scheduler_and_dispatcher_flow():
     with (
         patch("app.orchestrator.dispatcher_service.async_session_factory", new=async_session),
         patch("app.orchestrator.dispatcher_service.celery_app") as mock_celery,
-        patch("app.core.circuit_breaker.get_routed_queue", side_effect=lambda q: q),
+        patch("app.core.circuit_breaker.get_routed_queue_async", side_effect=lambda q, **kwargs: q),
     ):
         mock_celery.send_task = mock_send_task
         dispatched = await dispatcher.run()
@@ -340,7 +429,7 @@ async def test_reconciliation_audit_intent_dispatched_not_expired_as_unknown_ope
     with (
         patch("app.orchestrator.dispatcher_service.async_session_factory", new=async_session),
         patch("app.orchestrator.dispatcher_service.celery_app") as mock_celery,
-        patch("app.core.circuit_breaker.get_routed_queue", side_effect=lambda q: q),
+        patch("app.core.circuit_breaker.get_routed_queue_async", side_effect=lambda q, **kwargs: q),
     ):
         mock_celery.send_task = mock_send_task
         dispatched = await dispatcher.run()

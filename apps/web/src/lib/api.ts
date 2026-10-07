@@ -113,6 +113,7 @@ function createApiClient(): AxiosInstance {
       if (status === 401 && typeof window !== 'undefined') {
         try {
           window.localStorage.removeItem('utcms_auth_client');
+          window.dispatchEvent(new Event('utcms:session-change'));
           // The auth cookie is httpOnly; only the server can remove it.
           void axios
             .post(`${API_BASE_URL}/api/v1/auth/logout`, undefined, { withCredentials: true })

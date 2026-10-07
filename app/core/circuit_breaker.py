@@ -504,17 +504,19 @@ def _get_known_ip_indices_sync() -> set[int]:
     return _get_registry_state_sync()[0]
 
 
-async def get_next_ip_index() -> int:
+async def get_next_ip_index(*, use_cache: bool = True) -> int:
     """Async IP index lookup with TTL caching — does NOT block the event loop.
 
     Uses the shared ``redis_manager`` (async) and caches the result for
     ``_IP_INDEX_CACHE_TTL`` seconds.  Falls back to the first available
-    index when Redis is unavailable.
+    index when Redis is unavailable outside production. Dispatch batches must
+    pass ``use_cache=False`` to recheck Redis blocks and advance round-robin
+    selection for every intent; the bounded registry snapshot is still shared.
     """
     global _ip_index_cache, _ip_index_cache_expires
 
     now = time.monotonic()
-    if _ip_index_cache is not None and now < _ip_index_cache_expires:
+    if use_cache and _ip_index_cache is not None and now < _ip_index_cache_expires:
         return _ip_index_cache
 
     available_indices = get_available_ip_indices()
@@ -560,8 +562,9 @@ async def get_next_ip_index() -> int:
         counter = await r.incr("utcms:dispatcher:counter")
         selected_ip = healthy_ips[counter % max(len(healthy_ips), 1)]
 
-        _ip_index_cache = selected_ip
-        _ip_index_cache_expires = now + _IP_INDEX_CACHE_TTL
+        if use_cache:
+            _ip_index_cache = selected_ip
+            _ip_index_cache_expires = now + _IP_INDEX_CACHE_TTL
         # counter comes from untyped redis (Any); the modulo result is a valid
         # list index, so selected_ip is an int — cast() is a runtime no-op.
         return cast(int, selected_ip)
@@ -574,13 +577,13 @@ async def get_next_ip_index() -> int:
         return available_indices[0] if available_indices else 1
 
 
-async def get_routed_queue_async(base_queue: str) -> str:
+async def get_routed_queue_async(base_queue: str, *, use_cache: bool = True) -> str:
     """Async version of ``get_routed_queue`` — preferred for async callers."""
     EXEMPT_QUEUES = {"rpa_scheduler"}
     if base_queue in EXEMPT_QUEUES:
         return base_queue
 
-    ip_index = await get_next_ip_index()
+    ip_index = await get_next_ip_index(use_cache=use_cache)
     routed = f"{base_queue}_{ip_index}"
     logger.info(f"Routed task queue from {base_queue} -> {routed} (IP Index: {ip_index})")
     return routed

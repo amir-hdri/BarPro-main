@@ -393,3 +393,19 @@ if celery_app is not None:
         from app.services.otp_wakeup_consumer import process_otp_stream_events
 
         return _run_async(process_otp_stream_events(batch_size=10))
+
+    @celery_app.task(name="barpro.otp.complete_event", acks_late=True, reject_on_worker_lost=True)
+    def complete_otp_event(entry: dict[str, Any]):
+        """Assigned-worker issuance; the stream retains retryable deliveries."""
+        from app.core.redis_client import redis_manager
+        from app.services.otp_wakeup_consumer import acknowledge_otp_event, resolve_and_complete_pending_job_for_otp
+
+        async def _run():
+            outcome = await resolve_and_complete_pending_job_for_otp(entry=entry, execute=True)
+            if outcome.get("terminal") and entry.get("stream_id"):
+                redis = await redis_manager.get()
+                if redis is not None:
+                    await acknowledge_otp_event(redis, str(entry["stream_id"]))
+            return outcome
+
+        return _run_async(_run())

@@ -147,6 +147,12 @@ class SchedulerService:
                         skipped += 1
                         continue
 
+                    from app.services.otp_challenge_guard import find_unresolved_driver_otp_job
+
+                    if await find_unresolved_driver_otp_job(session, client_id=job.client_id, driver_id=job.driver_id):
+                        skipped += 1
+                        continue
+
                     # Tenant concurrency quota: in-flight jobs per tenant.
                     if job.client_id not in in_flight_counts:
                         in_flight_stmt = select(func.count(col(WaybillJob.id))).where(

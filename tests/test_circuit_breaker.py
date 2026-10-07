@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,8 +10,10 @@ from app.core.circuit_breaker import (
     NoHealthyWorkerError,
     _index_unavailable_from_rows,
     check_and_report_failure,
+    get_next_ip_index,
     get_next_ip_index_sync,
     get_routed_queue,
+    get_routed_queue_async,
 )
 
 
@@ -123,6 +126,36 @@ def test_get_routed_queue_system_bypass():
     # system queues (rpa_scheduler) should not be routed/suffixed
     routed = get_routed_queue("rpa_scheduler")
     assert routed == "rpa_scheduler"
+
+
+async def test_async_routing_preserves_cache_for_existing_callers(mock_redis_manager):
+    mock_redis_manager.exists.return_value = False
+    mock_redis_manager.incr.side_effect = [1, 2]
+    assert await get_routed_queue_async("waybill_tasks") == "waybill_tasks_2"
+    assert await get_routed_queue_async("waybill_tasks") == "waybill_tasks_2"
+    mock_redis_manager.incr.assert_awaited_once()
+
+
+@pytest.mark.parametrize("failure", ["missing", "connection"])
+async def test_fresh_async_routing_cannot_use_cached_worker_on_redis_outage(monkeypatch, failure):
+    from app.core import circuit_breaker
+
+    monkeypatch.setattr(circuit_breaker, "_ip_index_cache", 2)
+    monkeypatch.setattr(circuit_breaker, "_ip_index_cache_expires", time.monotonic() + 60)
+    monkeypatch.setattr(circuit_breaker.utcms_config, "is_production", lambda: True)
+    redis = AsyncMock()
+    redis.exists.side_effect = ConnectionError("synthetic redis outage")
+    monkeypatch.setattr(
+        circuit_breaker.redis_manager, "get", AsyncMock(return_value=None if failure == "missing" else redis)
+    )
+    with pytest.raises(NoHealthyWorkerError):
+        await get_next_ip_index(use_cache=False)
+
+
+async def test_async_scheduler_queue_bypasses_worker_selection():
+    with patch("app.core.circuit_breaker.get_next_ip_index", new_callable=AsyncMock) as select_worker:
+        assert await get_routed_queue_async("rpa_scheduler", use_cache=False) == "rpa_scheduler"
+    select_worker.assert_not_awaited()
 
 
 @pytest.mark.asyncio

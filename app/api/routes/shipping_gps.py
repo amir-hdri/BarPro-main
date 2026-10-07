@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.auth_multitenant import get_current_user_or_admin
 from app.automation.gps_shipping_manager import (
+    ShippingState,
     ShippingStatePersistenceError,
     _acquire_completion_claim,
     _escalated_trace_target_km,
@@ -220,6 +221,50 @@ def _assert_route_anchor(
         raise HTTPException(status_code=422, detail=f"مختصات ارسالی با {label} بارنامه تطبیق ندارد")
 
 
+def _assert_state_route_anchor(
+    state: ShippingState, latitude: float, longitude: float, *, destination: bool = False
+) -> None:
+    """Accept the associated requested pin or effective road pin, never a third location."""
+    endpoint = "destination" if destination else "origin"
+    label = "مقصد" if destination else "مبدأ"
+    if state.route_snapshot.get("road_anchor_verified") is True:
+        requested = state.route_snapshot.get(f"requested_{endpoint}")
+        if isinstance(requested, dict):
+            try:
+                _assert_route_anchor(
+                    latitude=latitude,
+                    longitude=longitude,
+                    expected_lat=requested.get("lat"),
+                    expected_lng=requested.get("lng"),
+                    label=label,
+                )
+                return
+            except HTTPException:
+                logger.debug("shipping_request_anchor_checking_effective_endpoint")
+    _assert_route_anchor(
+        latitude=latitude,
+        longitude=longitude,
+        expected_lat=state.dest_lat if destination else state.origin_lat,
+        expected_lng=state.dest_lng if destination else state.origin_lng,
+        label=label,
+    )
+
+
+def _route_anchor_metadata(state: ShippingState) -> dict[str, Any]:
+    return {
+        "requested_origin": state.route_snapshot.get(
+            "requested_origin", {"lat": state.origin_lat, "lng": state.origin_lng}
+        ),
+        "requested_destination": state.route_snapshot.get(
+            "requested_destination", {"lat": state.dest_lat, "lng": state.dest_lng}
+        ),
+        "road_anchor_verified": bool(state.route_snapshot.get("road_anchor_verified")),
+        "snap_metadata": state.route_snapshot.get("snap_metadata", {}),
+        "coordinate_source": state.coordinate_source,
+        "requires_reselection": bool(state.route_snapshot.get("requires_reselection")),
+    }
+
+
 # Codes for which a UTCMS start response PROVES no new start was accepted, so
 # the durable "starting" fence may safely roll back to the retryable "ready".
 #
@@ -265,6 +310,8 @@ def _wait_detail(wait: dict[str, Any]) -> str:
     (``{'status': 'waiting_eta', ...}``) in an RTL Persian UI and leaked the
     internal field names. The structured payload is logged instead.
     """
+    if wait.get("reason") in {"missing_estimated_end_at", "invalid_estimated_end_at"}:
+        return "زمان برآوردشده پایان حمل موجود یا معتبر نیست؛ این بارنامه برای تکمیل اطلاعات نیازمند بررسی پشتیبانی است"
     remaining = _persian_duration(wait.get("remaining_seconds") or 0)
     if wait.get("status") == "backoff":
         return f"ثبت پایان حمل در حال انتظار است؛ لطفاً {remaining} دیگر دوباره تلاش کنید"
@@ -423,13 +470,9 @@ async def start_shipping(
         state = await init_shipping(req.job_id, req.doc_no, payload, persist=False)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    _assert_route_anchor(
-        latitude=req.latitude,
-        longitude=req.longitude,
-        expected_lat=state.origin_lat,
-        expected_lng=state.origin_lng,
-        label="مبدأ",
-    )
+    if state.coordinate_source == "map_pin_unverified":
+        raise HTTPException(status_code=422, detail="موقعیت خیابان از سرویس مسیریابی تأیید نشده است؛ دوباره تلاش کنید")
+    _assert_state_route_anchor(state, req.latitude, req.longitude)
     # ── Route Authority snapshot (Phase 5): frozen at start, best-effort ──
     try:
         from app.services.shipping_travel_service import ensure_route_snapshot
@@ -596,7 +639,8 @@ async def start_shipping(
         "total_steps": state.total_steps,
         "waypoints": state.waypoints,
         "route_source": state.route_source,
-        "is_real_route": state.route_source == "neshan",
+        "is_real_route": bool(state.route_snapshot.get("is_real_route", state.route_source == "neshan")),
+        **_route_anchor_metadata(state),
         "anchor_hash": state.anchor_hash,
         "gps_provider": state.gps_provider,
         "provenance": state.provenance,
@@ -628,13 +672,7 @@ async def finish_shipping(
     if state.status != "in_transit":
         raise HTTPException(status_code=409, detail=f"پایان حمل قابل تکرار نیست؛ وضعیت فعلی {state.status} است")
     await _get_job_and_driver(req.job_id, user_context, expected_doc_no=state.doc_no)
-    _assert_route_anchor(
-        latitude=req.latitude,
-        longitude=req.longitude,
-        expected_lat=state.dest_lat,
-        expected_lng=state.dest_lng,
-        label="مقصد",
-    )
+    _assert_state_route_anchor(state, req.latitude, req.longitude, destination=True)
     wait = shipping_wait_reason(state)
     if wait:
         # The structured reason stays server-side; the client gets a sentence.
@@ -821,7 +859,8 @@ async def finish_shipping(
         "measured_distance_km": measured_km,
         "measured_source": "operator_supplied" if req.measured_distance_km else "route_derived",
         "route_source": state.route_source,
-        "is_real_route": state.route_source == "neshan",
+        "is_real_route": bool(state.route_snapshot.get("is_real_route", state.route_source == "neshan")),
+        **_route_anchor_metadata(state),
         "travel_status": state.travel_status,
         "gps_list": state.gps_list,
         "total_points": len(state.gps_list),
@@ -840,7 +879,18 @@ async def get_shipping_status(
         # Try to extract coordinate info from the job for pre-start display
         try:
             info = extract_coordinates_from_payload(payload)
-            duration_hours = round(info["distance_km"] / 65.0, 2)
+            preview: dict[str, Any] = {}
+            if all(info[key] is not None for key in ("origin_lat", "origin_lng", "dest_lat", "dest_lng")):
+                from app.services.route_authority import resolve_route
+
+                preview = await resolve_route(
+                    info["origin_lat"], info["origin_lng"], info["dest_lat"], info["dest_lng"]
+                )
+                if preview.get("road_anchor_verified"):
+                    info["origin_lat"], info["origin_lng"] = preview["origin"]["lat"], preview["origin"]["lng"]
+                    info["dest_lat"], info["dest_lng"] = preview["destination"]["lat"], preview["destination"]["lng"]
+                info["distance_km"] = preview["distance_km"]
+            duration_hours = max(info["distance_km"] / 65.0, float(preview.get("duration_s") or 0) / 3600.0, 1 / 3)
             duration_minutes = int(round(duration_hours * 60))
             duration_text = (
                 f"{int(duration_hours)} ساعت و {duration_minutes % 60} دقیقه"
@@ -849,6 +899,15 @@ async def get_shipping_status(
             )
             return {
                 "status": "not_started",
+                "requested_origin": preview.get("requested_origin"),
+                "requested_destination": preview.get("requested_destination"),
+                "road_anchor_verified": bool(preview.get("road_anchor_verified")),
+                "snap_metadata": preview.get("snap_metadata", {}),
+                "coordinate_source": preview.get("coordinate_source", "map_pin_unverified"),
+                "requires_reselection": bool(preview.get("requires_reselection")),
+                "route_source": preview.get("source", ""),
+                "is_real_route": bool(preview.get("is_real_route")),
+                "route_points": preview.get("points", []),
                 "origin": {
                     "lat": info["origin_lat"],
                     "lng": info["origin_lng"],
@@ -877,7 +936,7 @@ async def get_shipping_status(
             raise HTTPException(status_code=404, detail="اطلاعات حمل یافت نشد") from exc
 
     progress = round((state.traveled_km / max(state.distance_km, 0.01)) * 100, 1) if state.distance_km > 0 else 0
-    duration_hours = round(state.distance_km / 65.0, 2)
+    duration_hours = max(state.distance_km / 65.0, state.route_duration_s / 3600.0, 1 / 3)
     duration_minutes = int(round(duration_hours * 60))
     duration_text = (
         f"{int(duration_hours)} ساعت و {duration_minutes % 60} دقیقه"
@@ -909,14 +968,19 @@ async def get_shipping_status(
         "current_step": state.current_step,
         "total_steps": state.total_steps,
         "waypoints": state.waypoints,
+        "route_points": state.route_snapshot.get("points", []),
         "gps_list": state.gps_list,
         "route_source": state.route_source,
-        "is_real_route": state.route_source == "neshan",
+        "is_real_route": bool(state.route_snapshot.get("is_real_route", state.route_source == "neshan")),
+        **_route_anchor_metadata(state),
         "route_distance_km": state.route_distance_km or state.distance_km,
         "anchor_hash": state.anchor_hash,
         "travel_status": state.travel_status,
         "travel_progress": state.travel_progress,
         "measured_distance_km": state.measured_distance_km or state.distance_km,
+        "distance_source": "route_or_virtual_points",
+        "measured_distance_is_physical": False,
+        "travel_progress_source": "simulation",
         "gps_provider": state.gps_provider,
         "provenance": state.provenance,
     }

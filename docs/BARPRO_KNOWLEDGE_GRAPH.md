@@ -1,16 +1,82 @@
 # گراف دانش مرجع BarPro
 
-> نسخه سند: 2026-10-05 (شامل snapshot تا 2026-10-05؛ بخش‌های snapshot برچسب تاریخی دارند و وضعیت زنده را تضمین نمی‌کنند)
+> نسخه سند: 2026-10-07 (شامل snapshot تا 2026-10-07؛ بخش‌های snapshot برچسب تاریخی دارند و وضعیت زنده را تضمین نمی‌کنند)
 >
 > commit مبنای audit اولیه: 9c472f1
 >
-> آخرین commit کد/رابط کاربری: 2026-10-05 OTP event-driven wake-up, lease locking, clock skew & single-flight attribution (`d5abc0c`)
+> snapshot تاریخی کد/رابط کاربری در 2026-10-05: OTP event-driven wake-up, lease locking, clock skew & single-flight attribution (`d5abc0c`)
 >
-> Alembic head مبنا: 041_driver_plate_tracking_fields
+> Alembic head کد: 042_fuel_request_identity؛ وضعیت دیتابیس production مستقل است.
 >
 > جایگزین tracked برای knowledge graph خارجی قبلی
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
+
+## تکمیل سشن و راستی‌آزمایی مستقل — 2026-10-07
+
+- CODE-VERIFIED: در دو مسیر شروع حمل پس از صدور، خطای مبهم اکنون `unknown`
+  نگه داشته می‌شود؛ شاهد مبدأ ثبت‌شده تولید نمی‌شود و پایان خودکار، حتی با
+  force، مسدود است. کد رهگیری صدور حفظ می‌شود؛ تطبیق نتیجه حمل همچنان لازم است.
+- TEST-VERIFIED: دو تست helper بدون مصرف‌کنندهٔ OTP حذف شدند؛ همان تضمین
+  عدم کلید global و تفکیک گیرنده در مسیر واقعی HTTP/Lua/Redis آزموده شد.
+  refresh پس‌زمینهٔ Clean IP در harness تست ایزوله شد.
+- CODE-VERIFIED / UI-VERIFIED: tileهای CARTO تصویر خطای API key با HTTP 200
+  برمی‌گرداندند؛ دو منبع عمومی OSM جایگزین شدند و کش PWA هماهنگ شد.
+
+- CODE-VERIFIED: هویت تاریخی سوخت/بارنامه، فیلتر راننده/روز، pagination و
+  جداسازی state حساب‌ها با رگرسیون‌های اجرایی بررسی شدند. پاسخ ناموفق حمل
+  موفق نمایش داده نمی‌شود و پاسخ دیررس جای timeline کار دیگر نمی‌نشیند.
+- CODE-VERIFIED: metadata و لاگ CAPTCHA دیگر پاسخ حل‌شده ندارند؛ تست tenant
+  واقعی، پاک‌سازی نشدن OTP مشتری دیگر را با Redis ایزوله اثبات می‌کند.
+- CODE-VERIFIED: Android observer نشان mock را به همان provider محدود می‌کند،
+  mock=false را می‌پذیرد و uptime نامعتبر یا timestamp بسیار آینده را شاهد
+  تازگی نمی‌داند. مختصات انتخابی و endpoint جاده‌ای حفظ می‌شوند؛ fallback مرکز
+  شهر، جایگزین GPS انتخابی نمی‌شود.
+- TEST-VERIFIED: PostgreSQL 16.15 آزمایشی، تمام migrationها تا 042 و برگشت/اجرای
+  مجدد migration042 را اجرا کرد. شواهد نهایی backend/frontend/security و حدود
+  آن‌ها در [گزارش ادامه](audits/2026-10-07/REPORT.fa.md) ثبت شدند: backend برابر
+  2334 passed / 2 skipped، integration برابر8 و frontend برابر55 passed.
+  Ruff/Black/mypy و build وب پاس شدند؛ پوشش statement برابر65.02٪ است.
+- CODE-VERIFIED / ARITH: TTL 900 ثانیه claim هر job، متوسط اشغال قفل Android
+  نیست؛ سقف 1400 حمل/روز از آن نتیجه نمی‌شود. تغییر serial دوم کلید قفل جهانی
+  را مستقل نمی‌کند. compose/android.yml محدودیت حافظهٔ 0.5GB تعیین نکرده است.
+- RUNTIME-VERIFICATION: مسیر کد همچنان apply/readback Android و فراخوانی Python
+  RegisterStart/End است؛ سوییچ به ثبت در UI اپ رسمی یا صحت زندهٔ APK اثبات نشده.
+  Docker، IP/firewall، ظرفیت و ثبت واقعی UTCMS در این ادامه بررسی زنده نشدند.
+  audit کامل frontend به‌دلیل وابستگی dev مربوط به braces همچنان مانع CI است.
+
+## اصلاحات ممیزی و جریان‌های راننده — 2026-10-06 (CODE-VERIFIED)
+
+- CODE-VERIFIED: intake OTP اکنون تنها پیام پایدار ثبت می‌کند؛ گروه Stream از `0`
+  شروع و pendingهای رهاشده را reclaim می‌کند. صدور در `rpa_submit_N` ورکر مالک،
+  با challenge دارای مجوز/سند/egress معتبر، lease مالک‌دار و fence دیتابیس پیش از
+  POST انجام می‌شود. tracking موجود و نتیجه مبهم مجوز ارسال دوباره نیستند.
+  منابع: `otp_delivery.py`، `otp_wakeup_consumer.py`، `waybill_job_service.py`،
+  `otp_keys.py` و `otp_challenge_guard.py`. قرارداد کامل:
+  [چرخه OTP](SMS_FORWARDER_AND_OTP_LIFECYCLE.md).
+- CODE-VERIFIED: `/api/v1/otp/forwarder-config/{driver_id}` راهنمای tenant-scoped
+  بدون secret می‌دهد. احراز هویت query token حذف شد؛ readiness آمادگی intake
+  را از اتصال واقعی گوشی جدا می‌کند. frontend نتیجه accepted را صدور نمی‌نامد.
+- CODE-VERIFIED: تاریخچه بارنامه و سوخت با driver_id و روز تهران در API فیلتر
+  می‌شوند؛ هر استعلام رکورد مستقل دارد و جمع snapshotهای سهمیه حذف شده است.
+  هویت تاریخی fuel هنگام درخواست ذخیره می‌شود؛ داده قدیمی بدون snapshot
+  با پلاک فعلی به‌عنوان واقعیت تاریخی پر نمی‌شود.
+- CODE-VERIFIED: نقشه پوشش محوکننده هنگام geocode ندارد؛ fallback محدود و retry
+  دارد. پین جدید آدرس قبلی را پاک می‌کند. آدرس تقریبی شهری خیابان دقیق نیست.
+  popupها textContent استفاده می‌کنند. درخواست اولیه و نقطه مؤثر خیابان برای
+  GPS جدا نگهداری می‌شوند؛ road snapping محدود و دارای metadata است.
+- CODE-VERIFIED: recovery حمل cursor مرتب برحسب PK دارد تا رکورد آماده پشت
+  ۵۰ ردیف آینده گرسنه نماند. تاریخ‌های گزارش اعتبارسنجی و روزها به تهران
+  تبدیل می‌شوند. وضعیت ETA خراب/نامعلوم باید پیش از پایان حمل بررسی شود.
+- TEST-VERIFIED / حدود: شواهد نسخه مبنا و تست‌های اصلاح در
+  [گزارش 2026-10-06](audits/2026-10-06/REPORT.fa.md) جدا ثبت شده‌اند. اسکن رسمی
+  Codex Security روی `e664e54..6c5564e` دو یافته Medium تأیید کرد؛ سطح عملیاتی
+  P1 در گزارش با شدت امنیتی یکسان نیست. Redis محلی واقعی است؛ UTCMS و broker
+  در تست‌های یکپارچه OTP مصنوعی‌اند. PostgreSQL16، Docker و deployment محلی
+  تأیید نشده‌اند. snapshotهای قبل از این بخش، قرارداد جدید را ثابت نمی‌کنند.
+- CONFIG-TARGET: ارتقا نیازمند migration سوابق fuel و نسخه هماهنگ worker/API است؛
+  worker قدیمی inline OTP باید drain شود. هیچ داده production، مجوز live-submit
+  یا ادعای حرکت واقعی خودرو از این ممیزی حاصل نمی‌شود.
 
 ## سازگاری جامع فورواردر اندروید، دیکود منعطف JSON و فالبک کد ملی راننده — 2026-10-06 (CODE-VERIFIED)
 

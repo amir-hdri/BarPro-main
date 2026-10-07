@@ -27,7 +27,6 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import async_session_factory
-from app.core.jalali import tehran_day_end_utc, tehran_day_start_utc
 from app.models_multitenant import (
     Client,
     Driver,
@@ -36,6 +35,7 @@ from app.models_multitenant import (
     WaybillJob,
 )
 from app.schemas.admin import DriverReportFilter
+from app.services.reporting_dates import parse_report_date_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,7 @@ class AdminReportingService:
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, Any]:
+        start_at, end_at = parse_report_date_bounds(date_from, date_to)
         session = async_session_factory()
         try:
             from sqlalchemy import func
@@ -110,12 +111,10 @@ class AdminReportingService:
                 # NOTE: sqlmodel's select() overloads accept at most four columns, so the
                 # per-client job counts and first/last timestamps are fetched with two queries.
                 job_filters: list[ColumnElement[bool]] = [col(WaybillJob.client_id).in_(client_ids)]
-                if date_from:
-                    dt = tehran_day_start_utc(date_from)
-                    job_filters.append(col(WaybillJob.created_at) >= dt)
-                if date_to:
-                    dt = tehran_day_end_utc(date_to)
-                    job_filters.append(col(WaybillJob.created_at) < dt)
+                if start_at is not None:
+                    job_filters.append(col(WaybillJob.created_at) >= start_at)
+                if end_at is not None:
+                    job_filters.append(col(WaybillJob.created_at) < end_at)
 
                 counts_stmt = (
                     select(
@@ -203,6 +202,7 @@ class AdminReportingService:
         self,
         filters: DriverReportFilter,
     ) -> dict[str, Any]:
+        start_at, end_at = parse_report_date_bounds(filters.date_from, filters.date_to)
         session = async_session_factory()
         try:
             from sqlalchemy import or_
@@ -258,12 +258,10 @@ class AdminReportingService:
 
                 if filters.status:
                     query = query.where(WaybillJob.status == filters.status.strip().lower())
-                if filters.date_from:
-                    dt = tehran_day_start_utc(filters.date_from)
-                    query = query.where(WaybillJob.created_at >= dt)
-                if filters.date_to:
-                    dt = tehran_day_end_utc(filters.date_to)
-                    query = query.where(WaybillJob.created_at < dt)
+                if start_at is not None:
+                    query = query.where(WaybillJob.created_at >= start_at)
+                if end_at is not None:
+                    query = query.where(WaybillJob.created_at < end_at)
                 if filters.operation_type:
                     query = query.where(WaybillJob.source == filters.operation_type)
                 return query
@@ -357,6 +355,7 @@ class AdminReportingService:
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict[str, Any]:
+        start_at, end_at = parse_report_date_bounds(date_from, date_to)
         session = async_session_factory()
         try:
             stmt = select(WaybillJob).where(
@@ -379,12 +378,10 @@ class AdminReportingService:
                     col(DriverPlate.plate_number).contains(plate_number.strip())
                 )
                 stmt = stmt.where(col(WaybillJob.driver_id).in_(p_stmt))
-            if date_from:
-                dt = tehran_day_start_utc(date_from)
-                stmt = stmt.where(WaybillJob.created_at >= dt)
-            if date_to:
-                dt = tehran_day_end_utc(date_to)
-                stmt = stmt.where(WaybillJob.created_at < dt)
+            if start_at is not None:
+                stmt = stmt.where(WaybillJob.created_at >= start_at)
+            if end_at is not None:
+                stmt = stmt.where(WaybillJob.created_at < end_at)
 
             result = await session.exec(stmt)
             failed_jobs = result.all()
@@ -549,6 +546,7 @@ class AdminReportingService:
         date_to: str | None = None,
     ) -> dict[str, Any]:
         """Return detailed report for a specific client using SQL aggregation."""
+        start_at, end_at = parse_report_date_bounds(date_from, date_to)
         client = await session.get(Client, client_id)
         if not client:
             raise HTTPException(status_code=404, detail="Client not found")
@@ -579,22 +577,10 @@ class AdminReportingService:
             func.sum(case((col(WaybillJob.status).in_(failed_statuses), 1), else_=0)).label("failed_jobs"),
         ).where(WaybillJob.client_id == client_id)
 
-        if date_from:
-            try:
-                dt = tehran_day_start_utc(date_from)
-                jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at >= dt)
-            except ValueError:
-                raise HTTPException(
-                    status_code=422, detail=f"Invalid date_from format: '{date_from}'. Use YYYY-MM-DD."
-                ) from None
-        if date_to:
-            try:
-                dt = tehran_day_end_utc(date_to)
-                jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at < dt)
-            except ValueError:
-                raise HTTPException(
-                    status_code=422, detail=f"Invalid date_to format: '{date_to}'. Use YYYY-MM-DD."
-                ) from None
+        if start_at is not None:
+            jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at >= start_at)
+        if end_at is not None:
+            jobs_agg_stmt = jobs_agg_stmt.where(WaybillJob.created_at < end_at)
 
         agg_result = await session.exec(jobs_agg_stmt)
         agg_row = agg_result.one()
@@ -620,12 +606,10 @@ class AdminReportingService:
                 .group_by(col(WaybillJob.driver_id))
             )
 
-            if date_from:
-                dt = tehran_day_start_utc(date_from)
-                driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at >= dt)
-            if date_to:
-                dt = tehran_day_end_utc(date_to)
-                driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at < dt)
+            if start_at is not None:
+                driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at >= start_at)
+            if end_at is not None:
+                driver_agg_stmt = driver_agg_stmt.where(WaybillJob.created_at < end_at)
 
             driver_agg_result = await session.exec(driver_agg_stmt)
             stats_by_driver = {row[0]: row for row in driver_agg_result.all()}
@@ -665,12 +649,10 @@ class AdminReportingService:
             .group_by(col(WaybillJob.error_category))
         )
 
-        if date_from:
-            dt = tehran_day_start_utc(date_from)
-            failure_stmt = failure_stmt.where(WaybillJob.created_at >= dt)
-        if date_to:
-            dt = tehran_day_end_utc(date_to)
-            failure_stmt = failure_stmt.where(WaybillJob.created_at < dt)
+        if start_at is not None:
+            failure_stmt = failure_stmt.where(WaybillJob.created_at >= start_at)
+        if end_at is not None:
+            failure_stmt = failure_stmt.where(WaybillJob.created_at < end_at)
 
         failure_result = await session.exec(failure_stmt)
         failure_reasons = {row[0]: int(row[1]) for row in failure_result.all()}

@@ -18,6 +18,7 @@ lives exclusively in ``AndroidFakeGpsProvider`` / ``AndroidShippingController``.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -32,19 +33,19 @@ _LOCATION_LINE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _LATLON_PAIR = re.compile(r"(?P<lat>-?\d+\.\d+)\s*,\s*(?P<lon>-?\d+\.\d+)")
-_MOCK_HINT = re.compile(r"mock|faketraveler|cl\.coders", re.IGNORECASE)
-# A stock ``dumpsys location`` ALWAYS prints a "Mock Providers:" section header,
-# even when nothing is mocked, so the bare word "mock" must never count as a
-# dump-level signal (it would mark every physical fix as mocked and silently
-# disable the fail-closed anchor gates). Only an explicitly *active* marker --
-# AOSP's "Mocked by <pkg>" line or the FakeTraveler package itself -- qualifies.
-_MOCK_ACTIVE_HINT = re.compile(r"mocked\s*by|faketraveler|cl\.coders", re.IGNORECASE)
+_MOCK_FALSE = re.compile(r"\b(?:mock|isMock)\s*[=:]\s*(?:false|0)\b", re.IGNORECASE)
+_MOCK_HINT = re.compile(r"\b(?:mock|isMock)\s*[=:]\s*(?:true|1)\b|\bmock(?=[\s,\]])", re.IGNORECASE)
+_PROVIDER_HEADER = re.compile(r"^(?P<indent>\s*)(?P<provider>\w+) provider:\s*$", re.IGNORECASE)
+_MOCK_ACTIVE_HINT = re.compile(r"\bmocked\s+by\s+\S+", re.IGNORECASE)
 _AGE_TOKEN = re.compile(r"age[=:]\s*(?P<age>\d+(?:\.\d+)?)\s*s", re.IGNORECASE)
 # ``Location.toString()`` on API 29+ prints the fix's elapsed-realtime stamp as
 # an Android ``TimeUtils.formatDuration`` value, e.g. "et=+1s045ms", "et=+12m3s".
 # It is a time-since-boot, NOT an age: the age is (device uptime - et).
-_ET_TOKEN = re.compile(r"\bet=(?P<sign>[+-]?)(?P<body>[0-9][0-9dhmsu.]*)", re.IGNORECASE)
+_ET_TOKEN = re.compile(r"\bet=(?P<sign>[+-]?)(?P<body>[0-9][0-9dhmsu.]*)(?=\s|\]|$)", re.IGNORECASE)
 _DURATION_PART = re.compile(r"(?P<value>\d+(?:\.\d+)?)(?P<unit>ms|s|m|h|d)", re.IGNORECASE)
+# Match the controller's default 2s readback slack. Only tiny differences
+# between separately observed Android clocks may be rounded to a fresh fix.
+_ELAPSED_CLOCK_TOLERANCE_S = 2.0
 
 
 def _parse_android_duration(body: str) -> float | None:
@@ -55,21 +56,25 @@ def _parse_android_duration(body: str) -> float | None:
     """
     scale = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0, "d": 86400.0}
     total = 0.0
-    matched = False
+    parsed_end = 0
     for part in _DURATION_PART.finditer(body):
+        if part.start() != parsed_end:
+            return None
         total += float(part.group("value")) * scale[part.group("unit").lower()]
-        matched = True
-    return total if matched else None
+        parsed_end = part.end()
+    return total if parsed_end == len(body) and parsed_end > 0 and math.isfinite(total) else None
 
 
 def _parse_uptime_seconds(raw: str) -> float | None:
     """Parse ``/proc/uptime`` ("<uptime> <idle>") into seconds since boot."""
-    for token in (raw or "").split():
-        try:
-            return float(token)
-        except ValueError:
-            continue
-    return None
+    tokens = (raw or "").split()
+    if not tokens:
+        return None
+    try:
+        uptime = float(tokens[0])
+    except ValueError:
+        return None
+    return uptime if math.isfinite(uptime) and uptime >= 0 else None
 
 
 class AdbLocationObserver:
@@ -77,12 +82,10 @@ class AdbLocationObserver:
 
     Strategy (best-effort, fail-closed):
     1. ``dumpsys location`` — parse the last known fix (provider + lat/lon).
-    2. Fall back to ``dumpsys location <package>`` context when needed.
-    3. ``is_mock`` is True when the fix line itself carries a mock marker, or
-       the dump carries an *active* mock marker ("Mocked by <pkg>" / the
-       FakeTraveler package). The stock "Mock Providers:" section header does
-       NOT count — it is present even when nothing is mocked. The provider
-       layer still enforces serial/provider/tolerance checks.
+    2. ``is_mock`` is True when the fix line carries a positive marker, or
+       its own provider section carries "Mocked by <pkg>". Package references
+       and markers belonging to another provider are never evidence for this
+       fix. An explicit ``mock=false`` on the fix always vetoes the marker.
 
     ``max_age_s`` guards staleness. The fix age comes from an explicit
     ``age=…s`` token, or from the ``et=`` elapsed-realtime stamp that
@@ -171,13 +174,26 @@ class AdbLocationObserver:
            returned, so the caller fails closed rather than assuming freshness.
         """
         candidates: list[tuple[str, float, float, bool, float | None]] = []
-        # A genuine mock marker may appear on its OWN line (AOSP prints
-        # "Mocked by <pkg>" outside the fix line), so a dump-level hint must
-        # also count. It must NOT match the bare word "mock", because a stock
-        # dump always contains a "Mock Providers:" section header even when
-        # nothing is mocked — that would mark every physical fix as mocked and
-        # silently disable the fail-closed anchor read-back gates.
-        dump_mock = bool(_MOCK_ACTIVE_HINT.search(dump))
+        if uptime_s is not None and (not math.isfinite(uptime_s) or uptime_s < 0):
+            uptime_s = None
+        # AOSP may print the marker separately under "<name> provider:".
+        # Associate it only with that provider, even when the mock-provider
+        # section appears after the fix. A package mentioned elsewhere is not
+        # proof that any location was produced by a mock provider.
+        mocked_providers: set[str] = set()
+        section_provider: str | None = None
+        section_indent = -1
+        for line in dump.splitlines():
+            header = _PROVIDER_HEADER.match(line)
+            if header:
+                section_provider = header.group("provider").lower()
+                section_indent = len(header.group("indent"))
+            elif line.strip():
+                indent = len(line) - len(line.lstrip())
+                if indent <= section_indent:
+                    section_provider = None
+                if section_provider is not None and _MOCK_ACTIVE_HINT.search(line):
+                    mocked_providers.add(section_provider)
         for line in dump.splitlines():
             # Coordinates, mock marker and age must come from the same fix.
             match = _LOCATION_LINE.search(line)
@@ -199,11 +215,15 @@ class AdbLocationObserver:
                 et_match = _ET_TOKEN.search(line)
                 if et_match and et_match.group("sign") != "-":
                     et_s = _parse_android_duration(et_match.group("body"))
-                    if et_s is not None:
-                        # Clamp: a fix stamped slightly ahead of our uptime read
-                        # (clock granularity) is fresh, not negatively aged.
+                    if et_s is not None and et_s <= uptime_s + _ELAPSED_CLOCK_TOLERANCE_S:
+                        # A small clock-resolution difference is tolerable;
+                        # a future timestamp beyond the bound is no proof of
+                        # freshness and remains unknown for observe() to reject.
                         age_s = max(0.0, uptime_s - et_s)
-            candidates.append((provider, lat, lon, bool(_MOCK_HINT.search(line)) or dump_mock, age_s))
+            is_mock = not _MOCK_FALSE.search(line) and (
+                bool(_MOCK_HINT.search(line)) or provider.lower() in mocked_providers
+            )
+            candidates.append((provider, lat, lon, bool(is_mock), age_s))
         return candidates[-1] if candidates else None
 
     def as_callable(self) -> Any:

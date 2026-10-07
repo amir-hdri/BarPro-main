@@ -134,6 +134,14 @@ def validate_mobile_source_payload(payload: Mapping[str, Any]) -> list[str]:
     )
     if explicit_cost in (None, ""):
         errors.append("کرایه باید صریحاً در payload موبایل وارد شود")
+    for key, label in (("sender", "فرستنده"), ("receiver", "گیرنده")):
+        party = _mapping(payload.get(key))
+        for aliases, field_label in (
+            (("national_code", "nationalCode"), "کد ملی"),
+            (("postal_code", "postalCode"), "کدپستی"),
+        ):
+            if _value(party, *aliases) is None:
+                errors.append(f"{field_label} {label}")
     cargo = _mapping(payload.get("cargo"))
     raw_items = _value(cargo, "items", "load_list", "loadList")
     items = raw_items if isinstance(raw_items, list) else [cargo]

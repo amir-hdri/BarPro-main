@@ -10,9 +10,13 @@ back to a global key.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import re
+import secrets
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -82,36 +86,76 @@ def otp_lookup_keys(job_id: str | None, driver_phone: str | None) -> list[str]:
     return keys
 
 
-async def reserve_otp_issue_lease(redis: Any, job_id: str, *, ttl_seconds: int = 30) -> bool:
-    """Attempt to acquire a single-flight lease to submit OTP for a job.
-
-    Prevents race conditions between polling workers, background event consumers,
-    and manual operators. Returns True if lease acquired, False otherwise.
-    """
+async def reserve_otp_issue_lease(redis: Any, job_id: str, *, ttl_seconds: int = 30) -> str | None:
+    """Acquire an owner-token lease; callers must retain its token for release."""
     if not redis or not job_id:
-        return False
-    lock_key = otp_issue_lock_key(job_id)
+        return None
+    token = secrets.token_hex(24)
     try:
-        res = redis.set(lock_key, "1", nx=True, ex=ttl_seconds)
+        res = redis.set(otp_issue_lock_key(job_id), token, nx=True, ex=ttl_seconds)
         if inspect.isawaitable(res):
             res = await res
-        return bool(res)
+        return token if res else None
     except Exception as exc:
         logger.warning("reserve_otp_issue_lease_failed: %s", exc)
-        return False
+        return None
 
 
-async def release_otp_issue_lease(redis: Any, job_id: str) -> None:
-    """Release the single-flight OTP issue lease for a job."""
-    if not redis or not job_id:
+async def renew_otp_issue_lease(redis: Any, job_id: str, token: str, *, ttl_seconds: int = 30) -> bool:
+    """Only the current owner may extend a lease; a lost lease fails closed."""
+    result = await redis.eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0",
+        1,
+        otp_issue_lock_key(job_id),
+        token,
+        ttl_seconds,
+    )
+    return bool(result)
+
+
+async def release_otp_issue_lease(redis: Any, job_id: str, token: str) -> None:
+    if not redis or not job_id or not token:
         return
-    lock_key = otp_issue_lock_key(job_id)
     try:
-        res = redis.delete(lock_key)
-        if inspect.isawaitable(res):
-            await res
+        await redis.eval(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+            1,
+            otp_issue_lock_key(job_id),
+            token,
+        )
     except Exception as exc:
         logger.warning("release_otp_issue_lease_failed: %s", exc)
+
+
+@asynccontextmanager
+async def maintained_otp_issue_lease(redis: Any, job_id: str) -> AsyncIterator[str]:
+    """Keep ownership live during login/issuance; durable DB fences guard crash ambiguity."""
+    from fastapi import HTTPException
+
+    token = await reserve_otp_issue_lease(redis, job_id)
+    if not token:
+        raise HTTPException(status_code=503, detail="OTP issuance is busy or its lease store is unavailable")
+
+    async def heartbeat() -> None:
+        while True:
+            await asyncio.sleep(10)
+            try:
+                if not await renew_otp_issue_lease(redis, job_id, token):
+                    return
+            except Exception:
+                logger.warning("otp_issue_lease_renewal_failed", exc_info=True)
+                return
+
+    task = asyncio.create_task(heartbeat())
+    try:
+        yield token
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        await release_otp_issue_lease(redis, job_id, token)
 
 
 async def consume_scoped_otp(
@@ -120,37 +164,38 @@ async def consume_scoped_otp(
     job_id: str | None = None,
     driver_phone: str | None = None,
 ) -> int:
-    """Atomically consume and invalidate OTP keys and pending job pointers.
-
-    Called immediately after successful waybill issuance so the OTP cannot be
-    reused for subsequent jobs and stale pending pointers are cleaned up.
-    Returns the number of deleted keys.
-    """
-    if not redis:
+    """Atomically clear this job, without deleting another challenge's phone keys."""
+    if not redis or not job_id:
         return 0
-    keys_to_del: list[str] = []
-    if job_id:
-        keys_to_del.append(otp_job_key(job_id))
-        keys_to_del.append(f"rpa:job:pending_doc:{job_id}")
-    if driver_phone:
-        p_key = otp_phone_key(driver_phone)
-        if p_key:
-            keys_to_del.append(p_key)
-        pending_p = otp_pending_phone_key(driver_phone)
-        if pending_p:
-            keys_to_del.append(pending_p)
-
-    deleted_count = 0
+    script = """
+local removed = redis.call('DEL', KEYS[1], KEYS[2])
+redis.call('SREM', KEYS[3], ARGV[1])
+if KEYS[4] ~= '' then
+    local pending = redis.call('GET', KEYS[5])
+    local raw = redis.call('GET', KEYS[4])
+    if raw then
+        local ok, value = pcall(cjson.decode, raw)
+        if ok and (value.job_id == ARGV[1] or (not value.job_id and pending == ARGV[1])) then
+            removed = removed + redis.call('DEL', KEYS[4])
+        end
+    end
+    if pending == ARGV[1] then removed = removed + redis.call('DEL', KEYS[5]) end
+end
+return removed
+"""
     try:
-        if job_id and hasattr(redis, "srem"):
-            srem_res = redis.srem(OTP_ACTIVE_PENDING_JOBS_SET, job_id)
-            if inspect.isawaitable(srem_res):
-                await srem_res
-        if keys_to_del and hasattr(redis, "delete"):
-            del_res = redis.delete(*keys_to_del)
-            if inspect.isawaitable(del_res):
-                del_res = await del_res
-            deleted_count = int(del_res or 0)
-    except Exception as exc:
-        logger.warning("consume_scoped_otp_failed: %s", exc)
-    return deleted_count
+        return int(
+            await redis.eval(
+                script,
+                5,
+                otp_job_key(job_id),
+                f"rpa:job:pending_doc:{job_id}",
+                OTP_ACTIVE_PENDING_JOBS_SET,
+                otp_phone_key(driver_phone) or "",
+                otp_pending_phone_key(driver_phone) or "",
+                job_id,
+            )
+        )
+    except Exception:
+        logger.warning("consume_scoped_otp_failed", exc_info=True)
+        return 0

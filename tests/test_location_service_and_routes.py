@@ -36,7 +36,16 @@ async def test_haversine_distance():
 
 
 @pytest.mark.asyncio
-async def test_location_service_offline_fallback():
+async def test_location_service_offline_fallback(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    monkeypatch.setattr(
+        "app.services.location_service.aiohttp.ClientSession", MagicMock(side_effect=RuntimeError("offline test"))
+    )
+    monkeypatch.setattr(
+        "app.services.location_service.get_proxy_rotator", lambda: MagicMock(get_next=AsyncMock(return_value=None))
+    )
+    location_service._cache.clear()
     # نقطه دقیق میدان آزادی تهران
     res = await location_service.reverse_geocode(35.6997, 51.3380)
     assert res["success"] is True

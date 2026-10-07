@@ -1,10 +1,14 @@
 'use client';
 
+import { useSession } from '@/hooks/useSession';
+import { sessionQueryKey } from '@/lib/session-query';
+
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 
 import { api } from '@/lib/api';
+import { ProgressBar } from '@/components/ProgressBar';
 import { toPersianDigits } from '@/lib/format';
 import type {
   DriverTrackingItem,
@@ -105,12 +109,7 @@ function TrackingCard({
 
       {target > 0 && (
         <div className="mt-3">
-          <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-            <div
-              className={`h-full rounded-full transition-all ${progress >= 100 ? 'bg-emerald-400' : 'bg-cyan-400'}`}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+          <ProgressBar value={progress} tone={progress >= 100 ? 'emerald' : 'cyan'} label="پیشرفت هدف دوره" />
           <div className="mt-1 text-[11px] text-slate-500">
             {toPersianDigits(progress)}٪ از هدف دوره
           </div>
@@ -185,6 +184,7 @@ function TrackingCard({
 
 export function DriverTrackingPanel({ role }: { role: string | null }) {
   const queryClient = useQueryClient();
+  const { client } = useSession();
   const [savingId, setSavingId] = useState<number | null>(null);
 
   const {
@@ -193,9 +193,9 @@ export function DriverTrackingPanel({ role }: { role: string | null }) {
     isError,
     refetch,
   } = useQuery({
-    queryKey: ['driver-tracking'],
-    queryFn: async () => {
-      const res = await api.get<DriverTrackingResponse>('/api/v1/driver-tracking');
+    queryKey: sessionQueryKey(client, 'driver-tracking'),
+    queryFn: async ({ signal }) => {
+      const res = await api.get<DriverTrackingResponse>('/api/v1/driver-tracking', undefined, { signal });
       if (!res.success || !res.data) {
         throw new Error(res.error || 'خطا در دریافت اطلاعات پیگیری');
       }
@@ -213,7 +213,7 @@ export function DriverTrackingPanel({ role }: { role: string | null }) {
         throw new Error(res.error || 'خطا در ذخیره‌سازی');
       }
       toast.success('ذخیره شد');
-      await queryClient.invalidateQueries({ queryKey: ['driver-tracking'] });
+      await queryClient.invalidateQueries({ queryKey: sessionQueryKey(client, 'driver-tracking') });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'خطا در ذخیره‌سازی');
     } finally {

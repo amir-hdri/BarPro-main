@@ -4,10 +4,10 @@ Pydantic schemas for multi-tenant API requests and responses.
 
 import json
 import re
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.schemas.waybill import (
     CargoModel,
@@ -1088,9 +1088,13 @@ class FuelInquiryResponse(BaseModel):
     screenshot_url: str | None = None
     created_at: datetime
     updated_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
     year: int | None = None
     month: int | None = None
     plate_number: str | None = None
+    plate_source: Literal["request_snapshot", "legacy_unknown"] = "legacy_unknown"
+    driver_name_source: Literal["request_snapshot", "current_driver", "unknown"] = "unknown"
     client_name: str | None = None
     client_code: str | None = None
 
@@ -1098,6 +1102,13 @@ class FuelInquiryResponse(BaseModel):
     @classmethod
     def coerce_quota_data(cls, v: Any) -> Any:
         return _coerce_json_field(v)
+
+    @field_serializer("created_at", "updated_at", "started_at", "finished_at", when_used="json")
+    def serialize_utc_timestamp(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return aware.isoformat().replace("+00:00", "Z")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
