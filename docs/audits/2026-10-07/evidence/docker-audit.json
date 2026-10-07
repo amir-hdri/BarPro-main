@@ -1,0 +1,21 @@
+{
+  "checked_at": "2026-10-07T12:32:44.948446Z",
+  "dockerfile": {
+    "status": "ok",
+    "findings": []
+  },
+  "dockerignore": {
+    "status": "info",
+    "findings": [
+      "Missing ignore: tests"
+    ]
+  },
+  "frontend": {
+    "status": "ok",
+    "findings": []
+  },
+  "compose_limits": {
+    "status": "ok",
+    "findings": []
+  }
+}

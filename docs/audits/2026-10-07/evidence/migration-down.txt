@@ -1,0 +1,3 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running downgrade 042_fuel_request_identity -> 041_driver_plate_tracking_fields, Preserve fuel request identity and execution timestamps without historical guesses.

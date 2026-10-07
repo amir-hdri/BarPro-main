@@ -1,0 +1,55 @@
+
+> frontend@0.1.0 build
+> next build
+
+   ▲ Next.js 15.5.27
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ (pwa) Compiling for server...
+ ✓ (pwa) Compiling for server...
+ ✓ (pwa) Compiling for client (static)...
+ ○ (pwa) Service worker: /Users/amirheidari/GitHub/BarPro-main/apps/web/public/service-worker.js
+ ○ (pwa)   URL: /service-worker.js
+ ○ (pwa)   Scope: /
+ ○ (pwa) Custom runtimeCaching array found, using it to extend the default one.
+ ✓ Compiled successfully in 17.0s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/21) ...
+   Generating static pages (5/21)
+   Generating static pages (10/21)
+   Generating static pages (15/21)
+ ✓ Generating static pages (21/21)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                    8.81 kB         217 kB
+├ ○ /_not-found                            999 B         106 kB
+├ ○ /admin                                 132 B         105 kB
+├ ○ /admin/alerts                        7.01 kB         142 kB
+├ ○ /admin/audit                         3.91 kB         127 kB
+├ ○ /admin/clients                       19.8 kB         156 kB
+├ ○ /admin/dashboard                     5.73 kB         129 kB
+├ ○ /admin/health                        8.16 kB         137 kB
+├ ○ /admin/reports                       9.09 kB         144 kB
+├ ○ /admin/workers                       5.36 kB         140 kB
+├ ○ /auth                                 4.2 kB         133 kB
+├ ○ /batches                             7.19 kB         208 kB
+├ ○ /drivers                             13.7 kB         218 kB
+├ ○ /fuel                                11.3 kB         216 kB
+├ ○ /history                             15.6 kB         212 kB
+├ ○ /new                                 17.9 kB         236 kB
+├ ○ /reports                             7.09 kB         199 kB
+├ ○ /route-templates                     6.28 kB         207 kB
+└ ○ /settings                            5.38 kB         197 kB
++ First Load JS shared by all             105 kB
+  ├ chunks/4696-17115b08e19721db.js      48.8 kB
+  ├ chunks/4bd1b696-f785427dddbba9fb.js  54.2 kB
+  └ other shared chunks (total)          2.05 kB
+
+
+ƒ Middleware                             34.5 kB
+
+○  (Static)  prerendered as static content

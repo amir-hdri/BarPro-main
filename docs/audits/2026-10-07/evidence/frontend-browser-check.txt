@@ -1,0 +1,24 @@
+{
+  "actual_login_after_session_boundary": true,
+  "tehran_date_driver_filter_and_pagination": true,
+  "late_timeline_cannot_replace_new_selection": true,
+  "rejected_start_and_effective_road_coordinate": true,
+  "rejected_finish_and_effective_road_coordinate": true,
+  "unverified_road_disables_start": true,
+  "map_tiles": {
+    "loaded": 2,
+    "mapFilter": "none",
+    "markers": 4,
+    "sources": [
+      "tile.openstreetmap.de"
+    ]
+  },
+  "shipping_mobile_overflow": true,
+  "same_page_account_switch_clears_local_dialog_and_tenant_data": true,
+  "fuel_mobile": {
+    "overflow": false,
+    "dateFont": "16px"
+  },
+  "independent_fuel_records_on_selected_day": 20,
+  "page_errors": []
+}

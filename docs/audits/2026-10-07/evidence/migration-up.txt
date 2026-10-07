@@ -1,0 +1,47 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 001_initial, Initial migration - create bot_stats and waybill_tasks tables
+INFO  [alembic.runtime.migration] Running upgrade 001_initial -> 002_phase1_rpa_backend, Phase 1 multi-tenant hybrid RPA backend schema.
+INFO  [alembic.runtime.migration] Running upgrade 002_phase1_rpa_backend -> 003_waybill_job_corr_id, add correlation_id to waybill_jobs for batch tracking
+INFO  [alembic.runtime.migration] Running upgrade 003_waybill_job_corr_id -> 004_otp_backoff_tz, add otp_backoff status and timezone-aware next_retry_at
+INFO  [alembic.runtime.migration] Running upgrade 004_otp_backoff_tz -> 005_fix_constraint_conflicts, Fix constraint name conflicts between legacy tables. This migration is idempotent.
+INFO  [alembic.runtime.migration] Running upgrade 005_fix_constraint_conflicts -> 006_add_performance_indexes, Add performance indexes for common queries.
+INFO  [alembic.runtime.migration] Running upgrade 006_add_performance_indexes -> 007_add_multi_level_system, add multi-level system tables
+INFO  [alembic.runtime.migration] Running upgrade 007_add_multi_level_system -> 008_add_sched_id_waybill_jobs, add schedule_id and scheduled_by to waybill_jobs
+INFO  [alembic.runtime.migration] Running upgrade 008_add_sched_id_waybill_jobs -> 009_add_access_level, add access_level to clients
+INFO  [alembic.runtime.migration] Running upgrade 009_add_access_level -> 010_add_missing_columns, add missing columns + fix driver_schedules schema drift
+INFO  [alembic.runtime.migration] Running upgrade 010_add_missing_columns -> 011_add_driver_plates, add driver plates table
+INFO  [alembic.runtime.migration] Running upgrade 011_add_driver_plates -> 3ef63013cff9, add client limits
+INFO  [alembic.runtime.migration] Running upgrade 3ef63013cff9 -> 4a5b6c7d8e9f, ensure max_plates column exists in clients table
+INFO  [alembic.runtime.migration] Running upgrade 4a5b6c7d8e9f -> 5b6c7d8e9f0a, add fuel inquiries table
+INFO  [alembic.runtime.migration] Running upgrade 5b6c7d8e9f0a -> 012_add_optimization_indexes, Add performance indexes for waybill_jobs queries.
+INFO  [alembic.runtime.migration] Running upgrade 012_add_optimization_indexes -> 013_add_admin_driver_schedules, add admin_driver_schedules table
+INFO  [alembic.runtime.migration] Running upgrade 013_add_admin_driver_schedules -> 014_add_year_month_fuel, add year and month to fuel inquiries
+INFO  [alembic.runtime.migration] Running upgrade 014_add_year_month_fuel -> 015_add_client_sub_dates, add client subscription dates
+INFO  [alembic.runtime.migration] Running upgrade 015_add_client_sub_dates -> 016_add_optimization_indexes, add optimization indexes for waybill_jobs
+INFO  [alembic.runtime.migration] Running upgrade 016_add_optimization_indexes -> 017_fix_runtime_state_client_id, fix runtime state and job client_id consistency
+INFO  [alembic.runtime.migration] Running upgrade 017_fix_runtime_state_client_id -> 018_fuel_inquiry_active_unique, enforce one active fuel inquiry per driver and period
+INFO  [alembic.runtime.migration] Running upgrade 018_fuel_inquiry_active_unique -> 019_json_text_to_jsonb, Migrate JSON text columns to PostgreSQL JSONB and add FK constraints.
+INFO  [alembic.runtime.migration] Running upgrade 019_json_text_to_jsonb -> 020_dispatch_intents, create dispatch_intents table
+INFO  [alembic.runtime.migration] Running upgrade 020_dispatch_intents -> 021_worker_registry, create worker_registry table
+INFO  [alembic.runtime.migration] Running upgrade 021_worker_registry -> 022_executions, create executions table
+INFO  [alembic.runtime.migration] Running upgrade 022_executions -> 023_driver_active_slot, add active_execution_id to driver_runtime_states and index
+INFO  [alembic.runtime.migration] Running upgrade 023_driver_active_slot -> 024_admin_alerts, create admin_alerts table with dedupe_key unique index
+INFO  [alembic.runtime.migration] Running upgrade 024_admin_alerts -> 025_auth_lock_coherency, add auth lock columns to driver_runtime_states
+INFO  [alembic.runtime.migration] Running upgrade 025_auth_lock_coherency -> 026_error_category_backfill, backfill error_category in waybill_jobs table
+INFO  [alembic.runtime.migration] Running upgrade 026_error_category_backfill -> 027_add_fuel_inquiry_error_category, add error_category to fuel_inquiries
+INFO  [alembic.runtime.migration] Running upgrade 027_add_fuel_inquiry_error_category -> 028_submission_unconfirmed_category, normalize unconfirmed submission error categories
+INFO  [alembic.runtime.migration] Running upgrade 028_submission_unconfirmed_category -> 029, Add optimization indexes for waybill_jobs table.
+INFO  [alembic.runtime.migration] Running upgrade 029 -> 030, include 'running' in the active fuel inquiry unique period
+INFO  [alembic.runtime.migration] Running upgrade 030 -> 031, Add submission_fingerprint to waybill_jobs
+INFO  [alembic.runtime.migration] Running upgrade 031 -> 032_worker_registry_ip_index, add ip_index to worker_registry for dead-worker routing filter
+INFO  [alembic.runtime.migration] Running upgrade 032_worker_registry_ip_index -> 033_utcms_submission_gate_and_job_mutation, add utcms_system_observations and waybill_jobs mutation tracking
+INFO  [alembic.runtime.migration] Running upgrade 033_utcms_submission_gate_and_job_mutation -> 034_night_submission_standby, add durable UTCMS night submission attempt counters
+INFO  [alembic.runtime.migration] Running upgrade 034_night_submission_standby -> 035_location_favorites, add location_favorites table for client saved addresses
+INFO  [alembic.runtime.migration] Running upgrade 035_location_favorites -> 036_management_tables_and_activity_logs_fix, Add updated_at to activity_logs and create managed tables
+INFO  [alembic.runtime.migration] Running upgrade 036_management_tables_and_activity_logs_fix -> 037_widen_status_columns, Widen status columns across PostgreSQL tables to VARCHAR(50)
+INFO  [alembic.runtime.migration] Running upgrade 037_widen_status_columns -> 038_add_multiroute_batch_distance, Add multi-route batch + route-template tables and distance/time columns.
+INFO  [alembic.runtime.migration] Running upgrade 038_add_multiroute_batch_distance -> 039_add_route_chain_scheduling, Add ordered route-chain scheduling flag to waybill batches.
+INFO  [alembic.runtime.migration] Running upgrade 039_add_route_chain_scheduling -> 040_add_route_template_polyline, Add road polyline snapshot to waybill route templates (Phase 16).
+INFO  [alembic.runtime.migration] Running upgrade 040_add_route_template_polyline -> 041_driver_plate_tracking_fields, Add driver-tracking fields to driver_plates (target count, round-trip, in-transport).
+INFO  [alembic.runtime.migration] Running upgrade 041_driver_plate_tracking_fields -> 042_fuel_request_identity, Preserve fuel request identity and execution timestamps without historical guesses.

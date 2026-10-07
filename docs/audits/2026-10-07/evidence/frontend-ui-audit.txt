@@ -1,0 +1,1 @@
+UI/UX Audit passed. Output written to: /tmp/barpro-resume-20261007-frontend/ui-audit.json

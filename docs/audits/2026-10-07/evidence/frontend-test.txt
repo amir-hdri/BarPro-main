@@ -1,0 +1,289 @@
+
+> frontend@0.1.0 test
+> tsx --test test/*.test.mjs
+
+TAP version 13
+# Subtest: copy succeeds only after the asynchronous clipboard write resolves
+ok 1 - copy succeeds only after the asynchronous clipboard write resolves
+  ---
+  duration_ms: 1.32025
+  ...
+# Subtest: HTTP without Clipboard API uses the legacy copy path
+ok 2 - HTTP without Clipboard API uses the legacy copy path
+  ---
+  duration_ms: 0.112042
+  ...
+# Subtest: permission rejection tries fallback and never claims success if both fail
+ok 3 - permission rejection tries fallback and never claims success if both fail
+  ---
+  duration_ms: 0.402208
+  ...
+# Subtest: a timed-out inquiry is not restarted when its pending record refreshes
+ok 4 - a timed-out inquiry is not restarted when its pending record refreshes
+  ---
+  duration_ms: 0.514875
+  ...
+# Subtest: automatic observation neither interrupts another inquiry nor restarts a terminal one
+ok 5 - automatic observation neither interrupts another inquiry nor restarts a terminal one
+  ---
+  duration_ms: 0.078334
+  ...
+# Subtest: metadata beats conflicting flat and top-level pins
+ok 6 - metadata beats conflicting flat and top-level pins
+  ---
+  duration_ms: 2.053709
+  ...
+# Subtest: top-level beats legacy flat pins
+ok 7 - top-level beats legacy flat pins
+  ---
+  duration_ms: 0.106333
+  ...
+# Subtest: partial pairs never combine different sources
+ok 8 - partial pairs never combine different sources
+  ---
+  duration_ms: 0.063333
+  ...
+# Subtest: invalid selected metadata does not reuse a stale flat pin
+ok 9 - invalid selected metadata does not reuse a stale flat pin
+  ---
+  duration_ms: 0.052459
+  ...
+# Subtest: partial selected metadata does not reuse a stale flat pin
+ok 10 - partial selected metadata does not reuse a stale flat pin
+  ---
+  duration_ms: 0.14925
+  ...
+# Subtest: malformed selected coordinate object blocks fallback
+ok 11 - malformed selected coordinate object blocks fallback
+  ---
+  duration_ms: 0.05
+  ...
+# Subtest: invalid flat pins are rejected
+ok 12 - invalid flat pins are rejected
+  ---
+  duration_ms: 0.046
+  ...
+# Subtest: nulls and blanks are not zero coordinates
+ok 13 - nulls and blanks are not zero coordinates
+  ---
+  duration_ms: 0.259166
+  ...
+# Subtest: zero latitude is preserved
+ok 14 - zero latitude is preserved
+  ---
+  duration_ms: 0.127875
+  ...
+# Subtest: null island is rejected
+ok 15 - null island is rejected
+  ---
+  duration_ms: 0.142916
+  ...
+# Subtest: legacy section pins remain supported
+ok 16 - legacy section pins remain supported
+  ---
+  duration_ms: 0.069916
+  ...
+# Subtest: JSON metadata uses the same priority
+ok 17 - JSON metadata uses the same priority
+  ---
+  duration_ms: 0.063542
+  ...
+# Subtest: non-object metadata is ignored
+ok 18 - non-object metadata is ignored
+  ---
+  duration_ms: 0.052084
+  ...
+# Subtest: boolean coordinates are not numbers
+ok 19 - boolean coordinates are not numbers
+  ---
+  duration_ms: 0.1
+  ...
+# Subtest: empty canonical section takes precedence over alias
+ok 20 - empty canonical section takes precedence over alias
+  ---
+  duration_ms: 0.050291
+  ...
+# Subtest: invalid canonical section falls back to object alias
+ok 21 - invalid canonical section falls back to object alias
+  ---
+  duration_ms: 0.163542
+  ...
+# Subtest: Persian and Arabic decimal digits normalize consistently
+ok 22 - Persian and Arabic decimal digits normalize consistently
+  ---
+  duration_ms: 0.168416
+  ...
+# Subtest: hexadecimal and underscore numeric strings are rejected
+ok 23 - hexadecimal and underscore numeric strings are rejected
+  ---
+  duration_ms: 0.184292
+  ...
+# Subtest: decimal exponents and signs are accepted
+ok 24 - decimal exponents and signs are accepted
+  ---
+  duration_ms: 0.2425
+  ...
+# Subtest: nonfinite coordinates are rejected
+ok 25 - nonfinite coordinates are rejected
+  ---
+  duration_ms: 0.0685
+  ...
+# Subtest: nullish pins are rejected
+ok 26 - nullish pins are rejected
+  ---
+  duration_ms: 0.477917
+  ...
+# Subtest: out-of-range and zero pins are rejected
+ok 27 - out-of-range and zero pins are rejected
+  ---
+  duration_ms: 0.159958
+  ...
+# Subtest: real pins are accepted
+ok 28 - real pins are accepted
+  ---
+  duration_ms: 0.05975
+  ...
+# Subtest: anchor extraction reads metadata coordinates for new-form jobs
+ok 29 - anchor extraction reads metadata coordinates for new-form jobs
+  ---
+  duration_ms: 0.463375
+  ...
+# Subtest: anchor extraction stays null for legacy jobs without pins
+ok 30 - anchor extraction stays null for legacy jobs without pins
+  ---
+  duration_ms: 0.065084
+  ...
+# Subtest: metadata coordinates take precedence over flat keys
+ok 31 - metadata coordinates take precedence over flat keys
+  ---
+  duration_ms: 0.062041
+  ...
+# Subtest: map receives full saved addresses rather than city labels
+ok 32 - map receives full saved addresses rather than city labels
+  ---
+  duration_ms: 1.602125
+  ...
+# Subtest: legacy addresses remain supported while object-valued addresses are rejected
+ok 33 - legacy addresses remain supported while object-valued addresses are rejected
+  ---
+  duration_ms: 0.245375
+  ...
+# Subtest: failed providers are tried once and expose retry instead of an endless grey map
+ok 34 - failed providers are tried once and expose retry instead of an endless grey map
+  ---
+  duration_ms: 2.302125
+  ...
+# Subtest: late events from a replaced or disposed layer cannot change displayed status
+ok 35 - late events from a replaced or disposed layer cannot change displayed status
+  ---
+  duration_ms: 0.611834
+  ...
+# Subtest: plate canonicalization with persian digits
+ok 36 - plate canonicalization with persian digits
+  ---
+  duration_ms: 2.257459
+  ...
+# Subtest: digits normalization
+ok 37 - digits normalization
+  ---
+  duration_ms: 0.1595
+  ...
+# Subtest: parsePlateString with various formats
+ok 38 - parsePlateString with various formats
+  ---
+  duration_ms: 1.573792
+  ...
+# Subtest: formatPlatePartsToString and empty state handling
+ok 39 - formatPlatePartsToString and empty state handling
+  ---
+  duration_ms: 0.680458
+  ...
+# Subtest: english keyboard key mapping to persian plate letters
+ok 40 - english keyboard key mapping to persian plate letters
+  ---
+  duration_ms: 0.262708
+  ...
+# Subtest: driver + day filter uses exact ID and both inclusive Tehran day boundaries
+ok 41 - driver + day filter uses exact ID and both inclusive Tehran day boundaries
+  ---
+  duration_ms: 0.814375
+  ...
+# Subtest: Tehran midnight crosses the UTC date and naive API timestamps are UTC
+ok 42 - Tehran midnight crosses the UTC date and naive API timestamps are UTC
+  ---
+  duration_ms: 42.189333
+  ...
+# Subtest: range and plate inputs retain canonical server contract
+ok 43 - range and plate inputs retain canonical server contract
+  ---
+  duration_ms: 0.776542
+  ...
+# Subtest: driver links preserve the selected identity and date without accepting malformed IDs
+ok 44 - driver links preserve the selected identity and date without accepting malformed IDs
+  ---
+  duration_ms: 0.647083
+  ...
+# Subtest: fresh sensitive cache from account A is never served as account B
+ok 45 - fresh sensitive cache from account A is never served as account B
+  ---
+  duration_ms: 3.136084
+  ...
+# Subtest: sign-out cancels an in-flight request and does not let it refill sensitive cache
+ok 46 - sign-out cancels an in-flight request and does not let it refill sensitive cache
+  ---
+  duration_ms: 0.774125
+  ...
+# Subtest: admin and anonymous cache keys cannot overlap a tenant key
+ok 47 - admin and anonymous cache keys cannot overlap a tenant key
+  ---
+  duration_ms: 0.1175
+  ...
+# Subtest: rejected shipping requests preserve the API error and never acknowledge success
+ok 48 - rejected shipping requests preserve the API error and never acknowledge success
+  ---
+  duration_ms: 0.864084
+  ...
+# Subtest: shipping requires the exact acknowledged operation, including on HTTP 200
+ok 49 - shipping requires the exact acknowledged operation, including on HTTP 200
+  ---
+  duration_ms: 0.209167
+  ...
+# Subtest: acknowledged dict result with tracking_received + code
+ok 50 - acknowledged dict result with tracking_received + code
+  ---
+  duration_ms: 1.597708
+  ...
+# Subtest: acknowledged JSON-string result
+ok 51 - acknowledged JSON-string result
+  ---
+  duration_ms: 0.10975
+  ...
+# Subtest: missing code is not acknowledged
+ok 52 - missing code is not acknowledged
+  ---
+  duration_ms: 0.102125
+  ...
+# Subtest: confirmed_by_history is not merely acknowledged
+ok 53 - confirmed_by_history is not merely acknowledged
+  ---
+  duration_ms: 0.057167
+  ...
+# Subtest: missing confirmation_status is not acknowledged
+ok 54 - missing confirmation_status is not acknowledged
+  ---
+  duration_ms: 0.059666
+  ...
+# Subtest: confirmedTrackingCode stays strict (three witnesses)
+ok 55 - confirmedTrackingCode stays strict (three witnesses)
+  ---
+  duration_ms: 0.061333
+  ...
+1..55
+# tests 55
+# suites 0
+# pass 55
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1242.512917

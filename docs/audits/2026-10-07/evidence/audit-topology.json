@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "topology": "model-b-scale-out",
+  "proxy_profiles": {
+    "squid_1": [],
+    "squid_2": [
+      "model-a"
+    ],
+    "squid_3": [
+      "model-a"
+    ]
+  },
+  "available_ip_indices": "1,2,3",
+  "findings": []
+}
