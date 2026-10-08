@@ -10,8 +10,11 @@ import re
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.core.distance import estimate_time, road_estimate
+
+TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -40,6 +43,27 @@ def _required_alias(mapping: Mapping[str, Any], keys: tuple[str, ...], label: st
     return value
 
 
+def _normalize_digits(val: Any) -> str:
+    """Normalize Persian and Arabic digits and strip whitespace."""
+    text = str(val or "").strip()
+    for idx, digit in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+        text = text.replace(digit, str(idx))
+    for idx, digit in enumerate("٠١٢٣٤٥٦٧٨٩"):
+        text = text.replace(digit, str(idx))
+    return text.replace(" ", "")
+
+
+def _to_int(val: Any, default: Any = 0) -> Any:
+    """Safely convert numeric string (including Persian digits and commas) to int."""
+    if val is None:
+        return default
+    try:
+        clean = _normalize_digits(val).replace(",", "").replace("،", "")
+        return int(float(clean))
+    except (ValueError, TypeError):
+        return val
+
+
 def _party_payload(party: Mapping[str, Any], label: str) -> dict[str, Any]:
     is_company = bool(_value(party, "is_company", "isCompany")) or str(
         _value(party, "entity_type", "type") or ""
@@ -57,10 +81,10 @@ def _party_payload(party: Mapping[str, Any], label: str) -> dict[str, Any]:
         "isCompany": is_company,
         "firstName": _required_alias({"value": first_name}, ("value",), f"نام {label}"),
         "lastName": str(last_name or "").strip(),
-        "nationalCode": _required_alias(party, ("national_code", "nationalCode"), f"کد ملی {label}"),
-        "mobile": _required_alias(party, ("phone", "mobile", "mobile_no"), f"موبایل {label}"),
-        "postalCode": _required_alias(party, ("postal_code", "postalCode"), f"کدپستی {label}"),
-        "telNumber": str(_value(party, "landline", "tel_number", "telNumber", "phone_number") or "").strip(),
+        "nationalCode": _normalize_digits(_required_alias(party, ("national_code", "nationalCode"), f"کد ملی {label}")),
+        "mobile": _normalize_digits(_required_alias(party, ("phone", "mobile", "mobile_no"), f"موبایل {label}")),
+        "postalCode": _normalize_digits(_required_alias(party, ("postal_code", "postalCode"), f"کدپستی {label}")),
+        "telNumber": _normalize_digits(str(_value(party, "landline", "tel_number", "telNumber", "phone_number") or "").strip()),
     }
 
 
@@ -80,7 +104,7 @@ def _location_payload(location: Mapping[str, Any], label: str) -> dict[str, Any]
         "stateName": province,
         "cityName": city,
         "address": _required_alias(location, ("address",), f"آدرس {label}"),
-        "postalCode": _required_alias(location, ("postal_code", "postalCode"), f"کدپستی {label}"),
+        "postalCode": _normalize_digits(_required_alias(location, ("postal_code", "postalCode"), f"کدپستی {label}")),
         "lat": _required_alias({"value": lat}, ("value",), f"عرض جغرافیایی {label}"),
         "lon": _required_alias({"value": lon}, ("value",), f"طول جغرافیایی {label}"),
     }
@@ -101,7 +125,8 @@ def _load_items(cargo: Mapping[str, Any]) -> list[dict[str, Any]]:
         item = _mapping(raw_item)
         raw_weight = _required_alias(item, ("weight", "wheight"), f"وزن محموله {index}")
         try:
-            w_val = float(str(raw_weight).replace(",", ""))
+            clean_w = _normalize_digits(raw_weight).replace(",", "").replace("،", "")
+            w_val = float(clean_w)
             if w_val > 100:  # If entered in kg, convert to tons (UTCMS uses tons)
                 w_val = round(w_val / 1000.0, 3)
             weight_val = w_val if w_val % 1 != 0 else int(w_val)
@@ -109,12 +134,12 @@ def _load_items(cargo: Mapping[str, Any]) -> list[dict[str, Any]]:
             weight_val = raw_weight
         result.append(
             {
-                "productId": _required_alias(item, ("product_id", "productId"), f"شناسه کالا در محموله {index}"),
+                "productId": _to_int(_required_alias(item, ("product_id", "productId"), f"شناسه کالا در محموله {index}")),
                 # ``wheight`` is the misspelled key used by the APK DTO.
                 "wheight": weight_val,
-                "packTypeId": _required_alias(item, ("pack_type_id", "packTypeId"), f"شناسه بسته‌بندی محموله {index}"),
+                "packTypeId": _to_int(_required_alias(item, ("pack_type_id", "packTypeId"), f"شناسه بسته‌بندی محموله {index}")),
                 "description": str(_value(item, "description") or "").strip(),
-                "boxNum": _required_alias(item, ("count", "box_num", "boxNum"), f"تعداد بسته در محموله {index}"),
+                "boxNum": _to_int(_required_alias(item, ("count", "box_num", "boxNum"), f"تعداد بسته در محموله {index}")),
             }
         )
     return result
@@ -219,7 +244,7 @@ def build_mobile_document_payload(
     if not is_draft and not str(cap_token or "").strip():
         raise ValueError("CAPTCHA صدور برای سند نهایی transport موبایل الزامی است")
 
-    rent = _required_alias(financial, ("cost", "fare", "rent"), "کرایه")
+    rent = _to_int(_required_alias(financial, ("cost", "fare", "rent"), "کرایه"))
     insurance = _mapping(payload.get("insurance"))
     if not insurance:
         raise ValueError("اطلاعات بیمه برای transport موبایل الزامی است")
@@ -267,9 +292,10 @@ def build_mobile_document_payload(
         or raw_tag_type == 2
     )
 
-    bearing_cost = _value(financial, "bearing_cost", "bearingCost")
-    pre_rent = _value(financial, "pre_rent", "preRent")
-    post_rent = _value(financial, "post_rent", "postRent")
+    bearing_cost = _to_int(_value(financial, "bearing_cost", "bearingCost"), default=0)
+    pre_rent = _to_int(_value(financial, "pre_rent", "preRent"), default=0)
+    raw_post_rent = _value(financial, "post_rent", "postRent")
+    post_rent = _to_int(raw_post_rent, default=rent) if raw_post_rent is not None else rent
     fuel_type = _value(shipping, "fuel_type") or _value(payload, "fuel_type") or 1
     send_sms = bool(_value(shipping, "send_sms", "sendSMS") or _value(payload, "send_sms", "sendSMS") or False)
 
@@ -293,7 +319,7 @@ def build_mobile_document_payload(
         "destination": _location_payload(destination, "مقصد"),
         "sender": _party_payload(sender, "فرستنده"),
         "receiver": _party_payload(receiver, "گیرنده"),
-        "driverNationalCode": _required_alias(vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده"),
+        "driverNationalCode": _normalize_digits(_required_alias(vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده")),
         "truck": {
             "tagType": tag_type_bool,
             "t1": str(_required_alias({"value": t1}, ("value",), "بخش اول پلاک (کد ایران)")),
@@ -309,7 +335,7 @@ def build_mobile_document_payload(
             "haveInsurance": bool(_value(insurance, "have_insurance", "haveInsurance")),
             "insuranceCover": insurance_cover_bool,
         },
-        "value": _required_alias(cargo, ("value", "approximate_value", "approximateValueOfLoad"), "ارزش کالا"),
+        "value": _to_int(_required_alias(cargo, ("value", "approximate_value", "approximateValueOfLoad"), "ارزش کالا")),
         "bearingCost": bearing_cost if bearing_cost is not None else 0,
         "rent": rent,
         "preRent": pre_rent if pre_rent is not None else 0,
@@ -320,15 +346,17 @@ def build_mobile_document_payload(
     }
     declared_time = _value(payload, "self_declared_time_of_start_shipment", "selfDeclaredTimeOfStartShipment")
     if not declared_time:
-        declared_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        declared_time = datetime.now(TEHRAN_TZ).strftime("%Y-%m-%dT%H:%M:%S")
     body["selfDeclaredTimeOfStartShipment"] = str(declared_time)
 
     estimated_end = _value(payload, "estimated_time_of_end_shipment", "estimatedTimeOfEndShipment")
     if not estimated_end:
         try:
             start_dt = datetime.fromisoformat(str(declared_time))
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=TEHRAN_TZ)
         except Exception:
-            start_dt = datetime.now()
+            start_dt = datetime.now(TEHRAN_TZ)
 
         # Calculate duration based on distance if coordinates exist
         s_lat = body.get("source", {}).get("lat")

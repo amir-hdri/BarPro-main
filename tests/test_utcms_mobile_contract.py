@@ -734,3 +734,85 @@ async def test_mobile_refresh_uses_get_with_query_param():
     auth = await client.refresh("test-refresh-token")
     assert auth.token == "new-access-token"
     assert auth.refresh_token == "new-refresh-token"
+
+
+@pytest.mark.asyncio
+async def test_mobile_client_async_context_manager_session_reuse():
+    """Verify UtcmsMobileClient supports async context manager and session lifecycle."""
+    mock_session = AsyncMock()
+    mock_session.close = AsyncMock()
+
+    with patch("curl_cffi.requests.AsyncSession", return_value=mock_session):
+        client = UtcmsMobileClient(base_url="https://example.invalid")
+        assert client._http_client is None
+        async with client as managed:
+            assert managed is client
+            assert client._http_client is mock_session
+            assert client._owns_session is True
+
+        assert client._http_client is None
+        assert client._owns_session is False
+        mock_session.close.assert_awaited_once()
+
+
+def test_mobile_payload_persian_digits_normalization():
+    """Verify Persian/Arabic digits in party and vehicle fields are strictly converted to ASCII digits."""
+    payload = _payload()
+    payload["sender"]["national_code"] = "۰۰۸۴۵۷۵۹۴۸"
+    payload["sender"]["phone"] = "۰۹۱۲۳۴۵۶۷۸۹"
+    payload["sender"]["postal_code"] = "۱۱۱۱۱۱۱۱۱۱"
+    payload["receiver"]["national_code"] = "۰۰۱۲۳۴۵۶۷۸"
+    payload["receiver"]["phone"] = "۰۹۳۳۳۷۰۲۱۳۷"
+    payload["receiver"]["postal_code"] = "۲۲۲۲۲۲۲۲۲۲"
+    payload["vehicle"]["driver_national_code"] = "۰۰۸۴۵۷۵۹۴۸"
+
+    body = build_mobile_document_payload(payload, token="tok", cap_token="cap")
+    assert body["sender"]["nationalCode"] == "0084575948"
+    assert body["sender"]["mobile"] == "09123456789"
+    assert body["sender"]["postalCode"] == "1111111111"
+    assert body["receiver"]["nationalCode"] == "0012345678"
+    assert body["receiver"]["mobile"] == "09333702137"
+    assert body["receiver"]["postalCode"] == "2222222222"
+    assert body["driverNationalCode"] == "0084575948"
+
+
+def test_mobile_payload_tehran_timezone_default():
+    """Verify selfDeclaredTimeOfStartShipment uses Tehran timezone."""
+    from zoneinfo import ZoneInfo
+    payload = _payload()
+    payload.pop("self_declared_time_of_start_shipment", None)
+
+    tehran_now = datetime.now(ZoneInfo("Asia/Tehran"))
+    body = build_mobile_document_payload(payload, token="tok", cap_token="cap")
+    parsed_time = datetime.fromisoformat(body["selfDeclaredTimeOfStartShipment"])
+
+    # Difference between declared start time and current Tehran time should be under 2 seconds
+    diff_seconds = abs((parsed_time - tehran_now.replace(tzinfo=None)).total_seconds())
+    assert diff_seconds < 5.0
+
+
+def test_mobile_payload_financial_and_cargo_numeric_resilience():
+    """Verify financial and cargo values handle Persian digits, commas, and string formatting."""
+    payload = _payload()
+    payload["financial"]["cost"] = "۵,۲۵۰,۰۰۰"
+    payload["financial"]["bearing_cost"] = "۱۵۰,۰۰۰"
+    payload["financial"]["pre_rent"] = "۱,۰۰۰,۰۰۰"
+    payload["financial"]["post_rent"] = "۴,۲۵۰,۰۰۰"
+    payload["cargo"]["value"] = "۲۵۰,۰۰۰,۰۰۰"
+    payload["cargo"]["count"] = "۲۵"
+    payload["cargo"]["product_id"] = "۱۷"
+    payload["cargo"]["pack_type_id"] = "۳"
+    payload["cargo"]["weight"] = "۲,۵۰۰"
+
+    body = build_mobile_document_payload(payload, token="tok", cap_token="cap")
+    assert body["rent"] == 5250000
+    assert body["bearingCost"] == 150000
+    assert body["preRent"] == 1000000
+    assert body["postRent"] == 4250000
+    assert body["value"] == 250000000
+    assert body["load"][0]["boxNum"] == 25
+    assert body["load"][0]["productId"] == 17
+    assert body["load"][0]["packTypeId"] == 3
+    assert body["load"][0]["wheight"] == 2.5  # 2500 kg converted to 2.5 tons
+
+

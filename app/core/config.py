@@ -160,14 +160,20 @@ class UTCMSConfig:
         # injected into the Playwright context and the rest of the RPA
         # flow continues with a valid session. Disable for diagnosis.
         self.UTCMS_HTTP_LOGIN_ENABLED = _to_bool(os.getenv("UTCMS_HTTP_LOGIN_ENABLED", "True"), default=True)
-        # Mobile API transport is opt-in. "shadow" performs only mobile
-        # read-only checks and never calls a mutation endpoint.
+        # Active issuance transport: 'mobile' (default) uses direct UtcmsMobileClient.
+        # 'shadow' performs mobile read-only checks without mutations.
+        # 'web' (Playwright UI) is RETIRED/legacy fallback only.
         self.UTCMS_TRANSPORT = _validated_choice(
             "UTCMS_TRANSPORT",
             os.getenv("UTCMS_TRANSPORT"),
             "mobile",
             {"web", "mobile", "shadow"},
         )
+        if self.UTCMS_TRANSPORT == "web":
+            logger.warning(
+                "UTCMS_TRANSPORT is configured as 'web'. Browser/Playwright form submission is "
+                "RETIRED for live operations (CRITICAL_RULES §0). Direct Mobile API transport ('mobile') is the active production transport."
+            )
         self.UTCMS_MOBILE_API_BASE_URL = os.getenv(
             "UTCMS_MOBILE_API_BASE_URL",
             "https://mobservices-barname.utcms.ir/baarnameh_sd/API",

@@ -221,6 +221,7 @@ class WaybillAutomationBot:
             "error_category": None,
             "steps": [],
         }
+        client: Any = None
         try:
             normalized_payload = build_enhanced_waybill_payload(payload)
 
@@ -538,7 +539,7 @@ class WaybillAutomationBot:
             if not effective_live_submit:
                 if (
                     not bool(normalized_payload.get("is_draft", False))
-                    and not str(payload.get("mobile_issue_cap_token") or payload.get("issue_cap_token") or "").strip()
+                    and not issue_cap_token
                 ):
                     result.update(
                         status=TaskStatus.NEEDS_REVIEW.value,
@@ -657,16 +658,26 @@ class WaybillAutomationBot:
                     logger.debug("Immediate get_document check failed: %s", chk_exc)
 
             if document_id and not tracking_code:
-                try:
-                    track_res = await client.get_tracking_code(str(document_id))
-                    chk_tracking = client.extract_tracking_code(track_res)
-                    if chk_tracking:
-                        logger.info("Retrieved tracking code via GetDocTrackingCode: %s", chk_tracking)
-                        tracking_code = str(chk_tracking)
-                        result["tracking_code"] = tracking_code
-                        otp_required = False
-                except Exception as trk_exc:
-                    logger.debug("GetDocTrackingCode check failed: %s", trk_exc)
+                for track_attempt in range(1, 4):
+                    try:
+                        track_res = await client.get_tracking_code(str(document_id))
+                        chk_tracking = client.extract_tracking_code(track_res)
+                        if chk_tracking:
+                            logger.info(
+                                "Retrieved tracking code via GetDocTrackingCode (attempt %d/3): %s",
+                                track_attempt,
+                                chk_tracking,
+                            )
+                            tracking_code = str(chk_tracking)
+                            result["tracking_code"] = tracking_code
+                            otp_required = False
+                            break
+                        if track_attempt < 3:
+                            await asyncio.sleep(1.5)
+                    except Exception as trk_exc:
+                        logger.debug("GetDocTrackingCode check attempt %d failed: %s", track_attempt, trk_exc)
+                        if track_attempt < 3:
+                            await asyncio.sleep(1.5)
 
             async def _finalize_shipping_start(track_code: str, doc_id_val: Any) -> None:
                 """Initialize shipping state and trigger RegisterStartOfShipping immediately.
@@ -898,6 +909,14 @@ class WaybillAutomationBot:
                 error_category="mobile_payload_validation_failed",
             )
             return result
+        finally:
+            if client is not None and hasattr(client, "close") and callable(client.close):
+                try:
+                    close_res = client.close()
+                    if asyncio.iscoroutine(close_res):
+                        await close_res
+                except Exception:
+                    pass
 
     async def execute_waybill_job(
         self,

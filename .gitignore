@@ -130,6 +130,10 @@ frontend-slim-build.tar.gz
 
 # Local IDE and tool directories
 .opencode/
+.gemini/
+.playwright-mcp/
+.coverage
+htmlcov/
 pnpm-lock.yaml
 pnpm-workspace.yaml
 

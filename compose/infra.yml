@@ -33,6 +33,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_buffers=1GB", "-c", "max_connections=150"]
     # ✅ امنیت: به‌طور پیش‌فرض فقط روی localhost بایند است (تست‌ها و ابزارهای محلی)
     # در Model B (ورکرهای راه‌دور) از .env روی 0.0.0.0 تنظیم می‌شود؛
     # دسترسی از بیرون فقط با UFW allowlist (setup_firewall_central.sh) مجاز است.
@@ -46,8 +47,8 @@ services:
     networks: [platform]
     security_opt:
       - no-new-privileges:true
-    mem_limit: 1.5g      # ↑ از 1g — shared_buffers بهتر روی 16GB
-    mem_reservation: 768m  # ↑ از 512m
+    mem_limit: 4g        # ↑ از 1.5g — متناسب با پروفایل سرور مرکزی 32GB
+    mem_reservation: 2g  # ↑ از 768m
     logging:
       driver: json-file
       options:
@@ -63,7 +64,7 @@ services:
       - redis-server
       - --appendonly yes
       - --requirepass ${REDIS_PASSWORD}
-      - --maxmemory 400mb   # ↑ از 256mb — همسو با mem_limit 512m (overhead ~100MB)
+      - --maxmemory 800mb   # ↑ از 400mb — متناسب با mem_limit 1g در سرور مرکزی 32GB
       - --maxmemory-policy allkeys-lru
       - --save 60 1
     volumes:
@@ -80,8 +81,8 @@ services:
     networks: [platform]
     security_opt:
       - no-new-privileges:true
-    mem_limit: 512m      # ↑ از 256m — همسو با --maxmemory 256mb + overhead
-    mem_reservation: 256m  # ↑ از 128m
+    mem_limit: 1g        # ↑ از 512m — متناسب با پروفایل سرور مرکزی 32GB
+    mem_reservation: 512m  # ↑ از 256m
     logging:
       driver: json-file
       options:

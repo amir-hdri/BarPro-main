@@ -1,0 +1,3 @@
+# Graphify ignore file
+# Ignore retired legacy browser form automation to keep knowledge graph focused on active architecture
+app/automation/waybill_enhanced.py

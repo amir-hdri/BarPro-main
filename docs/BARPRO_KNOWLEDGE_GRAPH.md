@@ -12,6 +12,23 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## ارتقای پروفایل سخت‌افزاری سرور مرکزی (32 GB RAM / 8 Cores) و بازتوزیع بودجه منابع — 2026-10-07 (CONFIG-TARGET)
+
+- CONFIG-TARGET: سرور مرکزی به پروفایل سخت‌افزاری جدید (32 GB RAM و 8 هسته پردازشی vCPU) ارتقا می‌یابد.
+- ARCHITECTURE / CGROUP-BUDGET: بودجه حافظه کانتینرهای مرکزی از 10.5 GB سابق به ~20.0 GB در استقرار Model B بازتوزیع شد که 12.0 GB فضای کاملاً آزاد برای کش دیسک، Page Cache و بافرهای کرنل لینوکس باقی می‌گذارد (در حالت All-in-One، مجموع سقف‌ها 27.5 GB با 4.5 GB فضای آزاد).
+- CONTAINER-LIMITS:
+  - PostgreSQL: سقف 4.0 GB (رزرو 2.0 GB)، تنظیم `shared_buffers = 1GB` و `max_connections = 150`.
+  - Redis: سقف 1.0 GB (رزرو 512 MB)، دستور `--maxmemory 800mb` با `allkeys-lru`.
+  - Redroid (Android 11 سروری): تعیین سقف صریح `mem_limit: 4.0g` (رزرو 2.0 GB) و `cpus: 2.0` جهت رفع کامل خطر نشت حافظه و OOM Killer در اجرای سروری بدون گوشی فیزیکی.
+  - Celery Worker 1: سقف 4.5 GB (رزرو 3.0 GB)، ارتقای `shm_size` به 1.5 GB جهت پایداری مرورگر Playwright Chromium و استک OCR شبکه عصبی PyTorch.
+  - FastAPI Backend: سقف 1.5 GB (رزرو 768 MB) با اجرای ۴ ورکر موازی Uvicorn (`--workers 4`) و `shm_size: 512m`.
+  - Celery Scheduler: سقف 1.0 GB (رزرو 512 MB) برای تخلیه سریع صف کنترلی `rpa_scheduler`.
+  - Next.js Frontend: سقف 1.5 GB (رزرو 768 MB).
+  - Celery Beat: سقف 512 MB (رزرو 256 MB).
+  - Squid Proxy 1: سقف 256 MB (رزرو 128 MB).
+  - Monitoring Stack: سقف 1.2 GB (رزرو 600 MB).
+- DB-POOL-SCALE: ظرفیت استخر اتصالات پایگاه‌داده سلری در `app/core/database.py` به `pool_size = 10` و `max_overflow = 10` قابل افزایش است که گپ بحرانی مسدود شدن صف در بار ترافیکی را برطرف می‌کند.
+
 ## تکمیل سشن و راستی‌آزمایی مستقل — 2026-10-07
 
 - CODE-VERIFIED: در دو مسیر شروع حمل پس از صدور، خطای مبهم اکنون `unknown`
@@ -77,6 +94,53 @@
 - CONFIG-TARGET: ارتقا نیازمند migration سوابق fuel و نسخه هماهنگ worker/API است؛
   worker قدیمی inline OTP باید drain شود. هیچ داده production، مجوز live-submit
   یا ادعای حرکت واقعی خودرو از این ممیزی حاصل نمی‌شود.
+
+## تفکیک راهنمای ایجنت و حدود تأیید — 2026-10-06 (CONFIG-TARGET / TEST-VERIFIED)
+
+- CONFIG-TARGET: [AGENTS.md](../AGENTS.md) اکنون هستهٔ ۱۱٬۸۰۲ بایتی است؛ قواعد
+  اصلی، هویت پروژه، قراردادهای کدنویسی، هشدارها، آزمون‌ها و نقشهٔ مطالعه را نگه
+  می‌دارد. ۱۱ مرجع موضوعی/تاریخی فقط در [docs/agent-reference](agent-reference/README.md)
+  قرار دارند. این منابع شرط مطالعه بر اساس موضوع دارند و با لینک عادی معرفی
+  شده‌اند؛ واردسازی خودکار یا انتقال به قواعد عمومی صورت نگرفته است.
+- TEST-VERIFIED (ساختار مستندات): هر ۱٬۰۸۴ خط نسخهٔ ۱۱۳٬۴۳۷ بایتی قبلی دقیقاً
+  یک بار در ۲۱ بلوک حفظ شد. بازسازی بایت‌به‌بایت با بکاپ و SHA-256 تطابق دارد؛
+  [manifest انتقال](agent-reference/migration-manifest.json) شاهد منشأ و محدودهٔ
+  خطوط است. ۵۹ لینک محلی معتبرند و همهٔ Markdownهای حاصل زیر ۲۴٬۰۰۰ بایت‌اند؛
+  بزرگ‌ترین فایل ۱۴٬۷۱۹ بایت است. متن تاریخی حفظ شده و تأیید تازهٔ محتوای آن نیست.
+- TEST-VERIFIED (بارگذاری بومی، بدون مدل): helper نسخهٔ `0.61.0` از Gemini CLI
+  فایل اصلی جدید و قواعد عمومی را بدون خطای import خواند. hash قواعد عمومی،
+  تنظیمات عمومی و `.gemini/settings.json` پروژه نسبت به قبل از این تفکیک ثابت
+  ماند. شواهد محلی: `~/Downloads/antigravity-review-2026-10-06/evidence/`
+  در فایل‌های `barpro-agents-split-verification.json` و
+  `barpro-gemini-context-after-split.json`.
+- RUNTIME-VERIFICATION / UNVERIFIED: probe زندهٔ Antigravity با انتظار برای پایان
+  واقعی، پیش از پاسخ مدل در eligibility سرویس روی `/v1internal:loadCodeAssist`
+  خطای HTTP 403 داد. علت ریشه‌ای حساب/دسترسی/مسیر اتصال تعیین نشده است؛ آزمون
+  رفتاری پاس محسوب نمی‌شود. طبق درخواست کاربر، بررسی داخل برنامه را خود او
+  انجام می‌دهد. این تغییر هیچ شاهد تازه‌ای از وضعیت production یا UTCMS ندارد.
+
+## محدودهٔ دستورهای ایجنت و مرجع مهاجرت تاریخی — 2026-10-06 (CONFIG-TARGET)
+
+- CONFIG-TARGET: در محیط بررسی‌شده، سیاست عمومی نسخهٔ ۳ و مهارت‌های عمومی
+  `evidence-workflows` سراسری باقی مانده‌اند. دستور اختصاصی BarPro از مهارت
+  عمومی `vercel-nextjs-expert` حذف و متن دقیق آن در مرجع محلی
+  [.agents/skills/barpro-deploy-ops/references/historical-vercel-hybrid-migration.md](../.agents/skills/barpro-deploy-ops/references/historical-vercel-hybrid-migration.md)
+  نگهداری شده است. این متن پیشنهاد تاریخی و تأییدنشده است و استقرار فعلی یا
+  مجوز مهاجرت به Vercel را اثبات نمی‌کند؛ فقط برای بررسی مرتبط با BarPro خوانده شود.
+- CONFIG-TARGET: فایل محلی [.gemini/settings.json](../.gemini/settings.json)
+  مقدار `context.fileName` را برابر `["GEMINI.md", "AGENTS.md"]` تعیین می‌کند.
+  این تنظیم متعلق به همین پروژه است؛ سیاست عمومی را به BarPro محدود نمی‌کند
+  و هیچ ارجاع خودکاری از فایل عمومی به محتوای BarPro ایجاد نشده است.
+- CONFIG-TARGET / شاهد بررسی: helperهای native نسخهٔ `0.61.0` از Gemini CLI با
+  تنظیم پروژه، فایل عمومی `GEMINI.md` و `AGENTS.md` همین مخزن را خواندند.
+  ثبت schema، مسیرها، hashها و حدود این بررسی در
+  `~/Downloads/antigravity-review-2026-10-06/evidence/barpro-gemini-context.json`
+  و سابقهٔ انتقال/نسخه‌های پشتیبان در `barpro-scope-migration.json` همان پوشه است.
+  این شاهدِ بارگذاری در helper است؛ تازه‌سازی سشن تعاملی موجود یا تبعیت مدل از
+  دستورها در این بررسی آزموده نشده است.
+- RUNTIME-VERIFICATION: هیچ ادعای تازه‌ای دربارهٔ استقرار production، تغییر
+  معماری، مهاجرت Vercel یا عملیات زندهٔ UTCMS از این تغییر مستندات حاصل نمی‌شود.
+  کد برنامه تغییر نکرده؛ مرجع مهارت طبق `.gitignore` موجود فایل محلی باقی می‌ماند.
 
 ## سازگاری جامع فورواردر اندروید، دیکود منعطف JSON و فالبک کد ملی راننده — 2026-10-06 (CODE-VERIFIED)
 

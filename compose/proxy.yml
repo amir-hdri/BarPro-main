@@ -29,8 +29,8 @@ services:
       - no-new-privileges:true
     volumes:
       - ../infra/squid/squid_1.runtime.conf:/etc/squid/squid.conf:ro
-    mem_limit: 128m
-    mem_reservation: 64m
+    mem_limit: 256m      # ↑ از 128m — کش محلی تصاویر کپچا روی سرور مرکزی 32GB
+    mem_reservation: 128m
     healthcheck:
       test: ['CMD-SHELL', '/bin/bash -c "exec 3<>/dev/tcp/127.0.0.1/3128" 2>/dev/null || exit 1']
       interval: 30s

@@ -7,19 +7,22 @@
 
 ## 🔴 خطوط قرمز مطلق (هرگز نقض نشوند)
 
-### 0. ثبت نهایی در UTCMS
+### 0. ثبت نهایی در UTCMS و معماری فعال
 
 ```
 ❌ هرگز status داخلی یا بسته‌شدن modal را معادل ثبت نهایی اعلام نکنید
 ❌ هرگز SUCCESS بدون tracking code را موفق نگه ندارید
 ❌ هرگز ALLOW_LIVE_SUBMIT را به‌صورت پیش‌فرض فعال نکنید
+❌ هرگز ثبت فرم وب/مرورگر (Playwright UI) را مسیر جاری یا فعال تلقی نکنید (ترنسپورت فعال منحصراً Mobile API است)
 ```
 
-- ثبت نهایی فقط با تطبیق tracking code در پاسخ RPA و ذخیره همان کد در دیتابیس BarPro اثبات می‌شود؛ تأیید نهایی یکجا (batch) و از طریق task `orchestrator.reconciliation.audit_tracking_received` انجام می‌شود، نه تک‌تک در طول روز.
-- payload ناقص باید پیش از proxy/browser/driver-slot به `needs_review` برود.
+- **معیار اثبات ثبت نهایی (Two-Witness Proof):** ثبت نهایی فقط با تطبیق tracking code در پاسخ RPA و ذخیره همان کد در دیتابیس BarPro اثبات می‌شود؛ تأیید نهایی یکجا (batch) و از طریق task `orchestrator.reconciliation.audit_tracking_received` انجام می‌شود، نه تک‌تک در طول روز.
+- **معماری فعال صدور بارنامه (Active Issuance Transport):** ثبت و صدور اسناد منحصراً از طریق Mobile Transport (`UtcmsMobileClient` بر پایه قرارداد مهندسی‌معکوس‌شده APK رسمی `com.baarnameshahri`) با اندپوینت‌های مستقیم API انجام می‌شود.
+- **معماری فعال چرخه حمل و GPS:** چرخه حمل (شروع و پایان حمل و تزریق موقعیت) از طریق اندروید مجازی سرور (Redroid + FakeTraveler + `AndroidShippingController`) روی سرور لینوکس بدون نیاز به گوشی فیزیکی انجام می‌شود.
+- **جریان OTP عصرگاهی/شبانه:** در صورت فعال شدن چالش OTP توسط سامانه، کد ۵ رقمی به‌صورت خودکار توسط فورواردر اندروید (`SMS-Forwarder-Pro` / Redis Streams بدون کلید سراسری) دریافت و به اندپوینت کلاینت موبایل `IssueDocumentByOtp` ارسال می‌گردد.
+- **بازنشستگی قطعی ثبت وب/مرورگر (Web Browser Form Submission is RETIRED):** پر کردن فرم از طریق مرورگر (Playwright UI روی فرم `HagigiHogugi` یا `RegisterWaybill`) کاملاً منسوخ و تاریخی (Legacy) است. هرگونه اشاره به ناوبری مرورگر فقط مربوط به سوابق فاز ۱ بوده و سیستم اجرایی نباید از مرورگر برای ثبت بارنامه استفاده کند.
+- payload ناقص باید پیش از اجرا به `needs_review` برود.
 - قرارداد زنده و محدودیت‌های سامانه در `docs/UTCMS_CONSTRAINTS.md` نگهداری می‌شود.
-- navigation صدور باید `Login -> Notification -> menu click -> HagigiHogugi` را طی کند. درخواست مستقیم
-  و بدون session به `HagigiHogugi` ممکن است 408 بدهد و شاهد block بودن IP نیست.
 
 ### 1. امنیت اعتبارنامه‌ها
 
@@ -254,27 +257,27 @@ bash manage.sh migrate   # یا: alembic upgrade head
 - HEAD فعلی مخزن: `042_fuel_request_identity` (با `alembic heads` بررسی شود؛ وضعیت DB زنده مستقل است)
 - هرگز migration را manually روی production DB اجرا نکنید — از `manage.sh migrate` استفاده کنید
 
-### 15. محدودیت‌های منابع (16 GB RAM — Central Server)
+### 15. محدودیت‌های منابع و بودجه حافظه (32 GB RAM / 8 Cores — Central Server)
 
-> **سرور مرکزی 16 GB RAM** — Workers 2/3 روی Remote Worker VPSها اجرا می‌شوند (Model B Scale-out)
+> **سرور مرکزی جدید: 32 GB RAM و 8 هسته پردازشی (8 vCPUs)**
+> در استقرار استاندارد (Model B Scale-out)، ورکر ۱ به همراه دیتابیس، ردیس، کلاینت اندروید سروری (Redroid) و سرویس‌های پلتفرم روی سرور مرکزی قرار دارند و مجموع سقف کانتینرها حدود ۲۰ گیگابایت بوده و ۱۲ گیگابایت فضای خالی برای بافر و کش سیستم‌عامل حفظ می‌شود.
 
-| Container | Limit | Reservation | shm_size | تغییر |
-|-----------|-------|-------------|----------|-------|
-| PostgreSQL | **1.5 GB** | 768 MB | — | ↑ از 1 GB |
-| Redis | **512 MB** | 256 MB | — | ↑ از 256 MB |
-| Backend API | **512 MB** | 256 MB | 256 MB | ↑ از 256 MB |
-| Celery Worker 1 | **3 GB** | 2.5 GB | 512 MB | ↑ از 2.5 GB |
-| Celery Scheduler | **768 MB** | 384 MB | 128 MB | Dedicated rpa_scheduler consumer (FIX-A1) |
-| Celery Beat | **256 MB** | 128 MB | — | ↑ از 128 MB (OOM fix) |
-| Frontend (Next.js) | **1 GB** | 512 MB | — | ↑ از 512 MB |
-| Nginx | **512 MB** | 256 MB | — | ↑ از 256 MB |
-| Squid ×1 روی Central | 128 MB | 64 MB | — | Workerهای Remote اسکوئید محلی خود را دارند |
-| Prometheus | 256 MB | 128 MB | — | — |
-| Alertmanager | 128 MB | 64 MB | — | — |
-| Grafana | 256 MB | 128 MB | — | — |
-| **Total limits** | **~10.5 GB** ← fits in 16 GB with ~5.5 GB headroom | | | |
+| Container | Limit | Reservation | shm_size | کاربرد و تغییرات در سرور 32GB |
+|-----------|-------|-------------|----------|--------------------------------|
+| PostgreSQL | **4.0 GB** | 2.0 GB | — | ↑ از 1.5GB (تنظیم `shared_buffers = 1GB` و `max_connections = 150`) |
+| Redis | **1.0 GB** | 512 MB | — | ↑ از 512MB (کامند `--maxmemory 800mb` با `allkeys-lru`) |
+| Redroid (اندروید سروری) | **4.0 GB** | 2.0 GB | — | مهار قطعی نشت حافظه اندروید ۱۱ + تخصیص `cpus: 2.0` |
+| Backend API | **1.5 GB** | 768 MB | 512 MB | ↑ از 768MB (افزایش به ۴ ورکر موازی Uvicorn: `--workers 4`) |
+| Celery Worker 1 | **4.5 GB** | 3.0 GB | **1.5 GB** | ↑ از 3GB (افزایش `shm_size` به 1.5GB برای پایداری کرومیوم و PyTorch) |
+| Celery Scheduler | **1.0 GB** | 512 MB | 256 MB | ↑ از 768MB (مصرف‌کننده اختصاصی صف `rpa_scheduler`) |
+| Celery Beat | **512 MB** | 256 MB | — | ↑ از 384MB (زمان‌بند دوره‌ای وظایف ترابری و مغایرت‌گیری) |
+| Frontend (Next.js) | **1.5 GB** | 768 MB | — | ↑ از 1GB (بهینه‌سازی کامل SSR و کش صفحات در بار بالا) |
+| Nginx | **512 MB** | 256 MB | — | بافرینگ درخواست‌ها و کش تایل‌های نقشه |
+| Squid ×1 روی Central | **256 MB** | 128 MB | — | ↑ از 128MB (کش محلی برای تصاویر کپچا و دارایی‌ها) |
+| استک مانیتورینگ (Prometheus/Grafana) | **1.2 GB** | 600 MB | — | پایداری نگهداری متریک‌ها |
+| **Total limits (Model B)** | **~20.0 GB** | **~11.1 GB** | | **حدود ۱۲٫۰ گیگابایت فضای آزاد برای OS و کش دیسک** |
 
-> Workers 2/3 (هر کدام 3 GB) روی Remote Worker VPS اجرا می‌شوند و در بودجه سرور مرکزی نیستند. Squid 2/3 فقط در استقرار تک‌سروره (Model A) وجود دارند.
+> **نکته در خصوص Workers 2/3:** در Model B این ورکرها روی Remote Worker VPSها با آی‌پی مجزا اجرا می‌شوند. در صورت استقرار All-in-One روی سرور مرکزی، اضافه شدن ورکر ۲ و ۳ (هر کدام ۳٫۵GB) مجموع لیمیت‌ها را به ۲۷٫۵GB می‌رساند که همچنان ۴٫۵GB فضای خالی برای لینوکس باقی می‌گذارد.
 
 ### 16. پس از نصب HTTPS
 

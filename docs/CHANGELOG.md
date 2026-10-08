@@ -4,8 +4,37 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-09 — Systemic audit remediation and 32GB Compose alignment
+
+- Applied verified 32 GB RAM Central Server cgroup limits directly to Compose files:
+  `compose/infra.yml` (Postgres 4.0 GB / shared_buffers 1GB / max_connections 150, Redis 1.0 GB / maxmemory 800mb),
+  `compose/backend.yml` (Backend API 1.5 GB / 4 workers, Celery Worker 1 4.5 GB / shm_size 1.5 GB, Beat 512 MB, Scheduler 1.0 GB),
+  `compose/web.yml` (Frontend 1.5 GB), `compose/proxy.yml` (Squid 1 256 MB), and `compose/android.yml` (Redroid 4.0 GB / 2.0 CPUs).
+- Staged all 13 reference files under `docs/agent-reference/` into Git, restoring full link resolution from `AGENTS.md`.
+- Corrected active OTP mobile endpoint in `CRITICAL_RULES.md` to `IssueDocumentByOtp` (fixing legacy web name `IssueDocumentByOtpNew`).
+- Added loud runtime deprecation warning in `app/core/config.py` when legacy web transport (`UTCMS_TRANSPORT="web"`) is chosen.
+- Clarified Redroid live runtime switch status in `docs/ANDROID_CLIENT_IMPLEMENTATION_PLAN.md` to eliminate contradictory deployment assertions.
+- Added untracked testing/IDE artifacts (`.coverage`, `.gemini/`, `.playwright-mcp/`) to `.gitignore` and tracked `.graphifyignore`.
+- Added connection reuse and context manager lifecycle (`__aenter__`, `__aexit__`, `close`) to `UtcmsMobileClient` and guaranteed safe session termination via `finally` block in `WaybillAutomationBot.run_mobile_waybill` to eliminate socket leaks.
+- Added 3-attempt polling loop with 1.5s backoff for `client.get_tracking_code` in `WaybillAutomationBot` to handle asynchronous UTCMS tracking code assignment without premature drops to `unknown`.
+- Fixed dry-run captcha validation bug in `WaybillAutomationBot` to evaluate resolved `issue_cap_token` variable.
+- Enforced Tehran timezone (`TEHRAN_TZ`) for default shipping start/end timestamps in `mobile_payload_adapter.py` to prevent Rule 4006 rejections.
+- Added Persian/Arabic digit normalization and resilient integer parsing with comma stripping (`_to_int`) for cargo and financial fields in `mobile_payload_adapter.py`.
+- Added unit tests in `tests/test_utcms_mobile_contract.py` covering session lifecycle, Persian digit normalization, Tehran timezone defaults, and numeric resilience. Verified 31 passed tests.
+
 ### 2026-10-07 — Complete interrupted audit and verify current contracts
 
+- Formulated and documented the hardware profile upgrade for the Central Server (32 GB RAM / 8 vCPU cores).
+  Redistributed the container memory budget to ~20.0 GB in Model B (preserving ~12.0 GB OS headroom),
+  specified container memory limits for PostgreSQL (4.0 GB), Redis (1.0 GB), Redroid (4.0 GB / 2.0 CPUs to mitigate
+  server-side OOM risks), Celery Worker 1 (4.5 GB, shm_size 1.5 GB), Backend API (1.5 GB with 4 Uvicorn workers),
+  and Celery Scheduler (1.0 GB).
+- Explicitly aligned repository authority documents (`CRITICAL_RULES.md`, `AGENTS.md`, and `docs/INDEX.md`)
+  with the active production architecture: direct Mobile API Transport (`UtcmsMobileClient`) for waybill issuance,
+  server-side virtual Android (`Redroid` + `FakeTraveler`) for GPS/shipping lifecycle, and universal Android
+  SMS forwarder (`SMS-Forwarder-Pro`) for event-driven OTP intake. Retired legacy web browser form submission
+  (`Playwright UI` / `HagigiHogugi`) from all active guidelines and added `.graphifyignore` to prevent legacy
+  browser automation modules from skewing knowledge graph hub centrality.
 - Closed two ambiguous shipping-start paths: transport failure preserves an
   unknown trip and does not create a registered-origin witness; tracking remains
   intact, and automatic completion/replay are blocked pending reconciliation.
@@ -71,6 +100,57 @@ All notable changes to the UTCMS Automation System.
   scheduler and worker versions. Drain legacy inline OTP workers; legacy pending
   documents without a verified challenge require read-only reconciliation.
   This task does not provide production or live UTCMS verification.
+
+### 2026-10-06 — Split oversized agent guide into local references
+
+- Reduced the always-loaded `AGENTS.md` from 113,437 to 11,802 UTF-8 bytes.
+  Retained mandatory conduct, project identity, conventions, critical warnings,
+  testing guidance and a task-to-reference reading map in the core.
+- Moved the remaining text into 11 project-local topic/history files under
+  `docs/agent-reference/`, plus a navigation index. Every resulting Markdown
+  file is below 24,000 bytes (largest: 14,719 bytes). Ordinary links load content
+  on demand; no recursive imports or global BarPro rules were introduced.
+- Preserved all 1,084 original lines exactly once in 21 marked blocks.
+  `docs/agent-reference/migration-manifest.json` records source spans and hashes;
+  reassembly matched the original backup byte-for-byte. Historical commands,
+  dated success claims and old runtime statements are explicitly labelled as
+  reference snapshots requiring current evidence, not new execution authority.
+- Validation: 59 local Markdown links resolve; exact content preservation, byte
+  limits and absence of automatic imports passed. Gemini CLI 0.61.0 native
+  loader read the new core and unchanged global rules without import errors.
+  The global settings and project context setting were also unchanged. Evidence:
+  `~/Downloads/antigravity-review-2026-10-06/evidence/barpro-agents-split-verification.json`
+  and `barpro-gemini-context-after-split.json` in that directory.
+- Live Antigravity verification remains unverified: a completion-mode probe
+  failed at the eligibility check with HTTP 403 on `/v1internal:loadCodeAssist`,
+  before a model response. The user will perform in-app checks; loading success
+  is not evidence of model compliance. No application code or production state
+  was changed by this documentation split.
+
+### 2026-10-06 — BarPro-only agent context and migration guidance
+
+- On the audited workstation, removed the BarPro-specific Vercel hybrid recipe
+  and RPA Worker rewrite checklist item from the global `vercel-nextjs-expert`
+  skill. Preserved the exact excerpts in the repository-local
+  `.agents/skills/barpro-deploy-ops/references/historical-vercel-hybrid-migration.md`
+  and linked them only from the local deployment skill. They are explicitly
+  historical/unverified proposals, not current deployment requirements.
+- Added project-local `.gemini/settings.json` with
+  `context.fileName: ["GEMINI.md", "AGENTS.md"]`, so Gemini CLI can combine the
+  existing global conduct rules with this repository's agent instructions.
+  Generic v3 evidence, documentation-first, planning, and workflow improvements
+  remain global; no BarPro content is imported by the global policy.
+- Verification: original files were backed up and hash-checked; the migration
+  preserves all non-BarPro global skill text and both archived excerpts exactly.
+  Gemini CLI 0.61.0 native schema/context-loader helpers read the global and
+  project instructions under the project setting. This checks native loading,
+  not an existing interactive session refresh or model compliance. Evidence is
+  recorded on the audited workstation in
+  `~/Downloads/antigravity-review-2026-10-06/evidence/barpro-scope-migration.json`
+  and `barpro-gemini-context.json` in the same directory.
+- This change updates agent context/documentation only; no application code,
+  production deployment, or live UTCMS operation was changed. The existing
+  `.gitignore` excludes `.agents/`; the local skill/reference remain local files.
 
 ### 2026-10-06 — Universal Android forwarder compatibility, resilient JSON decoding & driver national code fallback
 

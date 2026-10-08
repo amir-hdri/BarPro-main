@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "createdUtc": "20261006T122157Z",
+  "source": {
+    "path": "AGENTS.md",
+    "bytes": 113437,
+    "lines": 1084,
+    "sha256": "ae59eb38928b05ec487f3510c76389cf80d20cbf0ec1eec8d0f94fef3f993220"
+  },
+  "backupDirectory": "/Users/amirheidari/Downloads/antigravity-review-2026-10-06/backups/agents-split-20261006T122157Z",
+  "beforeSha256": {
+    "AGENTS.md": "ae59eb38928b05ec487f3510c76389cf80d20cbf0ec1eec8d0f94fef3f993220",
+    "docs/CHANGELOG.md": "137a218ee73bf61294f348403d77e66c636ff45b1d048ba6cca430dadf0d6d44",
+    "docs/BARPRO_KNOWLEDGE_GRAPH.md": "2f9ee794a83a27becdeb850be1a4b1b9c6356c330eb46397075b1769f2563878"
+  },
+  "protectedSha256": {
+    "/Users/amirheidari/.gemini/GEMINI.md": "d912aa19001d3608eb9a2ad24ef48c22d8ca30ceefa9acf8a33432f1b86032a3",
+    "/Users/amirheidari/.gemini/settings.json": "0702cff7d183b91ff93a43e2b00a5f75000d41ed72d4b097b6b116560518c4e4",
+    "/Users/amirheidari/GitHub/BarPro-main/.gemini/settings.json": "cdf0caded3479269310e306222659a24d5990c0a50f93208ffdb1cea03cb0d0e"
+  },
+  "segments": [
+    {
+      "id": "0056-0079",
+      "sourceStartLine": 56,
+      "sourceEndLine": 79,
+      "path": "docs/agent-reference/architecture.md",
+      "bytes": 1849,
+      "sha256": "cbb9885efff3d00837ba3e8c7064a191289dc14afd108806c92092ce742e2639"
+    },
+    {
+      "id": "0119-0131",
+      "sourceStartLine": 119,
+      "sourceEndLine": 131,
+      "path": "docs/agent-reference/architecture.md",
+      "bytes": 485,
+      "sha256": "88576f03b1b94e3f11ad3a604b0121b87d249d2433e3ed55335b505087790fea"
+    },
+    {
+      "id": "0390-0438",
+      "sourceStartLine": 390,
+      "sourceEndLine": 438,
+      "path": "docs/agent-reference/architecture.md",
+      "bytes": 3012,
+      "sha256": "a021d69ba52b45a0c587525dfa4a04ed194e485d97997a04b6a686367cb8987d"
+    },
+    {
+      "id": "0080-0118",
+      "sourceStartLine": 80,
+      "sourceEndLine": 118,
+      "path": "docs/agent-reference/deployment-and-resources.md",
+      "bytes": 4019,
+      "sha256": "9a52c8b3049347ff04ec3be9541bc78f62d0f0d4fcec4291ef996627bf63d7d8"
+    },
+    {
+      "id": "0173-0226",
+      "sourceStartLine": 173,
+      "sourceEndLine": 226,
+      "path": "docs/agent-reference/deployment-and-resources.md",
+      "bytes": 3294,
+      "sha256": "97a374dd241ba815f3e39b43bb94268e266ad3b96a73ea94e7a259831ecdf970"
+    },
+    {
+      "id": "0439-0483",
+      "sourceStartLine": 439,
+      "sourceEndLine": 483,
+      "path": "docs/agent-reference/deployment-and-resources.md",
+      "bytes": 2382,
+      "sha256": "ae3058faa0f267647fd897a0be316e82aa65a9e84372859259758fc63dc7e6db"
+    },
+    {
+      "id": "0753-0777",
+      "sourceStartLine": 753,
+      "sourceEndLine": 777,
+      "path": "docs/agent-reference/deployment-and-resources.md",
+      "bytes": 1559,
+      "sha256": "d5e0daa2c6fdb8a096bd81f1964b3e1a1350ba43f0af845f5520c5070b75bc6e"
+    },
+    {
+      "id": "0227-0354",
+      "sourceStartLine": 227,
+      "sourceEndLine": 354,
+      "path": "docs/agent-reference/runtime-contracts.md",
+      "bytes": 13194,
+      "sha256": "d1864121bcdb24c9814fa602d15067a6e148322067d6e3d40c51ba1d4f97e762"
+    },
+    {
+      "id": "0355-0374",
+      "sourceStartLine": 355,
+      "sourceEndLine": 374,
+      "path": "docs/agent-reference/pitfalls-and-captcha.md",
+      "bytes": 2106,
+      "sha256": "d7080662af1755bd4427a714a1559de09dfc687ce7af4f785a6307c7f042a1af"
+    },
+    {
+      "id": "0484-0494",
+      "sourceStartLine": 484,
+      "sourceEndLine": 494,
+      "path": "docs/agent-reference/pitfalls-and-captcha.md",
+      "bytes": 643,
+      "sha256": "0e56e8d049d70705647f258245304218a1a3b92455c0ddb7038c73f3a2c60813"
+    },
+    {
+      "id": "0495-0555",
+      "sourceStartLine": 495,
+      "sourceEndLine": 555,
+      "path": "docs/agent-reference/optimization-history-01.md",
+      "bytes": 8439,
+      "sha256": "182100a25ef9f439295fdb68c02d4a7c51d80073f8f35a84ad186ad77d7a5f43"
+    },
+    {
+      "id": "0556-0615",
+      "sourceStartLine": 556,
+      "sourceEndLine": 615,
+      "path": "docs/agent-reference/optimization-history-02.md",
+      "bytes": 13036,
+      "sha256": "29f73a2640c0a17373f42e8c026c25f174814d03cf16717069a95370545d30b0"
+    },
+    {
+      "id": "0616-0706",
+      "sourceStartLine": 616,
+      "sourceEndLine": 706,
+      "path": "docs/agent-reference/optimization-history-03.md",
+      "bytes": 12352,
+      "sha256": "e1053e5f8759c36975435f6421c64b7d20d26452660953dae7cc24be5088b9ce"
+    },
+    {
+      "id": "0707-0752",
+      "sourceStartLine": 707,
+      "sourceEndLine": 752,
+      "path": "docs/agent-reference/optimization-history-04.md",
+      "bytes": 3500,
+      "sha256": "ef5b44e4b50a31cdbfb12dc5f641507c180a04e016da4d96fade0d978ff606d6"
+    },
+    {
+      "id": "0778-0932",
+      "sourceStartLine": 778,
+      "sourceEndLine": 932,
+      "path": "docs/agent-reference/remediation-history-01.md",
+      "bytes": 13866,
+      "sha256": "3a08edf835e8b18d0ec029062072b3c623e4789e5fe2905130be91c8c9cc94cb"
+    },
+    {
+      "id": "0933-1019",
+      "sourceStartLine": 933,
+      "sourceEndLine": 1019,
+      "path": "docs/agent-reference/remediation-history-02.md",
+      "bytes": 11711,
+      "sha256": "d0aca9d96055d624865d1a0f1ff8f93017a80420a19973de355d2b848d19e5f7"
+    },
+    {
+      "id": "1020-1084",
+      "sourceStartLine": 1020,
+      "sourceEndLine": 1084,
+      "path": "docs/agent-reference/remediation-history-03.md",
+      "bytes": 8486,
+      "sha256": "b4de3df22d7c773310570e4b98e14e776d748770fcdcb249b654e9bd7beb31f3"
+    },
+    {
+      "id": "0001-0012",
+      "sourceStartLine": 1,
+      "sourceEndLine": 12,
+      "path": "AGENTS.md",
+      "bytes": 1016,
+      "sha256": "ee4eed42175334d4e1202939f83dc9e56a40d00085a7c2208e51718c80eea784"
+    },
+    {
+      "id": "0013-0055",
+      "sourceStartLine": 13,
+      "sourceEndLine": 55,
+      "path": "AGENTS.md",
+      "bytes": 5293,
+      "sha256": "8f2380756fc27df3c5625a450774d8dc070255b3749581af963c20574fbe0cef"
+    },
+    {
+      "id": "0132-0172",
+      "sourceStartLine": 132,
+      "sourceEndLine": 172,
+      "path": "AGENTS.md",
+      "bytes": 2577,
+      "sha256": "4893f38970cc5d275489933b2d0d329a467a4bfcfe5b00d87f0805af757560b4"
+    },
+    {
+      "id": "0375-0389",
+      "sourceStartLine": 375,
+      "sourceEndLine": 389,
+      "path": "AGENTS.md",
+      "bytes": 618,
+      "sha256": "4b1c8bf37f77d975e6d10159e99307e34e5345abbab35de66a7c4ae51875116f"
+    }
+  ],
+  "filesAtMigration": {
+    "AGENTS.md": {
+      "bytes": 11802,
+      "sha256": "fc7c85245573d22ff0905283bb0d03f8b9af833f1d83e79c6131519c10286ae9"
+    },
+    "docs/agent-reference/README.md": {
+      "bytes": 6043,
+      "sha256": "1305f021950704fbc0a90590723e1e1dc7aeb7e23421d189ec78eadb6fdb1038"
+    },
+    "docs/agent-reference/architecture.md": {
+      "bytes": 6454,
+      "sha256": "f99c90d0dc9c092e02e42a6fce31c2aa56ea24f8cedb69f08ded7f1651b34882"
+    },
+    "docs/agent-reference/deployment-and-resources.md": {
+      "bytes": 12484,
+      "sha256": "0aa7d803dc9a2cedb4ba2e305ac5a7d4774b5c4a5bfc673b35e88766a8afccc5"
+    },
+    "docs/agent-reference/optimization-history-01.md": {
+      "bytes": 9293,
+      "sha256": "68e430ca86e2ec5f9fc9b830db2c3ef3cfe949ae7edcfbedd2d8c7eb386323f3"
+    },
+    "docs/agent-reference/optimization-history-02.md": {
+      "bytes": 13890,
+      "sha256": "ad9d3c0fd14d42095dcb54b41429c1928079ce32538b8b706026d8d7bdf7b176"
+    },
+    "docs/agent-reference/optimization-history-03.md": {
+      "bytes": 13206,
+      "sha256": "5c8ac34153b407ecedf47dc63eed08dfaf1c439b731338c67c699c93e942aa97"
+    },
+    "docs/agent-reference/optimization-history-04.md": {
+      "bytes": 4354,
+      "sha256": "4a2b12f32c1e2b79c0338fae05fa05729458be42da702886ec8a0a94d6fabcfb"
+    },
+    "docs/agent-reference/pitfalls-and-captcha.md": {
+      "bytes": 3782,
+      "sha256": "1f245dc043d181847c9333a0710f3407b12ec43b5a16ab78b48bc9fd74750631"
+    },
+    "docs/agent-reference/remediation-history-01.md": {
+      "bytes": 14719,
+      "sha256": "327427ddef722f129293057ca87338f758735fcbb47209f7ffbf634fd7f8f05d"
+    },
+    "docs/agent-reference/remediation-history-02.md": {
+      "bytes": 12564,
+      "sha256": "291ab5b209b88f8bfc7377025fc9b8792a52d8f9ad11fcd7e2b3947f388a41a2"
+    },
+    "docs/agent-reference/remediation-history-03.md": {
+      "bytes": 9339,
+      "sha256": "00dedf8612b1282a82df8cf01db299a0cb4f772f4f3c0116e79b83f06479dc2d"
+    },
+    "docs/agent-reference/runtime-contracts.md": {
+      "bytes": 14184,
+      "sha256": "9e23997bf0010af338e48b72092fee63ff37c22ce60a6e9c03038bd01417b59e"
+    }
+  }
+}

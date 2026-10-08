@@ -166,8 +166,34 @@ class UtcmsMobileClient:
         self.verify = utcms_config.UTCMS_MOBILE_TLS_VERIFY if verify is None else verify
         # Last image+prediction from auto_solve_captcha, for 4003 rejection artifacts.
         self.last_captcha_debug: dict[str, Any] | None = None
+        self._owns_session = False
         if (os.environ.get("ENVIRONMENT") or "").lower() == "production" and not self.verify:
             raise ValueError("TLS verification cannot be disabled in production")
+
+    async def __aenter__(self) -> UtcmsMobileClient:
+        if self._http_client is None:
+            self._http_client = cc_requests.AsyncSession(
+                proxies={"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None,
+                timeout=self.timeout,
+                allow_redirects=False,
+                impersonate="chrome120",
+                default_headers=False,
+                verify=self.verify,
+            )
+            self._owns_session = True
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """Close the managed underlying session if owned."""
+        if getattr(self, "_owns_session", False) and self._http_client is not None:
+            try:
+                await self._http_client.close()
+            finally:
+                self._http_client = None
+                self._owns_session = False
 
     @classmethod
     def _mobile_base_headers(cls) -> dict[str, str]:

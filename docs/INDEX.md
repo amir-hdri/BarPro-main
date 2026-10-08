@@ -37,9 +37,9 @@ Use this index for current operational documentation. Older historical reports r
 
 - Backend: FastAPI under `app/`
 - Frontend: Next.js 15 under `apps/web/`
-- Database: PostgreSQL 16
+- Database: PostgreSQL 16 (Alembic migration head `042_fuel_request_identity`)
 - Queue/cache: Redis 7 and Celery
-- Browser automation: Playwright Chromium
+- Transport & Automation: Mobile API Transport (`UtcmsMobileClient`) for waybill issuance; server-side virtual Android (`Redroid` + `FakeTraveler`) for GPS/shipping lifecycle; Playwright Chromium preserved only for legacy/admin fallback
 - Reverse proxy: Nginx on port `80`; HTTPS remains inactive until TLS is explicitly enabled and verified
 - Deployment: Docker Compose layers in `compose/`
 - Monitoring: Prometheus, Alertmanager, Grafana, and node/Redis/Postgres/Nginx exporters
@@ -58,15 +58,16 @@ bash manage.sh stop
 
 ## Important Current State
 
-- Alembic head is `041_driver_plate_tracking_fields`
+- Alembic head is `042_fuel_request_identity`
+- Waybill issuance transport is Mobile API (`UtcmsMobileClient`); legacy Playwright browser form submission is retired
+- GPS & shipping lifecycle runs on server-side virtual Android (`Redroid` + `FakeTraveler`) without physical phones
 - Frontend Docker builds inside `apps/web/Dockerfile`
 - No prebuilt `.next/standalone` upload is required
 - JWT transport uses the `httpOnly` cookie `utcms_auth_token`
 - Keep `AUTH_COOKIE_SECURE=false` on HTTP; switch to `true` after HTTPS
 - Required captcha assets include CNN, PyTorch fuel CRNN, fuel vocab, and Keras fallback model
 - Keras runs in-process; the `17:30–08:00` OTP interval is predictive, not a guaranteed UTCMS window
-- Waybill registration proof is two witnesses (RPA tracking code + `result_json`); final confirmation arrives through the batched `audit_tracking_received` History sweep, not per-waybill checks; browser success alone is not final
-- The issuance form must pass a JavaScript-liveness gate (jQuery, jQuery UI autocomplete, validator, step handler) before any field is filled; DOM markers alone are not readiness
+- Waybill registration proof is two witnesses (RPA tracking code + `result_json`); final confirmation arrives through the batched `audit_tracking_received` History sweep, not per-waybill checks; UI success alone is not final
 - Universal mobile anti-zoom enforced across iOS and Android
 
 Server/container/firewall/environment claims are runtime facts. When direct evidence is
