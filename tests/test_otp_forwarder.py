@@ -50,12 +50,20 @@ def test_extract_otp_code_persian_messages():
     msg11 = "رمز تایید صدور: 66554"
     assert extract_otp_code(msg11) == "66554"
 
+    # Real UTCMS production messages from 7777000982
+    msg12 = "کد ورود: 833282"
+    assert extract_otp_code(msg12) == "833282"
+
+    msg13 = "کد ورود: 463295"
+    assert extract_otp_code(msg13) == "463295"
+
 
 def test_clean_phone_number():
     assert clean_phone_number("09123612956") == "09123612956"
     assert clean_phone_number("+989123612956") == "09123612956"
     assert clean_phone_number("۹۸۹۱۲۳۶۱۲۹۵۶") == "09123612956"
     assert clean_phone_number("20007777") == "20007777"
+    assert clean_phone_number("7777000982") == "7777000982"
 
 
 @pytest.mark.asyncio

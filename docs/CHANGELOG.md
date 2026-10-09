@@ -4,6 +4,13 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-09 — UTCMS 6-Digit OTP & 7777000982 Shortcode Alignment
+
+- Grounded real-world evidence from live Hagigi waybill issuance and SMS intake: identified official shortcode `7777000982` (range 7777), template `کد ورود: XXXXXX`, and 6-digit OTP modal on `com.baarnameshahri`.
+- `SMS-Forwarder-Pro`: whitelisted `7777000982`, `+987777000982`, `7777`, `+987777` in `SmsParser.kt` (`UTCMS_NUMBERS`) and added default Room database prefix rules in `AppDatabase.kt`.
+- `SMS-Forwarder-Pro/backend`: updated `otp_vault.py` to extract and validate 5 and 6-digit OTPs (`len(clean) in (5, 6)`), added non-digit gap resilience `[^\d]{0,40}` for phrases like `کد تایید شما` / `کد اول`, added `صادر گردید` / `بارنامه شماره` to waybill confirmation guards, and fixed `FallbackLimiter` decorator signature wrapping with `@functools.wraps`. Verified all 95 backend unit tests passing (100%).
+- `BarPro-main`: added `7777000982` and `7777` to recommended rules and Iranian instructions in `otp_forwarder.py` and driver setup UI modal (`apps/web/src/app/drivers/page.tsx`). Added real production SMS tests in `tests/test_otp_forwarder.py` (79/79 passing across OTP and mobile contract test suites).
+
 ### 2026-10-09 — Security Secret Rotation, Loopback Binding & Fail-Closed Startup Validation
 
 - Rotated historical leaked secrets in `.env`: `JWT_SECRET` (64-char), `POSTGRES_PASSWORD` (32-char), `REDIS_PASSWORD` (32-char), and `API_KEY` (47-char) with cryptographically random tokens, breaking the git-history exposure chain (`match_leaked = False`).

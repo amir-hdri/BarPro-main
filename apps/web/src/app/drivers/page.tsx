@@ -1027,16 +1027,18 @@ export default function DriversPage() {
             <div className="space-y-5 text-xs leading-relaxed">
               {/* Webhook URL Box */}
               <div className="rounded-2xl bg-slate-950 border border-white/10 p-4">
-                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                <label htmlFor="forwarder-webhook-url" className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                   آدرس وب‌هوک اختصاصی این راننده (Webhook URL)
                 </label>
                 <div className="flex items-center gap-2">
                   <input
+                    id="forwarder-webhook-url"
                     type="text"
                     readOnly
                     dir="ltr"
                     value={forwarderUrl}
-                    className="w-full rounded-xl bg-slate-900 border border-white/10 px-3.5 py-2.5 text-xs font-mono text-cyan-300 select-all outline-none"
+                    className="w-full rounded-xl bg-slate-900 border border-white/10 px-3.5 py-2.5 text-xs font-mono text-cyan-300 select-all outline-none focus:ring-2 focus:ring-cyan-500"
+                    aria-label="آدرس وب‌هوک اختصاصی راننده"
                   />
                   <button
                     type="button"
@@ -1191,7 +1193,7 @@ export default function DriversPage() {
                     اپلیکیشن <span className="text-white font-bold">SecureSMS Forwarder</span> را روی گوشی راننده نصب کنید.
                   </li>
                   <li>
-                    یک قانون (Rule) جدید اضافه کرده و فرستنده (Sender) را روی سرشماره‌های سامانه بارنامه کشوری (<code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">20007777</code> یا <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">30001923</code>) قرار دهید.
+                    یک قانون (Rule) جدید اضافه کرده و فرستنده (Sender) را روی سرشماره‌های سامانه بارنامه شهری (<code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">7777000982</code>، <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">20007777</code> یا <code className="bg-slate-900 px-1 py-0.5 rounded text-cyan-300 font-mono">30001923</code>) قرار دهید.
                   </li>
                   <li>
                     نوع ارسال را روی <code className="bg-slate-900 px-1 py-0.5 rounded text-amber-300 font-mono">Webhook (POST)</code> قرار داده و آدرس وب‌هوک کپی‌شده در بالا را در آن قرار دهید.
