@@ -537,10 +537,7 @@ class WaybillAutomationBot:
             )
 
             if not effective_live_submit:
-                if (
-                    not bool(normalized_payload.get("is_draft", False))
-                    and not issue_cap_token
-                ):
+                if not bool(normalized_payload.get("is_draft", False)) and not issue_cap_token:
                     result.update(
                         status=TaskStatus.NEEDS_REVIEW.value,
                         error="برای CAPTCHA مرحله صدور موبایل، mobile_issue_cap_token لازم است",

@@ -4,6 +4,8 @@ import logging
 import os
 from unittest.mock import patch
 
+import pytest
+
 from app.core.startup_validation import validate_environment
 
 # CRITICAL_RULES §1: mock secrets must be at least 32 chars (never real secrets).
@@ -182,3 +184,51 @@ class TestConfigValidation:
             is_valid, errors = validate_environment()
             assert is_valid is False
             assert any("DATABASE_URL" in error for error in errors)
+
+    @pytest.mark.parametrize("env_var", ["NODE_ENV", "ENVIRONMENT"])
+    def test_otp_webhook_secret_required_in_production(self, env_var):
+        """Test validation fails when OTP_WEBHOOK_SECRET is missing in production."""
+        with patch.dict(
+            os.environ,
+            {
+                "JWT_SECRET": JWT_32,
+                "DRIVER_ENCRYPTION_KEY": ENC_32,
+                "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost:5432/db",
+                "REDIS_URL": "redis://localhost:6379",
+                env_var: "production",
+                "OTP_WEBHOOK_SECRET": "",
+            },
+            clear=True,
+        ):
+            is_valid, errors = validate_environment()
+            assert is_valid is False
+            assert any("OTP_WEBHOOK_SECRET" in error for error in errors)
+
+    @pytest.mark.parametrize("env_var", ["NODE_ENV", "ENVIRONMENT"])
+    def test_otp_webhook_secret_valid_in_production(self, env_var):
+        """Test validation passes when OTP_WEBHOOK_SECRET is set in production."""
+        with patch.dict(
+            os.environ,
+            {
+                "JWT_SECRET": JWT_32,
+                "DRIVER_ENCRYPTION_KEY": ENC_32,
+                "DATABASE_URL": "postgresql+asyncpg://user:pass@localhost:5432/db",
+                "REDIS_URL": "redis://localhost:6379",
+                env_var: "production",
+                "OTP_WEBHOOK_SECRET": "a" * 32,
+            },
+            clear=True,
+        ):
+            is_valid, errors = validate_environment()
+            assert is_valid is True
+            assert len(errors) == 0
+
+    @pytest.mark.asyncio
+    async def test_lifespan_fails_closed_on_invalid_environment(self):
+        """Test that FastAPI lifespan raises RuntimeError when startup validation fails."""
+        from app.main import app, lifespan
+
+        with patch("app.core.startup_validation.validate_environment", return_value=(False, ["Mock invalid config"])):
+            with pytest.raises(RuntimeError, match="Critical startup validation failed: Mock invalid config"):
+                async with lifespan(app):
+                    pass

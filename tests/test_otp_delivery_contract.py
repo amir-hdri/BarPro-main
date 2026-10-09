@@ -257,3 +257,118 @@ async def test_gateway_rejects_unsigned_or_mismatched_sender(delivery_api):
     )
     assert response.status_code == 422
     assert await redis.dbsize() == 0
+
+
+# Health/probe regressions use the same real Redis as the delivery transaction.
+PROBE_PHONE = "09120000001"
+HEALTH_KEY = f"rpa:forwarder:connected:{PROBE_PHONE}"
+PERMISSIONS = {"receive_sms": True, "send_sms": False, "battery_optimization_ignored": True}
+
+
+def signed_probe(timestamp=None, code="TEST"):
+    timestamp = int(time.time() * 1000) if timestamp is None else timestamp
+    raw = f"BP1#{PROBE_PHONE}#{timestamp}#{code}"
+    signature = hmac.new(b"test-forwarder-secret-32-bytes-long", raw.encode(), "sha256").hexdigest()[:32]
+    return {"from": PROBE_PHONE, "text": f"{raw}#{signature}"}
+
+
+async def test_sms_and_bare_heartbeat_preserve_permission_observation(delivery_api):
+    client, redis = delivery_api
+    response = await client.post(
+        "/api/v1/otp/sms-forwarder",
+        json={
+            "event": "HEALTH_CHECK",
+            "phone": PROBE_PHONE,
+            "permissions": PERMISSIONS,
+            "device_id": "device-a",
+        },
+    )
+    assert response.status_code == 200
+    original = json.loads(await redis.get(HEALTH_KEY))
+    # Simultaneous updates must merge, never replace a permission observation.
+    responses = await asyncio.gather(
+        client.post("/api/v1/otp/sms-gateway", json=signed_probe()),
+        client.post("/api/v1/otp/sms-forwarder", json={"event": "HEALTH_CHECK", "phone": PROBE_PHONE}),
+    )
+    assert all(r.status_code == 200 for r in responses)
+    stored = json.loads(await redis.get(HEALTH_KEY))
+    assert stored["permissions"] == PERMISSIONS
+    assert stored["device_id"] == "device-a"
+    assert stored["connected_at"] == original["connected_at"]
+    assert stored["permissions_observed_at"] == original["permissions_observed_at"]
+    assert stored["last_sms_at"] and stored["last_health_at"]
+    assert await redis.ttl(HEALTH_KEY) == -1  # Setup does not expire with mobile internet.
+    assert await redis.get(otp_phone_key(PROBE_PHONE)) is None
+    assert await redis.xlen("rpa:otp:stream") == 0
+
+
+@pytest.mark.parametrize("age,status", [(365 * 86400, 410), (3600, 410), (-120, 422)])
+async def test_stale_or_future_signed_probe_cannot_create_health(delivery_api, age, status):
+    client, redis = delivery_api
+    response = await client.post("/api/v1/otp/sms-gateway", json=signed_probe(int((time.time() - age) * 1000)))
+    assert response.status_code == status
+    assert await redis.dbsize() == 0
+
+
+async def test_repeated_probe_preserves_original_receipt_and_observation(delivery_api):
+    client, redis = delivery_api
+    payload = signed_probe()
+    first = await client.post("/api/v1/otp/sms-gateway", json=payload)
+    assert first.status_code == 200
+    before = await redis.get(HEALTH_KEY)
+    second = await client.post("/api/v1/otp/sms-gateway", json=payload)
+    assert second.json()["is_duplicate"] is True
+    assert second.json()["received_at"] == first.json()["received_at"]
+    assert await redis.get(HEALTH_KEY) == before
+
+
+async def test_probe_storage_failure_is_not_acknowledged(delivery_api, monkeypatch):
+    client, _ = delivery_api
+    monkeypatch.setattr(otp_forwarder.redis_manager, "get", AsyncMock(return_value=None))
+    response = await client.post("/api/v1/otp/sms-gateway", json=signed_probe())
+    assert response.status_code == 503
+
+
+async def test_probe_status_requires_exact_receipt_and_authentication(delivery_api):
+    client, redis = delivery_api
+    timestamp = int(time.time() * 1000)
+    query = {"event": "SMS_PROBE_STATUS", "driver_phone": PROBE_PHONE, "probe_timestamp": timestamp}
+    pending = await client.post("/api/v1/otp/sms-forwarder", json=query)
+    assert pending.status_code == 200 and pending.json()["status"] == "probe_pending"
+    assert await redis.dbsize() == 0
+    await client.post("/api/v1/otp/sms-gateway", json=signed_probe(timestamp))
+    matched = (await client.post("/api/v1/otp/sms-forwarder", json=query)).json()
+    assert matched["status"] == "probe_received"
+    assert matched["probe_timestamp"] == timestamp and matched["phone"] == PROBE_PHONE
+    for changes in ({"probe_timestamp": timestamp - 1}, {"driver_phone": "09120000002"}):
+        response = await client.post("/api/v1/otp/sms-forwarder", json=query | changes)
+        assert response.json()["status"] == "probe_pending"
+    assert (
+        await client.post("/api/v1/otp/sms-forwarder", json=query, headers={"X-OTP-Webhook-Token": "wrong"})
+    ).status_code == 401
+    assert await redis.xlen("rpa:otp:stream") == 0
+
+
+async def test_rejected_numeric_gateway_sms_cannot_mark_setup(delivery_api):
+    client, redis = delivery_api
+    response = await client.post("/api/v1/otp/sms-gateway", json=signed_probe(1, "12345"))
+    assert response.status_code == 410
+    assert await redis.get(HEALTH_KEY) is None
+
+
+async def test_device_change_clears_previous_device_permissions(delivery_api):
+    client, redis = delivery_api
+    for body in ({"device_id": "a", "permissions": PERMISSIONS}, {"device_id": "b"}):
+        assert (
+            await client.post(
+                "/api/v1/otp/sms-forwarder",
+                json={
+                    "event": "HEALTH_CHECK",
+                    "phone": PROBE_PHONE,
+                    **body,
+                },
+            )
+        ).status_code == 200
+    status = json.loads(await redis.get(HEALTH_KEY))
+    assert "permissions" not in status
+    assert "permissions_observed_at" not in status

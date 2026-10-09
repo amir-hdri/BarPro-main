@@ -23,6 +23,12 @@ from app.core.config import utcms_config
 from app.core.database import async_session_factory
 from app.core.redis_client import redis_manager
 from app.models_multitenant import Driver
+from app.services.forwarder_health import (
+    permission_observation,
+    probe_key,
+    probe_timestamp_ms,
+    record_observation,
+)
 from app.services.otp_delivery import accept_forwarded_otp, recipient_phone
 
 logger = logging.getLogger(__name__)
@@ -181,7 +187,7 @@ async def receive_sms_gateway(request: Request) -> dict[str, Any]:
         if len(parts) != 5 or parts[0] != "BP1":
             raise ValueError("Invalid envelope")
         _, phone, timestamp, code, signature = parts
-        if phone != origin or not re.fullmatch(r"[0-9]{4,8}", code):
+        if phone != origin or not (re.fullmatch(r"[0-9]{4,8}", code) or code == "TEST"):
             raise ValueError("Sender mismatch or invalid code")
         secret = utcms_config.OTP_WEBHOOK_SECRET.strip()
         expected = hmac.new(secret.encode(), "#".join(parts[:4]).encode("ascii"), "sha256").hexdigest()[:32]
@@ -191,7 +197,25 @@ async def receive_sms_gateway(request: Request) -> dict[str, Any]:
         raise
     except (ValueError, KeyError, TypeError, UnicodeError) as exc:
         raise HTTPException(status_code=422, detail="Invalid signed SMS envelope") from exc
-    return await accept_forwarded_otp(code=code, phone=phone, sender=origin, text="", timestamp=timestamp)
+
+    if code == "TEST":
+        probe_timestamp = probe_timestamp_ms(timestamp)
+        try:
+            receipt = await record_observation(
+                await redis_manager.get(), phone, via="sms_gateway", probe_timestamp=probe_timestamp
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Probe storage unavailable") from exc
+        return {"success": True, "status": "probe_acknowledged", **receipt}
+
+    # Only accepted fresh OTPs may update setup. Duplicate delivery is not new activity.
+    result = await accept_forwarded_otp(code=code, phone=phone, sender=origin, text="", timestamp=timestamp)
+    if not result.get("is_duplicate"):
+        try:
+            await record_observation(await redis_manager.get(), phone, via="sms_gateway")
+        except Exception as exc:
+            logger.warning("OTP accepted but health observation unavailable (%s)", type(exc).__name__)
+    return result
 
 
 @router.post("/sms-forwarder", summary="Webhook for SecureSMS Forwarder / SMS Forwarder Android Apps")
@@ -226,11 +250,36 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
         json_data = await request.json()
         if isinstance(json_data, dict):
             event = json_data.get("event", "SMS_RECEIVED")
-            if event == "HEALTH_CHECK":
+            if event in {"HEALTH_CHECK", "SMS_PROBE_STATUS"}:
+                req_phone = (
+                    request.headers.get("x-driver-phone")
+                    or path_driver_phone
+                    or json_data.get("driver_phone")
+                    or json_data.get("phone")
+                )
+                norm_phone = recipient_phone(str(req_phone)) if req_phone else ""
+                permissions = permission_observation(json_data["permissions"]) if "permissions" in json_data else None
+                probe_timestamp = (
+                    probe_timestamp_ms(json_data.get("probe_timestamp")) if event == "SMS_PROBE_STATUS" else None
+                )
+                if event == "SMS_PROBE_STATUS" and not norm_phone:
+                    raise HTTPException(status_code=422, detail="Probe recipient is required")
+                device_id = request.headers.get("x-device-id") or json_data.get("device_id") or ""
+                if not isinstance(device_id, str) or len(device_id) > 200:
+                    raise HTTPException(status_code=422, detail="Invalid device identifier")
                 try:
                     redis = await redis_manager.get()
                     if redis is None or not await redis.ping():
                         raise ConnectionError("Redis unavailable")
+                    if probe_timestamp is not None:
+                        raw_receipt = await redis.get(probe_key(norm_phone, probe_timestamp))
+                        if raw_receipt:
+                            return {"success": True, "status": "probe_received", **json.loads(raw_receipt)}
+                        return {"success": True, "status": "probe_pending"}
+                    if norm_phone:
+                        await record_observation(
+                            redis, norm_phone, via="http_health_check", permissions=permissions, device_id=device_id
+                        )
                 except Exception as exc:
                     raise HTTPException(status_code=503, detail="OTP storage unavailable") from exc
                 return {"success": True, "status": "ready", "protocol": "barpro-otp-v1"}
@@ -557,6 +606,37 @@ async def get_driver_forwarder_config(
     if not re.fullmatch(r"09[0-9]{9}", phone):
         raise HTTPException(status_code=409, detail="شماره موبایل معتبر راننده را ابتدا ثبت کنید")
     readiness = await _otp_readiness()
+    forwarder_verified = False
+    last_seen = None
+    permissions_data = {}
+    parsed = {}
+    status_available = True
+    try:
+        r = await redis_manager.get()
+        if r is None:
+            raise ConnectionError("Redis unavailable")
+        if r:
+            raw_status = await r.get(f"rpa:forwarder:connected:{phone}")
+            if raw_status:
+                parsed = json.loads(raw_status)
+                forwarder_verified = True
+                last_seen = parsed.get("last_seen")
+                permissions_data = parsed.get("permissions", {})
+    except Exception as exc:
+        status_available = False
+        logger.debug("Failed to query driver forwarder connection status (%s)", type(exc).__name__)
+
+    has_permissions_report = bool(permissions_data)
+    permissions_complete = bool(
+        has_permissions_report
+        and permissions_data.get("receive_sms") is True
+        and permissions_data.get("send_sms") is True
+    )
+    permissions_revoked = bool(
+        has_permissions_report
+        and (permissions_data.get("receive_sms") is False or permissions_data.get("send_sms") is False)
+    )
+
     return {
         "driver_id": driver.id,
         "driver_phone": phone,
@@ -566,7 +646,21 @@ async def get_driver_forwarder_config(
         "intake_ready": readiness["intake_ready"],
         "required_header_name": WEBHOOK_TOKEN_HEADER,
         "authentication_instructions": "اپراتور مجاز باید توکن فورواردر را در هدر برنامه تنظیم کند؛ توکن در URL قرار نگیرد.",
-        "forwarder_connection_verified": False,
+        # Provisioned / setup_recorded indicates the driver phone has an established configuration
+        "provisioned": forwarder_verified,
+        "setup_recorded": forwarder_verified,
+        "permissions_complete": permissions_complete,
+        "permissions_revoked": permissions_revoked,
+        # Verified ready only if provisioned AND critical permissions are not revoked
+        "forwarder_connection_verified": forwarder_verified and not permissions_revoked,
+        "status_available": status_available,
+        "connected_at": parsed.get("connected_at"),
+        "permissions_observed_at": parsed.get("permissions_observed_at"),
+        "last_health_at": parsed.get("last_health_at"),
+        "last_sms_at": parsed.get("last_sms_at"),
+        "last_seen": last_seen,
+        "permissions": permissions_data,
+        "primary_sms_gateway_phone": getattr(utcms_config, "SMS_GATEWAY_PHONE", ""),
     }
 
 

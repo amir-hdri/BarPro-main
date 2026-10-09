@@ -15,6 +15,10 @@ def validate_environment() -> tuple[bool, list[str]]:
     """
     errors = []
     warnings = []
+    is_prod = (
+        os.getenv("NODE_ENV", "").strip().lower() == "production"
+        or os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+    )
 
     # Critical secrets
     jwt_secret = os.getenv("JWT_SECRET", "")
@@ -42,9 +46,21 @@ def validate_environment() -> tuple[bool, list[str]]:
             'DRIVER_ENCRYPTION_KEY must be set. Generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
         )
 
+    # OTP Forwarder Webhook Secret
+    otp_secret = os.getenv("OTP_WEBHOOK_SECRET", "").strip()
+    if not otp_secret:
+        if is_prod:
+            errors.append(
+                "OTP_WEBHOOK_SECRET must be set in production for the SMS OTP intake webhook. "
+                'Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+            )
+        else:
+            warnings.append("OTP_WEBHOOK_SECRET is not set; OTP webhook will fail-closed with 503 until configured")
+    elif len(otp_secret) < 16:
+        errors.append("OTP_WEBHOOK_SECRET must be at least 16 characters long.")
+
     # Database configuration
     db_url = os.getenv("DATABASE_URL", "")
-    is_prod = os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
     if not db_url or "sqlite" in db_url.lower():
         if is_prod:
             errors.append(
@@ -71,9 +87,6 @@ def validate_environment() -> tuple[bool, list[str]]:
 
     insecure_passwords = ["master_bar", "admin", "Amir123", "password", "123456", "admin123"]
     if master_pass in insecure_passwords:
-        is_prod = (
-            os.getenv("NODE_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
-        )
         if is_prod:
             errors.append(
                 "MASTER_ADMIN_PASSWORD is set to an insecure default value. This is a critical security risk. Change it before running in production."

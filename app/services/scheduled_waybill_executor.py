@@ -272,13 +272,17 @@ async def _execute_single_job(
             status_str = str(result.get("status", "")).strip().lower()
 
             if status_str == "validated":
-                job.result_json = result.get("result") if isinstance(result.get("result"), dict) else {}
-                job.status = TaskStatus.NEEDS_REVIEW.value
-                job.last_error = "Waybill form validated; live submit is disabled"
-                job.error_category = "live_submit_disabled"
-                job.retryable = False
-                job.next_retry_at = None
-                job.finished_at = _utcnow()
+                JobStateMachine.transition(
+                    session,
+                    job,
+                    TaskStatus.NEEDS_REVIEW.value,
+                    result_json=result.get("result") if isinstance(result.get("result"), dict) else {},
+                    last_error="Waybill form validated; live submit is disabled",
+                    error_category="live_submit_disabled",
+                    retryable=False,
+                    next_retry_at=None,
+                    finished_at=_utcnow(),
+                )
                 await session.commit()
                 return result
 

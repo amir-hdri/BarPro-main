@@ -779,6 +779,7 @@ def test_mobile_payload_persian_digits_normalization():
 def test_mobile_payload_tehran_timezone_default():
     """Verify selfDeclaredTimeOfStartShipment uses Tehran timezone."""
     from zoneinfo import ZoneInfo
+
     payload = _payload()
     payload.pop("self_declared_time_of_start_shipment", None)
 
@@ -814,5 +815,3 @@ def test_mobile_payload_financial_and_cargo_numeric_resilience():
     assert body["load"][0]["productId"] == 17
     assert body["load"][0]["packTypeId"] == 3
     assert body["load"][0]["wheight"] == 2.5  # 2500 kg converted to 2.5 tons
-
-

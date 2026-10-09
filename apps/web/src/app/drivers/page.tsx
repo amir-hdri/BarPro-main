@@ -74,7 +74,18 @@ interface ForwarderConfig {
   required_header_name: string;
   authentication_instructions: string;
   forwarder_connection_verified: boolean;
+  setup_recorded: boolean;
+  provisioned?: boolean;
+  permissions_complete?: boolean;
+  permissions_revoked?: boolean;
+  status_available: boolean;
+  permissions_observed_at?: number | null;
+  last_sms_at?: number | null;
+  last_seen?: number | null;
+  permissions?: Record<string, boolean>;
+  primary_sms_gateway_phone?: string;
 }
+
 
 export default function DriversPage() {
   const { role, client } = useSession();
@@ -106,7 +117,7 @@ export default function DriversPage() {
   const [activeTab, setActiveTab] = useState<'list' | 'add' | 'plates_schedules' | 'tracking'>('list');
   const dataLoadControllerRef = useRef<AbortController | null>(null);
 
-  const { data: forwarderConfig, isPending: forwarderLoading, isError: forwarderFailed } = useQuery({
+  const { data: forwarderConfig, isPending: forwarderLoading, isError: forwarderFailed, refetch: refetchForwarderConfig } = useQuery({
     queryKey: sessionQueryKey(client, 'otp-forwarder-config', forwarderDriver?.id),
     enabled: Boolean(client && forwarderDriver),
     queryFn: async ({ signal }) => {
@@ -1059,12 +1070,114 @@ export default function DriversPage() {
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-200" role="status">
-                {forwarderLoading ? 'در حال بررسی آمادگی سرور…' : forwarderFailed ? (
+              <div
+                className={`rounded-2xl border p-4 text-xs transition-all ${
+                  forwarderLoading
+                    ? 'border-white/10 bg-slate-900/50 text-slate-300'
+                    : forwarderFailed
+                    ? 'border-rose-500/20 bg-rose-500/5 text-rose-300'
+                    : forwarderConfig?.setup_recorded
+                    ? forwarderConfig?.permissions_revoked
+                      ? 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+                      : forwarderConfig?.permissions_complete
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                      : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                    : forwarderConfig?.intake_ready
+                    ? 'border-amber-500/20 bg-amber-500/5 text-amber-200'
+                    : 'border-rose-500/20 bg-rose-500/5 text-rose-300'
+                }`}
+                role="status"
+              >
+                {forwarderLoading ? (
+                  'در حال بررسی آمادگی سرور…'
+                ) : forwarderFailed ? (
                   'آمادگی سرور و تنظیمات این راننده قابل بررسی نیست؛ اتصال فورواردر تأیید نشده است.'
+                ) : forwarderConfig?.status_available === false ? (
+                  'آخرین گزارش گوشی قابل بازیابی نیست؛ وضعیت فعلی نامشخص است.'
+                ) : forwarderConfig?.setup_recorded ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 font-bold text-sm">
+                        {forwarderConfig.permissions_revoked ? (
+                          <>
+                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-400"></span>
+                            <span className="text-rose-300">راه‌اندازی‌شده، اما مجوزهای ضروری در آخرین گزارش غیرفعال بوده‌اند!</span>
+                          </>
+                        ) : forwarderConfig.permissions_complete ? (
+                          <>
+                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                            <span className="text-emerald-300">راه‌اندازی‌شده و مجوزها در آخرین گزارش کامل بوده است</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                            <span className="text-amber-300">راه‌اندازی برنامه ثبت شده (اطلاعات مجوزها هنوز گزارش نشده است)</span>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void refetchForwarderConfig()}
+                        className="min-h-11 min-w-11 touch-manipulation rounded-lg bg-slate-800/80 border border-white/20 px-2.5 py-1 text-[11px] font-bold text-slate-200 hover:bg-slate-700/80 transition"
+                      >
+                        بازخوانی آخرین گزارش
+                      </button>
+                    </div>
+                    {forwarderConfig.last_seen ? (
+                      <p className="text-[11px] text-slate-300">
+                        آخرین ارتباط ثبت‌شده: {new Date(forwarderConfig.last_seen * 1000).toLocaleString('fa-IR')}
+                      </p>
+                    ) : null}
+                    <p className="text-[11px] text-slate-300">
+                      این سابقه وضعیت پایدار «راه‌اندازی‌شده» و آخرین گزارش ارتباط است، نه استعلام آنلاین لحظه‌ای. در نبود اینترنت گوشی، وضعیت راننده قطع نشان داده نمی‌شود؛ برای آزمون تازه، از گزینه «تست سلامت و اتصال» یا «ارسال پیامک تستی» در اپلیکیشن گوشی راننده استفاده کنید.
+                    </p>
+                    {!forwarderConfig.intake_ready && <p className="text-amber-300">دریافت پیامک روی سرور در حال حاضر آماده نیست.</p>}
+                    <p className="text-[11px] text-slate-300">
+                      زمان گزارش مجوزها: {forwarderConfig.permissions_observed_at
+                        ? new Date(forwarderConfig.permissions_observed_at * 1000).toLocaleString('fa-IR')
+                        : 'نامشخص؛ تست سلامت را روی گوشی اجرا کنید'}
+                    </p>
+                    {forwarderConfig.last_sms_at && <p className="text-[11px]">آخرین پیامک پذیرفته‌شده در درگاه: {new Date(forwarderConfig.last_sms_at * 1000).toLocaleString('fa-IR')}</p>}
+                    {forwarderConfig.permissions && Object.keys(forwarderConfig.permissions).length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-1 text-[10px]">
+                        <span className={`rounded px-2 py-0.5 border ${
+                          forwarderConfig.permissions.receive_sms === true
+                            ? 'bg-emerald-950/80 border-emerald-500/20 text-emerald-300'
+                            : 'bg-rose-950/80 border-rose-500/20 text-rose-300'
+                        }`}>
+                          دریافت پیامک: {forwarderConfig.permissions.receive_sms === true ? '✅ در آخرین گزارش' : forwarderConfig.permissions.receive_sms === false ? '❌ مجوز داده نشده' : 'نامشخص'}
+                        </span>
+                        <span className={`rounded px-2 py-0.5 border ${
+                          forwarderConfig.permissions.send_sms === true
+                            ? 'bg-emerald-950/80 border-emerald-500/20 text-emerald-300'
+                            : 'bg-rose-950/80 border-rose-500/20 text-rose-300'
+                        }`}>
+                          ارسال پیامک رله: {forwarderConfig.permissions.send_sms === true ? '✅ در آخرین گزارش' : forwarderConfig.permissions.send_sms === false ? '❌ مجوز داده نشده' : 'نامشخص'}
+                        </span>
+                        <span className={`rounded px-2 py-0.5 border ${
+                          forwarderConfig.permissions.battery_optimization_ignored === true
+                            ? 'bg-emerald-950/80 border-emerald-500/20 text-emerald-300'
+                            : 'bg-amber-950/80 border-amber-500/20 text-amber-300'
+                        }`}>
+                          باتری بدون توقف: {forwarderConfig.permissions.battery_optimization_ignored === true ? '✅ در آخرین گزارش' : forwarderConfig.permissions.battery_optimization_ignored === false ? '⚠️ نیاز به معافیت' : 'نامشخص'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 ) : forwarderConfig?.intake_ready ? (
-                  'سرور آماده دریافت پیامک است؛ اتصال برنامه گوشی هنوز تأیید نشده است.'
-                ) : 'دریافت پیامک روی سرور آماده نیست؛ اپراتور باید تنظیمات و سرویس ذخیره‌سازی را بررسی کند.'}
+                  <div className="flex items-center justify-between">
+                    <span>سرور آماده دریافت پیامک است؛ اتصال برنامه گوشی راننده هنوز ثبت نشده است.</span>
+                    <button
+                      type="button"
+                      onClick={() => void refetchForwarderConfig()}
+                      className="min-h-11 min-w-11 touch-manipulation rounded-lg bg-amber-950/60 border border-amber-500/30 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-900/60 transition"
+                    >
+                      بازخوانی آخرین گزارش
+                    </button>
+                  </div>
+                ) : (
+                  'دریافت پیامک روی سرور آماده نیست؛ اپراتور باید تنظیمات و سرویس ذخیره‌سازی را بررسی کند.'
+                )}
               </div>
 
               {/* The global webhook secret is never sent to the browser. */}

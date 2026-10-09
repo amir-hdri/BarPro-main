@@ -116,3 +116,71 @@ async def test_forwarder_config_hides_foreign_driver(monkeypatch):
     with pytest.raises(HTTPException) as error:
         await routes.get_driver_forwarder_config(42, {"role": "client", "user": SimpleNamespace(id=11)})
     assert error.value.status_code == 404
+
+
+async def test_forwarder_config_reports_verified_when_driver_connected(monkeypatch):
+    import json
+
+    factory = MagicMock()
+    session = MagicMock()
+    factory.__aenter__ = AsyncMock(return_value=session)
+    factory.__aexit__ = AsyncMock(return_value=None)
+    driver = SimpleNamespace(id=42, phone="09120000042", client_id=11)
+    session.exec = AsyncMock(return_value=SimpleNamespace(first=lambda: driver))
+    monkeypatch.setattr(routes, "async_session_factory", lambda: factory)
+
+    mock_redis = SimpleNamespace(
+        ping=AsyncMock(return_value=True),
+        get=AsyncMock(
+            return_value=json.dumps(
+                {
+                    "connected_at": 1728472800,
+                    "last_seen": 1728472900,
+                    "permissions": {"receive_sms": True, "send_sms": True},
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(routes.redis_manager, "get", AsyncMock(return_value=mock_redis))
+    monkeypatch.setattr(routes.utcms_config, "OTP_WEBHOOK_SECRET", "test-secret")
+
+    result = await routes.get_driver_forwarder_config(42, {"role": "client", "user": SimpleNamespace(id=11)})
+    assert result["forwarder_connection_verified"] is True
+    assert result["provisioned"] is True
+    assert result["permissions_complete"] is True
+    assert result["permissions_revoked"] is False
+    assert result["last_seen"] == 1728472900
+    assert result["permissions"] == {"receive_sms": True, "send_sms": True}
+
+
+async def test_forwarder_config_reports_unverified_when_permissions_revoked(monkeypatch):
+    import json
+
+    factory = MagicMock()
+    session = MagicMock()
+    factory.__aenter__ = AsyncMock(return_value=session)
+    factory.__aexit__ = AsyncMock(return_value=None)
+    driver = SimpleNamespace(id=42, phone="09120000042", client_id=11)
+    session.exec = AsyncMock(return_value=SimpleNamespace(first=lambda: driver))
+    monkeypatch.setattr(routes, "async_session_factory", lambda: factory)
+
+    mock_redis = SimpleNamespace(
+        ping=AsyncMock(return_value=True),
+        get=AsyncMock(
+            return_value=json.dumps(
+                {
+                    "connected_at": 1728472800,
+                    "last_seen": 1728472900,
+                    "permissions": {"receive_sms": False, "send_sms": True},
+                }
+            )
+        ),
+    )
+    monkeypatch.setattr(routes.redis_manager, "get", AsyncMock(return_value=mock_redis))
+    monkeypatch.setattr(routes.utcms_config, "OTP_WEBHOOK_SECRET", "test-secret")
+
+    result = await routes.get_driver_forwarder_config(42, {"role": "client", "user": SimpleNamespace(id=11)})
+    assert result["provisioned"] is True
+    assert result["permissions_complete"] is False
+    assert result["permissions_revoked"] is True
+    assert result["forwarder_connection_verified"] is False

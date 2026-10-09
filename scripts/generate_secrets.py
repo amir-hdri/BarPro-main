@@ -41,6 +41,16 @@ def generate_all_secrets():
     print(f"REDIS_PASSWORD={redis_password}")
     print()
 
+    print("# OTP Forwarder Webhook Secret (X-OTP-Webhook-Token)")
+    otp_secret = secrets.token_hex(32)
+    print(f"OTP_WEBHOOK_SECRET={otp_secret}")
+    print()
+
+    print("# Prometheus / Alertmanager Webhook Secret")
+    alert_secret = secrets.token_hex(32)
+    print(f"ALERT_WEBHOOK_SECRET={alert_secret}")
+    print()
+
     print("=" * 60)
     print("⚠️  IMPORTANT: Keep these secrets secure!")
     print("   - Never commit them to version control")

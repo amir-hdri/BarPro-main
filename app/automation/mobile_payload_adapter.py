@@ -84,7 +84,9 @@ def _party_payload(party: Mapping[str, Any], label: str) -> dict[str, Any]:
         "nationalCode": _normalize_digits(_required_alias(party, ("national_code", "nationalCode"), f"کد ملی {label}")),
         "mobile": _normalize_digits(_required_alias(party, ("phone", "mobile", "mobile_no"), f"موبایل {label}")),
         "postalCode": _normalize_digits(_required_alias(party, ("postal_code", "postalCode"), f"کدپستی {label}")),
-        "telNumber": _normalize_digits(str(_value(party, "landline", "tel_number", "telNumber", "phone_number") or "").strip()),
+        "telNumber": _normalize_digits(
+            str(_value(party, "landline", "tel_number", "telNumber", "phone_number") or "").strip()
+        ),
     }
 
 
@@ -134,12 +136,18 @@ def _load_items(cargo: Mapping[str, Any]) -> list[dict[str, Any]]:
             weight_val = raw_weight
         result.append(
             {
-                "productId": _to_int(_required_alias(item, ("product_id", "productId"), f"شناسه کالا در محموله {index}")),
+                "productId": _to_int(
+                    _required_alias(item, ("product_id", "productId"), f"شناسه کالا در محموله {index}")
+                ),
                 # ``wheight`` is the misspelled key used by the APK DTO.
                 "wheight": weight_val,
-                "packTypeId": _to_int(_required_alias(item, ("pack_type_id", "packTypeId"), f"شناسه بسته‌بندی محموله {index}")),
+                "packTypeId": _to_int(
+                    _required_alias(item, ("pack_type_id", "packTypeId"), f"شناسه بسته‌بندی محموله {index}")
+                ),
                 "description": str(_value(item, "description") or "").strip(),
-                "boxNum": _to_int(_required_alias(item, ("count", "box_num", "boxNum"), f"تعداد بسته در محموله {index}")),
+                "boxNum": _to_int(
+                    _required_alias(item, ("count", "box_num", "boxNum"), f"تعداد بسته در محموله {index}")
+                ),
             }
         )
     return result
@@ -319,7 +327,9 @@ def build_mobile_document_payload(
         "destination": _location_payload(destination, "مقصد"),
         "sender": _party_payload(sender, "فرستنده"),
         "receiver": _party_payload(receiver, "گیرنده"),
-        "driverNationalCode": _normalize_digits(_required_alias(vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده")),
+        "driverNationalCode": _normalize_digits(
+            _required_alias(vehicle, ("driver_national_code", "driverNationalCode"), "کد ملی راننده")
+        ),
         "truck": {
             "tagType": tag_type_bool,
             "t1": str(_required_alias({"value": t1}, ("value",), "بخش اول پلاک (کد ایران)")),

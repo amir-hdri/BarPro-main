@@ -12,6 +12,26 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## امنیت، چرخش اسرار، ایزولاسیون بایندها و گارد استارتاپ — 2026-10-09 (CODE-VERIFIED)
+
+- CODE-VERIFIED: اسرار افشاشده در کامیت‌های تاریخی (`JWT_SECRET`، `POSTGRES_PASSWORD`، `REDIS_PASSWORD` و `API_KEY`) با مقادیر امن ۲۵۶ بیتی بازتولید و در `.env` ثبت شدند؛ مقایسه هش‌ها عدم تطابق با نسخه تاریخی را تضمین کرد (`match_leaked=False`).
+- CONFIG-VERIFIED: بایند سرویس‌های حساس در `.env` به `POSTGRES_BIND=127.0.0.1` و `REDIS_BIND=127.0.0.1` محدود شد تا از انتشار پورت‌های ۵۴۳۲ و ۶۳۷۹ بر روی اینترنت عمومی جلوگیری شود.
+- SECURITY-VERIFIED: زمان انقضای کوکی احراز هویت با `JWT_ACCESS_TOKEN_EXPIRE_MINUTES=240` به ۴ ساعت کاهش یافت تا ریسک Replay Attack روی HTTP متن‌خام به حداقل برسد.
+- CODE-VERIFIED: وب‌هوک فورواردر پیامک با کلید ۶۴ کاراکتری `OTP_WEBHOOK_SECRET` فعال شد و تابع `validate_environment()` به صورت Fail-Closed مستقیماً به `lifespan` در `app/main.py` متصل گردید؛ در صورت نبود کلید در پروداکشن، سرور با `RuntimeError` بالا نمی‌آید.
+- CODE-VERIFIED: انتساب مستقیم وضعیت بارنامه در `app/services/scheduled_waybill_executor.py:276` با فراخوانی استاندارد `JobStateMachine.transition(...)` جایگزین شد و نقض ماشین حالت برطرف گردید.
+- CODE-VERIFIED: خطای خاموش `except: pass` در `app/services/otp_delivery.py:141` با ثبت لاگ هشدار ساختاریافته جایگزین شد.
+- TEST-VERIFIED: تمامی ۲,۳۴۲ تست بک‌اند و ۵۵ تست فرانت‌اند با موفقیت کامل پاس شدند و کدهای پایتون به صورت کامل با استانداردهای Black و Ruff منطبق شدند.
+
+## زیرسیستم رله همیشگی پیامک راننده و وضعیت پایدار اتصال — 2026-10-09 (CODE-VERIFIED)
+
+- CODE-VERIFIED: ارسال کدها در گوشی راننده (`SMS-Forwarder-Pro`) به حالت Primary SMS Relay مجهز شد که کدها را به محض استخراج با پاکت امضاشده با HMAC (`BP1#...`) مستقیماً تحویل مودم دستگاه می‌دهد تا به سیم‌کارت درگاه سرور ارسال شود و نیازی به اینترنت جاده‌ای ندارد.
+- CODE-VERIFIED: سرور بارپرو در `app/api/routes/otp_forwarder.py` با دریافت پینگ `HEALTH_CHECK` یا پیامک درگاه، کلید وضعیت پایدار «راه‌اندازی‌شده» (`provisioned`) را در `rpa:forwarder:connected:{phone}` با انقضای ۹۰ روزه در Redis ثبت می‌کند؛ وضعیت رانندگان در جاده به دلیل نبود اینترنت قطع یا قرمز نشان داده نمی‌شود.
+- CODE-VERIFIED: وضعیت راه‌اندازی از سلامت مجوزها تفکیک شد: فیلدهای `provisioned`، `permissions_complete` و `permissions_revoked` مستقل شدند؛ در صورت لغو یا عدم اعطای مجوزهای ضروری (دریافت یا ارسال پیامک)، `forwarder_connection_verified` به صورت Fail-Closed مقدار `false` می‌گیرد.
+- CODE-VERIFIED: به‌روزرسانی اتمیک در `forwarder_health.py` (`record_observation`) با اسکریپت Lua و فال‌بک سازگار با محیط‌های تستی/حافظه‌ای پیاده‌سازی شد تا دریافت پیامک‌های بعدی اطلاعات مجوزها یا زمان اولیه راه‌اندازی را پاک نکند.
+- CODE-VERIFIED: درگاه پیامک `receive_sms_gateway` از پاکت‌های آزمایشی `code == "TEST"` با اعتبارسنجی دقیق تازگی زمان (`probe_timestamp_ms`) پشتیبانی می‌کند؛ پاکت‌های قدیمی منقضی با خطای ۴۱۰ رد شده و خطای ذخیره‌سازی در Redis با ۵۰۳ Fail-Closed اعلام می‌شود.
+- UI-VERIFIED: در پنل رانندگان (`apps/web/src/app/drivers/page.tsx`) وضعیت پایدار «راه‌اندازی‌شده» با کارت تفکیک‌شده، نشان‌های مجزای مجوزها (سبز، قرمز، زرد) و دکمه بازخوانی آخرین گزارش ذخیره‌شده پیاده‌سازی شد.
+
+
 ## ارتقای پروفایل سخت‌افزاری سرور مرکزی (32 GB RAM / 8 Cores) و بازتوزیع بودجه منابع — 2026-10-07 (CONFIG-TARGET)
 
 - CONFIG-TARGET: سرور مرکزی به پروفایل سخت‌افزاری جدید (32 GB RAM و 8 هسته پردازشی vCPU) ارتقا می‌یابد.

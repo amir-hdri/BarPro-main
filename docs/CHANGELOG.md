@@ -4,6 +4,28 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-09 — Security Secret Rotation, Loopback Binding & Fail-Closed Startup Validation
+
+- Rotated historical leaked secrets in `.env`: `JWT_SECRET` (64-char), `POSTGRES_PASSWORD` (32-char), `REDIS_PASSWORD` (32-char), and `API_KEY` (47-char) with cryptographically random tokens, breaking the git-history exposure chain (`match_leaked = False`).
+- Enforced local loopback binds in `.env`: `POSTGRES_BIND=127.0.0.1` and `REDIS_BIND=127.0.0.1`, closing external network exposure of database and cache ports.
+- Reduced JWT cookie TTL: set `JWT_ACCESS_TOKEN_EXPIRE_MINUTES=240` (4 hours) down from 24 hours, shrinking the replay attack window on plaintext HTTP.
+- Provisioned OTP and alert webhook tokens: generated 64-char `OTP_WEBHOOK_SECRET` and `ALERT_WEBHOOK_SECRET` in `.env`, and updated `scripts/generate_secrets.py` to produce them.
+- Wired fail-closed environment validation to application boot: connected `validate_environment()` directly to FastAPI `lifespan` in `app/main.py:117`, halting the server with `RuntimeError` if critical production configuration is missing.
+- Replaced state machine bypass: eliminated manual status assignment in `scheduled_waybill_executor.py:276` with validated `JobStateMachine.transition(session, job, TaskStatus.NEEDS_REVIEW.value, ...)`.
+- Replaced silent pass with logging: replaced `except Exception: pass` in `app/services/otp_delivery.py:141` with `logger.warning(...)`.
+- Resolved Mypy type-narrowing in `app/services/forwarder_health.py:124` (`if receipt and probe_timestamp is not None:`).
+- Added comprehensive unit tests in `tests/test_config_validation.py` covering dual production environment indicators (`NODE_ENV` / `ENVIRONMENT`) and lifespan `RuntimeError` fail-closed behavior (16/16 passing).
+- Formatted entire repository with `black` (427 files clean) and verified 0 Ruff linter errors, 0 Mypy type errors across 217 files, 55 frontend tests, and 2,342 backend tests passing.
+
+### 2026-10-09 — Primary SMS Relay & Driver Heartbeat Persistence Subsystem
+
+- Added Primary SMS Relay (`BP1#...`) support with instantaneous modem handover and multi-channel dual-dispatch (SMS + parallel HTTP) to `SMS-Forwarder-Pro`.
+- Added persistent 90-day driver connection tracking in Redis (`rpa:forwarder:connected:{phone}`) on `HEALTH_CHECK` pings and gateway SMS reception, removing premature 30-minute disconnection alarms for mobile drivers on the road.
+- Disentangled "Provisioned" (`provisioned: true`) from "Permissions Complete" (`permissions_complete: true`) and added `permissions_revoked` check so that revoked permissions immediately prevent false green verification (`forwarder_connection_verified: false`).
+- Implemented atomic merge preservation in `forwarder_health.py` (`record_observation`) with Lua `MERGE_OBSERVATION` and robust Python `get`/`set` fallback, preventing SMS packets or mock harnesses from wiping driver permissions or connection timestamps.
+- Added strict timestamp validation in test probe handling (`BP1#...#TEST`) and fail-closed HTTP 503 handling on storage outages.
+- Updated test suites with 4 automated test cases across OTP test contracts: `tests/test_otp_forwarder_hardening.py` (10/10 passing) and `tests/test_otp_delivery_contract.py` (36/36 passing), plus 4/4 passing in independent review suite `graphify-out/sms-review/test_health_review.py`.
+
 ### 2026-10-09 — Systemic audit remediation and 32GB Compose alignment
 
 - Applied verified 32 GB RAM Central Server cgroup limits directly to Compose files:

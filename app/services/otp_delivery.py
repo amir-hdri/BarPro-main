@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import re
 import time
@@ -13,6 +14,8 @@ from fastapi import HTTPException
 
 from app.automation.otp_keys import normalize_phone_for_otp_key, otp_phone_key
 from app.core.redis_client import redis_manager
+
+logger = logging.getLogger(__name__)
 
 OTP_TTL_SECONDS = 300
 MAX_CLOCK_SKEW_SECONDS = 30
@@ -138,8 +141,8 @@ async def accept_forwarded_otp(
         from app.services.otp_wakeup_consumer import trigger_job_completion_on_otp_received
 
         trigger_job_completion_on_otp_received(phone=phone, code=code)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to trigger job completion on received OTP (%s)", exc)
 
     return {
         "success": True,

@@ -115,6 +115,14 @@ def _frontend_origins() -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.core.startup_validation import validate_environment
+
+    is_valid, validation_errors = validate_environment()
+    if not is_valid:
+        error_msg = f"Critical startup validation failed: {'; '.join(validation_errors)}"
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
+
     if AUTO_GENERATED_SECRETS:
         logger.info(
             "secrets_auto_generated",
