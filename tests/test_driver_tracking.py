@@ -18,9 +18,11 @@ from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.jalali import (
+    format_date_jalali,
     get_tracking_period,
     gregorian_to_jalali,
     jalali_to_gregorian,
+    parse_jalali_date,
 )
 from app.models_multitenant import Client, Driver, DriverPlate, WaybillJob
 from app.schemas.multitenant import PlateUpdateRequest
@@ -120,6 +122,28 @@ def test_jalali_roundtrip():
             for d in (1, 15, 28):
                 g = jalali_to_gregorian(y, m, d)
                 assert gregorian_to_jalali(*g) == (y, m, d)
+
+
+def test_parse_and_format_jalali_date():
+    from datetime import date
+
+    # Parse standard Jalali ISO date
+    d = parse_jalali_date("1405-07-10")
+    assert d == date(2026, 10, 2)
+    assert format_date_jalali(d) == "1405-07-10"
+
+    # Slash separator
+    assert parse_jalali_date("1405/07/10") == date(2026, 10, 2)
+
+    # Farvardin 1st
+    d_noruz = parse_jalali_date("1405-01-01")
+    assert d_noruz == date(2026, 3, 21)
+    assert format_date_jalali(d_noruz) == "1405-01-01"
+
+    # None and empty inputs
+    assert parse_jalali_date(None) is None
+    assert parse_jalali_date("") is None
+    assert format_date_jalali(None) == ""
 
 
 def test_tracking_period_phase_1():

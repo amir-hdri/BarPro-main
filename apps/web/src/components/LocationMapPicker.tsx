@@ -43,7 +43,7 @@ export const LocationMapPicker = memo(function LocationMapPicker({
   const geocodeControllerRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(false);
 
-  const [mapTheme, setMapTheme] = useState<MapTheme>("osm");
+  const [mapTheme, setMapTheme] = useState<MapTheme>("carto");
   const [tileStatus, setTileStatus] = useState<MapTileStatus>("loading");
   const [loadingGeocode, setLoadingGeocode] = useState(false);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lng: number }>({

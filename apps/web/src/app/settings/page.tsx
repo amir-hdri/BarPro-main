@@ -199,9 +199,6 @@ export default function SettingsPage() {
                   <Server className="h-6 w-6 text-cyan-400" />
                   حساب کاربری مشتری
                 </h2>
-                <p className="mt-4 text-sm leading-7 text-slate-300 relative z-10">
-                  این بخش به پرتال اصلی احراز هویت متصل است و ظرفیت مجاز عملیاتی و حجم تراکنش‌ها را به صورت مستقیم از بک‌اند دریافت می‌کند.
-                </p>
                 <div className="mt-8 space-y-4 text-sm text-slate-300 relative z-10 border-t border-white/5 pt-6">
                   <div className="flex justify-between items-center">
                     <span className="text-slate-400">وضعیت حساب مشتری</span>
@@ -231,9 +228,9 @@ export default function SettingsPage() {
                 </h2>
                 {profile ? (
                   <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                    <InfoCard label="نام مجموعه" value={profile.name} />
-                    <InfoCard label="کد اختصاصی مشتری" value={profile.client_code} />
-                    <InfoCard label="پست الکترونیک" value={profile.email} />
+                    <InfoCard label="نام مجموعه / کاربر" value={profile.name} />
+                    <InfoCard label="شناسه کاربری (کد مشتری)" value={profile.client_code} />
+                    <InfoCard label="نام کاربری / ایمیل" value={profile.email} isLtr />
                     <InfoCard label="تلفن همراه" value={profile.phone || 'ثبت نشده'} />
                     <InfoCard label="سقف ناوگان (راننده)" value={toPersianDigits(profile.max_drivers)} />
                     <InfoCard label="پردازش همزمان (Concurrent)" value={toPersianDigits(profile.max_concurrent_tasks)} />
@@ -449,11 +446,27 @@ export default function SettingsPage() {
   );
 }
 
-const InfoCard = memo(function InfoCard({ label, value }: { label: string; value: string }) {
+const InfoCard = memo(function InfoCard({
+  label,
+  value,
+  isLtr = false,
+}: {
+  label: string;
+  value: string;
+  isLtr?: boolean;
+}) {
   return (
-    <article className="rounded-3xl bg-slate-950/60 p-6 border border-white/5 shadow-sm group hover:border-cyan-500/20 transition-all duration-300">
-      <p className="text-xs text-slate-400 font-medium">{label}</p>
-      <p className="mt-3 text-base font-bold text-white group-hover:text-cyan-400 transition-colors">{value}</p>
+    <article className="rounded-3xl bg-slate-950/60 p-5 sm:p-6 border border-white/5 shadow-sm group hover:border-cyan-500/20 transition-all duration-300 min-w-0 overflow-hidden">
+      <p className="text-xs text-slate-400 font-medium truncate">{label}</p>
+      <p
+        className={`mt-2.5 text-sm sm:text-base font-bold text-white group-hover:text-cyan-400 transition-colors truncate block w-full ${
+          isLtr ? 'font-mono text-xs sm:text-sm text-left' : ''
+        }`}
+        dir={isLtr ? 'ltr' : 'rtl'}
+        title={value}
+      >
+        {value}
+      </p>
     </article>
   );
 });

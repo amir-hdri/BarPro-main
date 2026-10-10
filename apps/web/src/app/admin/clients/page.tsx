@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { CreateClientModal } from "./CreateClientModal";
+import { formatJalaliDisplay } from "@/lib/jalali";
 import { 
   Search, 
   Loader2, 
@@ -289,7 +290,7 @@ export default function AdminClientsPage() {
                         <div className="mt-0.5 text-xs text-slate-500 font-mono">{c.phone || "بدون تلفن"}</div>
                         {c.subscription_start_date || c.subscription_end_date ? (
                           <div className="mt-1.5 text-[11px] text-cyan-400 font-bold bg-cyan-500/5 border border-cyan-500/10 rounded-lg px-2 py-1 inline-block">
-                            اشتراک: {c.subscription_start_date ? c.subscription_start_date.slice(0, 10) : "نامحدود"} تا {c.subscription_end_date ? c.subscription_end_date.slice(0, 10) : "نامحدود"}
+                            اشتراک: {c.subscription_start_date ? formatJalaliDisplay(c.subscription_start_date) : "نامحدود"} تا {c.subscription_end_date ? formatJalaliDisplay(c.subscription_end_date) : "نامحدود"}
                           </div>
                         ) : (
                           <div className="mt-1.5 text-[11px] text-slate-500 bg-white/5 rounded-lg px-2 py-1 inline-block">
@@ -523,7 +524,7 @@ export default function AdminClientsPage() {
                 {c.phone && <p className="text-xs text-slate-500">{c.phone}</p>}
                 {c.subscription_start_date || c.subscription_end_date ? (
                   <p className="text-xs text-cyan-400 font-bold">
-                    اشتراک: {c.subscription_start_date ? c.subscription_start_date.slice(0, 10) : "نامحدود"} تا {c.subscription_end_date ? c.subscription_end_date.slice(0, 10) : "نامحدود"}
+                    اشتراک: {c.subscription_start_date ? formatJalaliDisplay(c.subscription_start_date) : "نامحدود"} تا {c.subscription_end_date ? formatJalaliDisplay(c.subscription_end_date) : "نامحدود"}
                   </p>
                 ) : (
                   <p className="text-xs text-slate-500">بدون تاریخ اشتراک</p>

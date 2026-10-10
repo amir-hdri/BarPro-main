@@ -1,13 +1,39 @@
 import type * as Leaflet from 'leaflet';
 
 export const MAP_TILES = {
-  osm: { name: 'نقشه خیابان‌ها', url: 'https://tile.openstreetmap.de/{z}/{x}/{y}.png', subdomains: '', maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
-  osmStandard: { name: 'نقشه استاندارد', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: '', maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
+  carto: {
+    name: 'نقشه روان (بدون فیلتر)',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+    subdomains: 'abcd',
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  cartoLight: {
+    name: 'نقشه روشن (بدون فیلتر)',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    subdomains: 'abcd',
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  osmDe: {
+    name: 'نقشه خیابان‌ها (آلمان)',
+    url: 'https://tile.openstreetmap.de/{z}/{x}/{y}.png',
+    subdomains: '',
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  osmStandard: {
+    name: 'نقشه استاندارد OSM',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    subdomains: '',
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
 } as const;
 
 export type MapTheme = keyof typeof MAP_TILES;
 export type MapTileStatus = 'loading' | 'ready' | 'unavailable';
-export const MAP_TILE_ORDER: MapTheme[] = ['osm', 'osmStandard'];
+export const MAP_TILE_ORDER: MapTheme[] = ['carto', 'cartoLight', 'osmDe', 'osmStandard'];
 
 /** Bounded provider fallback, including connections that stall without tileerror. */
 export function createMapTiles(
@@ -51,7 +77,7 @@ export function createMapTiles(
   };
 
   return {
-    select(theme: MapTheme = 'osm') { attempted = new Set(); apply(theme); },
+    select(theme: MapTheme = 'carto') { attempted = new Set(); apply(theme); },
     dispose() { disposed = true; clearTimeout(timer); layer?.off(); layer?.remove(); },
   };
 }

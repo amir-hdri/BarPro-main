@@ -9,6 +9,7 @@ import { Route as RouteIcon } from 'lucide-react';
 import { StarIcon as StarSolidIcon } from '@heroicons/react/24/solid';
 import { toast } from 'react-hot-toast';
 
+import dynamic from 'next/dynamic';
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { ProvinceCitySelect } from '@/components/ProvinceCitySelect';
@@ -17,6 +18,14 @@ import { api } from '@/lib/api';
 import { formatDateTime, toPersianDigits } from '@/lib/format';
 import { useSession } from '@/hooks/useSession';
 import type { WaybillRouteTemplate } from '@/lib/types';
+
+const LocationMapPicker = dynamic(
+  () => import('@/components/LocationMapPicker').then((mod) => mod.LocationMapPicker),
+  {
+    ssr: false,
+    loading: () => <div className="w-full h-80 rounded-2xl bg-slate-950/60 animate-pulse border border-white/10" />,
+  }
+);
 
 interface FormState {
   name: string;
@@ -55,6 +64,8 @@ export default function RouteTemplatesPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [originCoords, setOriginCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [destCoords, setDestCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [showOriginMap, setShowOriginMap] = useState(false);
+  const [showDestMap, setShowDestMap] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -78,6 +89,8 @@ export default function RouteTemplatesPage() {
     setEditingId(null);
     setOriginCoords(null);
     setDestCoords(null);
+    setShowOriginMap(false);
+    setShowDestMap(false);
   }
 
   function startEdit(t: WaybillRouteTemplate) {
@@ -214,7 +227,35 @@ export default function RouteTemplatesPage() {
 
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-4 space-y-3">
-                  <p className="text-sm font-black text-cyan-300">مبدأ</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-black text-cyan-300">مبدأ</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowOriginMap((v) => !v)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-white/10 transition-colors flex items-center gap-1.5"
+                    >
+                      <MapPinIcon className="h-3.5 w-3.5 text-cyan-400" />
+                      <span>{showOriginMap ? 'بستن نقشه' : 'انتخاب از روی نقشه'}</span>
+                    </button>
+                  </div>
+
+                  {showOriginMap && (
+                    <LocationMapPicker
+                      label="مبدأ"
+                      initialLat={originCoords?.lat || 35.6892}
+                      initialLng={originCoords?.lng || 51.3890}
+                      onLocationSelected={(loc) => {
+                        if (loc.province) setField('origin_province', loc.province);
+                        if (loc.city) setField('origin_city', loc.city);
+                        if (loc.address) setField('origin_address', loc.address);
+                        setOriginCoords({ lat: loc.lat, lng: loc.lng });
+                        setField('origin_lat', String(loc.lat));
+                        setField('origin_lng', String(loc.lng));
+                      }}
+                      onClose={() => setShowOriginMap(false)}
+                    />
+                  )}
+
                   <ProvinceCitySelect
                     provinceValue={form.origin_province}
                     cityValue={form.origin_city}
@@ -232,10 +273,43 @@ export default function RouteTemplatesPage() {
                     value={form.origin_address}
                     onChange={(e) => setField('origin_address', e.target.value)}
                   />
+                  {form.origin_lat && form.origin_lng && (
+                    <p className="text-[11px] font-mono text-cyan-400/80">
+                      مختصات ثبت‌شده: {Number(form.origin_lat).toFixed(4)}, {Number(form.origin_lng).toFixed(4)}
+                    </p>
+                  )}
                 </div>
 
                 <div className="rounded-2xl bg-white/5 border border-white/10 p-4 space-y-3">
-                  <p className="text-sm font-black text-cyan-300">مقصد</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-black text-cyan-300">مقصد</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowDestMap((v) => !v)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-white/10 transition-colors flex items-center gap-1.5"
+                    >
+                      <MapPinIcon className="h-3.5 w-3.5 text-cyan-400" />
+                      <span>{showDestMap ? 'بستن نقشه' : 'انتخاب از روی نقشه'}</span>
+                    </button>
+                  </div>
+
+                  {showDestMap && (
+                    <LocationMapPicker
+                      label="مقصد"
+                      initialLat={destCoords?.lat || 32.6546}
+                      initialLng={destCoords?.lng || 51.6680}
+                      onLocationSelected={(loc) => {
+                        if (loc.province) setField('dest_province', loc.province);
+                        if (loc.city) setField('dest_city', loc.city);
+                        if (loc.address) setField('dest_address', loc.address);
+                        setDestCoords({ lat: loc.lat, lng: loc.lng });
+                        setField('dest_lat', String(loc.lat));
+                        setField('dest_lng', String(loc.lng));
+                      }}
+                      onClose={() => setShowDestMap(false)}
+                    />
+                  )}
+
                   <ProvinceCitySelect
                     provinceValue={form.dest_province}
                     cityValue={form.dest_city}
@@ -253,6 +327,11 @@ export default function RouteTemplatesPage() {
                     value={form.dest_address}
                     onChange={(e) => setField('dest_address', e.target.value)}
                   />
+                  {form.dest_lat && form.dest_lng && (
+                    <p className="text-[11px] font-mono text-cyan-400/80">
+                      مختصات ثبت‌شده: {Number(form.dest_lat).toFixed(4)}, {Number(form.dest_lng).toFixed(4)}
+                    </p>
+                  )}
                 </div>
               </div>
 

@@ -4,6 +4,32 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-11 — Jalali Calendar Everywhere, Route Templates Interactive Map, Unfiltered CartoDB Tiles & UI Hardening
+
+- **Full Jalali (Shamsi) Calendar Adoption**:
+  - Implemented standalone, zero-dependency Jalali calendar conversion utilities in frontend (`apps/web/src/lib/jalali.ts`) adhering to the Birashk/Kazemi mathematical algorithm, backed by 58 automated unit tests in `apps/web/test/jalali.test.mjs`.
+  - Built reusable, accessible popover `JalaliDatePicker` component (`apps/web/src/components/JalaliDatePicker.tsx`) supporting year/month dropdown navigation, today selection, clearing, keyboard triggers, and outside-click dismissal.
+  - Replaced native Gregorian `<input type="date">` inputs in `RecordFilters.tsx`, `reports/page.tsx`, and `admin/reports/page.tsx` with `JalaliDatePicker`, while emitting standard ISO `YYYY-MM-DD` strings for backend compatibility.
+  - Replaced Gregorian dates in admin client onboarding modal (`CreateClientModal.tsx`) for `subscription_start_date` and `subscription_end_date`, and formatted client subscription dates with `formatJalaliDisplay` in `admin/clients/page.tsx`.
+  - Added `parse_jalali_date` and `format_date_jalali` utilities in `app/core/jalali.py` with full unit test coverage in `tests/test_driver_tracking.py`.
+- **Interactive Route Templates Map & Reverse Geocoding**:
+  - Integrated `LocationMapPicker` dynamically (`ssr: false`) inside `apps/web/src/app/route-templates/page.tsx` to prevent Leaflet SSR errors.
+  - Enabled interactive map toggles for both Origin (مبدأ) and Destination (مقصد), syncing pin drag/click coordinates with `origin_lat`/`origin_lng` and `dest_lat`/`dest_lng`, while automatically resolving province, city, and address via `/api/v1/locations/reverse-geocode`.
+- **Unfiltered, High-Speed Map Tiles in Iran**:
+  - Updated `apps/web/src/lib/map-tiles.ts` to use CartoDB Voyager and Light raster tiles (`https://{s}.basemaps.cartocdn.com/...`) with distributed `abcd` subdomains, accessible without VPN or WAF filtering in Iran. Maintained fallbacks to OSM Germany and OSM Standard. Verified full conformance with Nginx Content-Security-Policy headers.
+- **Account Settings & Profile UI Hardening**:
+  - Removed obsolete description banner under "حساب کاربری مشتری" in `apps/web/src/app/settings/page.tsx`.
+  - Hardened `InfoCard` against value overflow by adding `min-w-0`, `overflow-hidden`, `truncate block w-full`, and LTR text direction (`dir="ltr" text-left font-mono`) for email/username values.
+- **Fuel Inquiries Cleanup**:
+  - Removed outdated subtitle, manual "بروزرسانی اطلاعات" button, and informational callout card in `apps/web/src/app/fuel/page.tsx`.
+- **Verification Evidence**:
+  - Frontend Jalali tests: 3 suites, 58 assertions passed (`node apps/web/test/jalali.test.mjs`).
+  - Frontend typecheck: `npm --prefix apps/web run typecheck` passed (exit code 0).
+  - Frontend lint: `npm --prefix apps/web run lint` passed (exit code 0).
+  - Backend tests: `uv run pytest tests/test_driver_tracking.py` passed (13 passed in 1.59s).
+  - Backend lint: `uvx ruff check app/core/jalali.py tests/test_driver_tracking.py` passed (exit code 0).
+  - Production build & container: `barpro-frontend:latest` rebuilt and started (`healthy`).
+
 ### 2026-10-10 — Two-Flavor Driver-Hub SMS Relay Topology
 
 - Architecture alignment for low-connectivity fleet operations: introduced a two-tier SMS relay that

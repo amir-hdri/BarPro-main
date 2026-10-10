@@ -11,7 +11,7 @@ reference dates in ``tests/test_driver_tracking.py``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 # Tehran is UTC+3:30 year-round (DST abolished in Iran since 2022).
 TEHRAN_UTC_OFFSET = timedelta(hours=3, minutes=30)
@@ -160,6 +160,35 @@ def tehran_day_end_utc(day: str) -> datetime:
     """
     parsed = _parse_calendar_day(day)
     return tehran_day_bounds_utc(parsed.year, parsed.month, parsed.day)[1]
+
+
+def parse_jalali_date(date_str: str | None) -> date | None:
+    """Parse a Jalali date string ('YYYY-MM-DD' or 'YYYY/MM/DD') to a standard Python Gregorian date."""
+    if not date_str:
+        return None
+    cleaned = date_str.strip().replace("/", "-")
+    parts = cleaned.split("-")
+    if len(parts) == 3:
+        try:
+            jy, jm, jd = int(parts[0]), int(parts[1]), int(parts[2])
+            gy, gm, gd = jalali_to_gregorian(jy, jm, jd)
+            return date(gy, gm, gd)
+        except Exception:
+            pass
+    try:
+        return datetime.fromisoformat(date_str).date()
+    except Exception:
+        return None
+
+
+def format_date_jalali(d: date | datetime | None) -> str:
+    """Format a date or datetime as a Jalali ISO string 'YYYY-MM-DD'."""
+    if d is None:
+        return ""
+    if isinstance(d, datetime):
+        d = d.date()
+    jy, jm, jd = gregorian_to_jalali(d.year, d.month, d.day)
+    return f"{jy:04d}-{jm:02d}-{jd:02d}"
 
 
 # ---------------------------------------------------------------------------

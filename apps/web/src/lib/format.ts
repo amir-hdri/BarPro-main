@@ -11,6 +11,25 @@ export function formatDateTime(value?: string | null): string {
   }).format(new Date(raw));
 }
 
+export function formatJalaliDate(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+  try {
+    const raw = value.length === 10 ? `${value}T12:00:00Z` : (value.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`);
+    const date = new Date(raw);
+    if (!Number.isFinite(date.getTime())) return value;
+    return new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: 'Asia/Tehran',
+    }).format(date);
+  } catch {
+    return value || '-';
+  }
+}
+
 export function formatDateTimeEn(value?: string | null): string {
   if (!value) {
     return '-';

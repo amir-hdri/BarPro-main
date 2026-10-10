@@ -23,6 +23,7 @@ import { toast } from 'react-hot-toast';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
+import { JalaliDatePicker } from '@/components/JalaliDatePicker';
 import { ProgressBar, type ProgressTone } from '@/components/ProgressBar';
 import { api } from '@/lib/api';
 import { downloadCSV, formatRelativePercent, statusLabel, statusTone, toPersianDigits } from '@/lib/format';
@@ -505,28 +506,26 @@ export default function UserReportsPage() {
                   {/* Date From */}
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">از تاریخ</label>
-                    <input
-                      type="date"
+                    <JalaliDatePicker
                       value={dateFrom}
-                      onChange={(e) => {
-                        setDateFrom(e.target.value);
+                      onChange={(val) => {
+                        setDateFrom(val);
                         setPage(1);
                       }}
-                      className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                      placeholder="از تاریخ..."
                     />
                   </div>
 
                   {/* Date To */}
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">تا تاریخ</label>
-                    <input
-                      type="date"
+                    <JalaliDatePicker
                       value={dateTo}
-                      onChange={(e) => {
-                        setDateTo(e.target.value);
+                      onChange={(val) => {
+                        setDateTo(val);
                         setPage(1);
                       }}
-                      className="w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none"
+                      placeholder="تا تاریخ..."
                     />
                   </div>
                 </div>

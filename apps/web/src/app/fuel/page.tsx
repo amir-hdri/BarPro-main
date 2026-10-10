@@ -509,17 +509,7 @@ export default function FuelInquiryPage() {
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
                 استعلام سهمیه سوخت ناوگان
               </h1>
-              <p className="mt-2 text-xs sm:text-sm text-slate-400">
-                دریافت آنلاین و خودکار سهمیه‌های پایه و عملکردی خودرو از پورتال ملی UTCMS با جستجو و فیلترهای پیشرفته
-              </p>
             </div>
-            <button
-              onClick={() => { void loadData(); void refetchHistory(); }}
-              className="inline-flex items-center gap-2 self-start rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-xs font-bold text-slate-300 transition hover:bg-slate-800 hover:scale-105 active:scale-95 shadow-lg"
-            >
-              <ArrowPathIcon className="h-4 w-4" />
-              بروزرسانی اطلاعات
-            </button>
           </div>
 
           {error && (
@@ -528,10 +518,6 @@ export default function FuelInquiryPage() {
               <span>{error}</span>
             </div>
           )}
-
-          <p className="mb-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm leading-7 text-slate-300">
-            نتیجه هر استعلام، سهمیه همان راننده در زمان دریافت است. تاریخ و جزئیات هر رکورد را در تاریخچه ببینید؛ سهمیه‌های استعلام‌های تکراری با هم جمع نمی‌شوند.
-          </p>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 

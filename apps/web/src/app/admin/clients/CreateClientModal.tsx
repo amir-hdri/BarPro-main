@@ -7,6 +7,7 @@ import { z } from "zod";
 import { X, Loader2, ShieldAlert } from "lucide-react";
 import { api } from "@/lib/api";
 import type { ClientEditData } from "@/lib/types";
+import { JalaliDatePicker } from "@/components/JalaliDatePicker";
 
 const schema = z.object({
   client_code: z.string().trim().min(1, "کد مشتری الزامی است"),
@@ -47,6 +48,8 @@ export function CreateClientModal({
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -316,18 +319,18 @@ export function CreateClientModal({
              <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
                <div className="space-y-1">
                  <label className="block text-xs font-bold text-slate-400">تاریخ شروع اشتراک</label>
-                 <input
-                   type="date"
-                   {...register("subscription_start_date")}
-                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 font-mono touch-target"
+                 <JalaliDatePicker
+                   value={watch("subscription_start_date") || ""}
+                   onChange={(val) => setValue("subscription_start_date", val, { shouldValidate: true })}
+                   placeholder="انتخاب تاریخ شروع..."
                  />
                </div>
                <div className="space-y-1">
                  <label className="block text-xs font-bold text-slate-400">تاریخ پایان اشتراک</label>
-                 <input
-                   type="date"
-                   {...register("subscription_end_date")}
-                   className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-4 text-sm text-white outline-none focus:border-cyan-500 font-mono touch-target"
+                 <JalaliDatePicker
+                   value={watch("subscription_end_date") || ""}
+                   onChange={(val) => setValue("subscription_end_date", val, { shouldValidate: true })}
+                   placeholder="انتخاب تاریخ پایان..."
                  />
                </div>
              </div>

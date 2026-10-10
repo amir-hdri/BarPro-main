@@ -12,6 +12,15 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## بومی‌سازی تقویم جلالی، نقشه تعاملی قالب‌های مسیر و کاشی‌های بدون فیلتر CartoDB — 2026-10-11 (CODE-VERIFIED)
+
+- CODE-VERIFIED (تقویم مستقل جلالی): محاسبات کامل تبدیل تقویم خورشیدی و میلادی (الگوریتم بیرشک/کاظمی)، تعیین سال‌های کبیسه، اسامی ماه‌ها و روزهای هفته بدون وابستگی به هیچ کتابخانه سنگین جانبی در `apps/web/src/lib/jalali.ts` پیاده‌سازی شد. تست‌های واحد ۵۸گانه در `apps/web/test/jalali.test.mjs` با پوشش ۱۰۰٪ پاس شدند.
+- CODE-VERIFIED (کامپوننت تقویم کشویی): کامپوننت `JalaliDatePicker.tsx` با قابلیت انتخاب سال/ماه با دراپ‌داون، دکمه‌های «امروز» و «پاک‌کردن»، بسته‌شدن با کلیک خارج از کادر و خروجی استاندارد ISO (`YYYY-MM-DD`) ساخته شد و جایگزین فیلدهای بومی میلادی در `RecordFilters.tsx`، گزارشات کاربر/ادمین (`reports/page.tsx`, `admin/reports/page.tsx`) و فرم ثبت مشتریان (`CreateClientModal.tsx`) شد.
+- CODE-VERIFIED (توابع بک‌اند تقویم): توابع `parse_jalali_date` و `format_date_jalali` در `app/core/jalali.py` با پشتیبانی از جداکننده‌های `/` و `-` و زمان استاندارد تهران (UTC+3:30) پیاده‌سازی و در `tests/test_driver_tracking.py` آزموده شدند (۱۳ تست سبز).
+- CODE-VERIFIED (نقشه تعاملی در قالب‌های مسیر): کامپوننت `LocationMapPicker` به صورت داینامیک (`next/dynamic` با `ssr: false`) به فرم تعریف قالب‌های مسیر (`route-templates/page.tsx`) اضافه شد. دکمه‌های باز/بسته‌کردن نقشه، درگ کردن پین روی نقشه، ثبت بلادرنگ مختصات در فرم، و استخراج خودکار آدرس دقیق کوچه/خیابان و استان/شهر از طریق سرویس `/api/v1/locations/reverse-geocode` فعال شدند.
+- CODE-VERIFIED (کاشی‌های نقشه پرسرعت و بدون فیلتر CartoDB): در `apps/web/src/lib/map-tiles.ts`، سرورهای کاشی CartoDB Voyager و Light با توزیع زیردامنه‌های `abcd` به عنوان ارائه‌دهنده پیش‌فرض تنظیم شدند؛ این سرویس در ایران فیلتر نیست، نیاز به VPN ندارد و در هدر Content-Security-Policy سرور Nginx مجاز است.
+- CODE-VERIFIED (اصلاحات پروفایل و حذف متون اضافی): متن توضیحات اضافه زیر حساب کاربری در `settings/page.tsx` و متون غیرضروری صفحه `fuel/page.tsx` حذف شدند. کادرهای مشخصات `InfoCard` با ویژگی‌های `min-w-0`، `overflow-hidden`، `truncate` و جهت چپ‌به‌راست `dir="ltr"` برای نام‌کاربری/ایمیل اصلاح شدند تا از تداخل و هم‌پوشانی متون در چینش راست‌به‌چپ جلوگیری شود.
+
 ## معماری رله دو مسیره راننده-هاب (Driver/Hub SMS Relay) — 2026-10-10
 
 - CODE-VERIFIED: برای شرایط عدم دسترسی رانندگان به اینترنت همراه در جاده، مسیر دریافت OTP به دو فلور مجزای اندروید (Gradle Product Flavors، بعد `role`) تفکیک شد. هر دو فلور از یک سورس‌ست واحد (`app/src/main`) ساخته می‌شوند؛ تفاوت‌شان فقط `applicationId`، `versionNameSuffix` و سه فیلد `BuildConfig` است (`app/build.gradle.kts:39-63`).

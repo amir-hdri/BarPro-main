@@ -3,6 +3,7 @@
 import { useId } from 'react';
 import type { Driver } from '@/lib/types';
 import { EMPTY_RECORD_FILTERS, tehranDateKey, type RecordFilters as Filters } from '@/lib/record-filters';
+import { JalaliDatePicker } from '@/components/JalaliDatePicker';
 
 const waybillStatuses = [
   ['registered', 'ثبت‌شده'], ['pending', 'در انتظار'], ['queued', 'در صف'],
@@ -41,18 +42,41 @@ export function RecordFilters({ value, onChange, drivers, driversError, category
           {driversError && <p role="alert" className="mt-2 text-xs text-rose-300">{driversError}</p>}
         </div>
         <div>
-          <label htmlFor={`${id}-day`} className="mb-2 block text-xs font-bold text-slate-300">روز ثبت درخواست (تقویم میلادی)</label>
+          <label htmlFor={`${id}-day`} className="mb-2 block text-xs font-bold text-slate-300">روز ثبت درخواست</label>
           <div className="flex gap-2">
-            <input id={`${id}-day`} type="date" className="field min-w-0 flex-1 touch-target" value={value.day} onChange={event => update({ day: event.target.value, dateFrom: '', dateTo: '' })} />
-            <button type="button" className="touch-target rounded-xl border border-cyan-500/30 px-4 text-xs font-bold text-cyan-300" onClick={() => update({ day: tehranDateKey(), dateFrom: '', dateTo: '' })}>امروز</button>
+            <div className="min-w-0 flex-1">
+              <JalaliDatePicker
+                id={`${id}-day`}
+                value={value.day}
+                onChange={(isoDate) => update({ day: isoDate, dateFrom: '', dateTo: '' })}
+                placeholder="انتخاب روز..."
+              />
+            </div>
+            <button type="button" className="touch-target rounded-xl border border-cyan-500/30 px-4 text-xs font-bold text-cyan-300 shrink-0 hover:bg-cyan-500/10 transition" onClick={() => update({ day: tehranDateKey(), dateFrom: '', dateTo: '' })}>امروز</button>
           </div>
         </div>
       </div>
       <details className="mt-4 border-t border-white/10 pt-2">
         <summary className="touch-target flex cursor-pointer items-center text-xs font-bold text-slate-300">فیلترهای بیشتر: بازه تاریخ، وضعیت و پلاک</summary>
         <div className="mt-2 grid gap-4 sm:grid-cols-2">
-          <div><label htmlFor={`${id}-from`} className="mb-2 block text-xs text-slate-300">از تاریخ (میلادی)</label><input id={`${id}-from`} type="date" value={value.dateFrom} className="field touch-target" onChange={event => update({ dateFrom: event.target.value, day: '' })} /></div>
-          <div><label htmlFor={`${id}-to`} className="mb-2 block text-xs text-slate-300">تا تاریخ (میلادی، شامل این روز)</label><input id={`${id}-to`} type="date" min={value.dateFrom || undefined} value={value.dateTo} className="field touch-target" onChange={event => update({ dateTo: event.target.value, day: '' })} /></div>
+          <div>
+            <label htmlFor={`${id}-from`} className="mb-2 block text-xs text-slate-300">از تاریخ</label>
+            <JalaliDatePicker
+              id={`${id}-from`}
+              value={value.dateFrom}
+              onChange={(isoDate) => update({ dateFrom: isoDate, day: '' })}
+              placeholder="از تاریخ..."
+            />
+          </div>
+          <div>
+            <label htmlFor={`${id}-to`} className="mb-2 block text-xs text-slate-300">تا تاریخ (شامل این روز)</label>
+            <JalaliDatePicker
+              id={`${id}-to`}
+              value={value.dateTo}
+              onChange={(isoDate) => update({ dateTo: isoDate, day: '' })}
+              placeholder="تا تاریخ..."
+            />
+          </div>
           <div><label htmlFor={`${id}-status`} className="mb-2 block text-xs text-slate-300">وضعیت</label><select id={`${id}-status`} value={value.status} className="field touch-target" onChange={event => update({ status: event.target.value })}><option value="">همه وضعیت‌ها</option>{(category === 'fuel' ? fuelStatuses : waybillStatuses).map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></div>
           <div><label htmlFor={`${id}-plate`} className="mb-2 block text-xs text-slate-300">پلاک خودرو</label><input id={`${id}-plate`} value={value.plate} className="field touch-target" placeholder="مثلاً ۱۲ع۳۴۵" onChange={event => update({ plate: event.target.value })} /></div>
         </div>

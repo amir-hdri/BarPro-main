@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { ProgressBar } from "@/components/ProgressBar";
+import { JalaliDatePicker } from "@/components/JalaliDatePicker";
 
 export default function AdminReportsPage() {
   const [activeTab, setActiveTab] = useState<"driver" | "failure">("driver");
@@ -490,22 +491,20 @@ export default function AdminReportsPage() {
           {/* Date From */}
           <div className="space-y-1">
             <label className="text-[11px] font-medium text-slate-400">از تاریخ</label>
-            <input
-              type="date"
+            <JalaliDatePicker
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-100 focus:border-cyan-400 focus:outline-none"
+              onChange={(val) => setDateFrom(val)}
+              placeholder="از تاریخ..."
             />
           </div>
 
           {/* Date To */}
           <div className="space-y-1">
             <label className="text-[11px] font-medium text-slate-400">تا تاریخ</label>
-            <input
-              type="date"
+            <JalaliDatePicker
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-100 focus:border-cyan-400 focus:outline-none"
+              onChange={(val) => setDateTo(val)}
+              placeholder="تا تاریخ..."
             />
           </div>
         </div>
