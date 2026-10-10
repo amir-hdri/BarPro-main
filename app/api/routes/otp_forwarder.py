@@ -172,7 +172,11 @@ class ManualOtpRequest(BaseModel):
 
 
 @router.post("/sms-gateway", summary="Authenticated inbound GSM relay for offline OTP delivery")
-async def receive_sms_gateway(request: Request) -> dict[str, Any]:
+@router.post(
+    "/sms-gateway/{path_driver_phone}",
+    summary="Authenticated inbound GSM relay for offline OTP delivery with path phone",
+)
+async def receive_sms_gateway(request: Request, path_driver_phone: str | None = None) -> dict[str, Any]:
     _require_webhook_auth(request)
     raw_body = await request.body()
     if len(raw_body) > 2048:
@@ -189,6 +193,10 @@ async def receive_sms_gateway(request: Request) -> dict[str, Any]:
         _, phone, timestamp, code, signature = parts
         if phone != origin or not (re.fullmatch(r"[0-9]{4,8}", code) or code == "TEST"):
             raise ValueError("Sender mismatch or invalid code")
+        if path_driver_phone:
+            norm_path = normalize_phone_for_otp_key(path_driver_phone)
+            if re.fullmatch(r"09[0-9]{9}", norm_path) and origin != norm_path and phone != norm_path:
+                raise ValueError("Path driver phone mismatch")
         secret = utcms_config.OTP_WEBHOOK_SECRET.strip()
         expected = hmac.new(secret.encode(), "#".join(parts[:4]).encode("ascii"), "sha256").hexdigest()[:32]
         if not hmac.compare_digest(signature.encode(), expected.encode()):

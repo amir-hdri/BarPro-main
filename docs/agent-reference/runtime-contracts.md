@@ -29,7 +29,8 @@ root, not this directory. Commands are examples, not automatic execution steps.
 | Clean IP operations | `/api/system/clean-ips`, `/api/system/clean-ips/refresh` (admin only) |
 | GPS shipping lifecycle | `POST /shipping/coordinates`, `POST /shipping/start`, `POST /shipping/step` (**returns 410 Gone**), `POST /shipping/finish`, `GET /shipping/status/{job_id}` — all guarded by `require_sensitive_auth` |
 | Realtime | `WS /ws/waybill` with cookie auth and optional task/batch/correlation filters |
-| OTP intake (mobile transport) | `POST /api/v1/otp/sms-forwarder`, `POST /api/v1/otp/sms-forwarder/{driver_phone}` (multi-channel recipient phone attribution: path, `?driver_phone=...`, `X-Driver-Phone` header, or body; fallback to single-flight pending job; 422 `AMBIGUOUS_OTP` guard), `POST /api/v1/otp/sms-gateway` (HMAC-signed `BP1#phone#timestamp#code#signature` envelope), `POST /api/v1/otp/webhook`, `POST /api/v1/otp/submit-manual`, `GET /api/v1/otp/latest`, `GET /api/v1/otp/securesms-config`. Forwarder/gateway require `OTP_WEBHOOK_SECRET` and fail closed (503) without it; 16 KB body cap, a `HEALTH_CHECK` probe. Durable, ordered, replay-safe intake lives in `app/services/otp_delivery.py`. |
+| OTP intake (mobile transport) | `POST /api/v1/otp/sms-forwarder`, `POST /api/v1/otp/sms-forwarder/{driver_phone}` (multi-channel recipient phone attribution: path, `?driver_phone=...`, `X-Driver-Phone` header, or body; fallback to single-flight pending job; 422 `AMBIGUOUS_OTP` guard), `POST /api/v1/otp/sms-gateway`, `POST /api/v1/otp/sms-gateway/{driver_phone}` (HMAC-signed `BP1#phone#timestamp#code#signature` envelope with optional path driver phone matching), `POST /api/v1/otp/webhook`, `POST /api/v1/otp/submit-manual`, `GET /api/v1/otp/latest`, `GET /api/v1/otp/securesms-config`. Forwarder/gateway require `OTP_WEBHOOK_SECRET` and fail closed (503) without it; 16 KB body cap, a `HEALTH_CHECK` probe. Durable, ordered, replay-safe intake lives in `app/services/otp_delivery.py`. |
+
 
 Do not use stale paths such as `/api/system/health`, `/ws/jobs/{client_id}` or
 `/ws/admin/stream`. There is no distinct POST cancel contract:
@@ -105,20 +106,21 @@ URL/Data URI and has no direct tracking-code column.
     signs it with HMAC-SHA256 truncated to 16 bytes into the ASCII envelope
     `BP1#phone#timestamp#code#signature` (`SmsFallbackEnvelope.encode`), and dispatches it over GSM
     SMS to the Hub phone with no mobile internet (`SmsForwardRepository.kt:521-575`). It is **not**
-    zero-config: the webhook token (to sign), the Hub SIM number, and `driverPhone` must all be set,
+    zero-config: the webhook token (to sign), the Hub SIM number, and `driverPhone` (or hardware SIM MSISDN) must be set,
     otherwise `canSendSms` is false and nothing is sent.
   - **Hub flavor** (`applicationId ir.barpro.fleet.smsforwarder.hub`): receives `BP1#...`, verifies
     the HMAC locally in constant time (`MessageDigest.isEqual`) and drops forgeries before they take
     an outbox slot (`SmsForwardRepository.kt:384-414`), queues the rest in the Room outbox, and
-    delivers to `POST /api/v1/otp/sms-gateway`. The server re-verifies authoritatively with
-    `hmac.compare_digest` (`app/api/routes/otp_forwarder.py:192-195`).
+    delivers to `POST /api/v1/otp/sms-gateway` or `POST /api/v1/otp/sms-gateway/{driver_phone}`. The server re-verifies authoritatively with
+    `hmac.compare_digest` and checks path phone consistency (`app/api/routes/otp_forwarder.py:175-200`).
   - Both flavors build from the single `app/src/main` source set. There is no per-flavor source
     directory and no role-specific UI; only `applicationId`, `versionNameSuffix` and three
     `BuildConfig` fields differ (`app/build.gradle.kts:39-63`).
   - **Carrier-matched routing**: `CarrierDetector.resolveHubNumbers` prefers build-time defaults
     (`-PBARPRO_HUB_PHONE_MCI` / `-PBARPRO_HUB_PHONE_IRANCELL`) and otherwise reads operator config
     (`fallbackServerPhoneNumber` = Hub MCI leg, `hubIrancellPhoneNumber` = Hub Irancell leg).
-    `resolveRoute` then makes the same-carrier SIM primary and the other the failover.
+    `resolveRoute` then makes the same-carrier SIM primary and the other the failover. In case of operator field swapping,
+    the actual SIM carrier is auto-detected and aligned; unknown driver carriers default to Hamrah-e Aval for highway coverage.
     **With only one number filled in, delivery degrades to a single destination and failover is
     inert** — the repository failover branch requires `failover != primary`.
   - **Transport**: HTTP by design for this deployment. Nginx listens on port 80

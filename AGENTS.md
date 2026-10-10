@@ -63,8 +63,8 @@ implements it.
   `app/src/main` source set. Only `applicationId`, `versionNameSuffix` and three
   `BuildConfig` fields differ. There is no `app/src/driver/` or `app/src/hub/`.
 - **A zero-configuration driver app — does not exist.** The `driver` flavor needs the
-  webhook token (it signs the envelope), a Hub SIM number, and `driverPhone`; with no
-  Hub number `canSendSms` is false and nothing is sent.
+  webhook token (it signs the envelope), a Hub SIM number, and `driverPhone` (or hardware SIM MSISDN); with no
+  Hub number or invalid driver phone `canSendSms` is false and nothing is sent.
 - **HTTPS — intentionally not used.** HTTP on port 80 is the chosen transport
   (`infra/nginx/nginx.conf`, `listen 443 ssl` commented out). Do not describe the
   forwarder as delivering "via HTTPS", and do not treat the plaintext transport as a

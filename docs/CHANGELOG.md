@@ -40,10 +40,11 @@ All notable changes to the UTCMS Automation System.
   in either repository; UTCMS egress remains the Squid chain with Iranian-egress proxy admission.
   Previously documented here as delivered — corrected after source verification.
 - Verification (2026-10-10): `tests/test_otp_delivery_contract.py` + `tests/test_otp_forwarder.py` →
-  `48 passed`; `ruff` → `All checks passed!`; `black --check` → `427 files would be left unchanged`;
+  `49 passed`; `ruff` → `All checks passed!`; `black --check` → `427 files would be left unchanged`;
   `mypy app/` → `Success: no issues found in 217 source files`; Android
-  `testDriverDebugUnitTest` / `testHubDebugUnitTest` → `tests=80 failures=0 errors=0` each (including
-  gateway URL path normalization and carrier-matched fallback dispatch tests).
+  `testDriverDebugUnitTest` / `testHubDebugUnitTest` → `tests=82 failures=0 errors=0` each (164 total, including
+  gateway URL path normalization, root-domain resolution, operator-swapped hub carrier alignment, and carrier-matched fallback dispatch tests).
+- Added `POST /api/v1/otp/sms-gateway/{path_driver_phone}` to FastAPI router with path-to-origin driver phone consistency checks, fully matching `BarProContract.isPathValid`.
 
 ### 2026-10-09 — UTCMS 6-Digit OTP & 7777000982 Shortcode Alignment
 

@@ -259,6 +259,22 @@ async def test_gateway_rejects_unsigned_or_mismatched_sender(delivery_api):
     assert await redis.dbsize() == 0
 
 
+async def test_signed_gateway_with_path_driver_phone(delivery_api):
+    client, redis = delivery_api
+    payload = sms()
+    envelope = f"BP1#09120000001#{payload['timestamp']}#48291"
+    signature = hmac.new(b"test-forwarder-secret-32-bytes-long", envelope.encode(), "sha256").hexdigest()[:32]
+    relay = await client.post(
+        "/api/v1/otp/sms-gateway/09120000001", json={"from": "+989120000001", "text": f"{envelope}#{signature}"}
+    )
+    assert relay.status_code == 200
+
+    mismatch = await client.post(
+        "/api/v1/otp/sms-gateway/09120000002", json={"from": "+989120000001", "text": f"{envelope}#{signature}"}
+    )
+    assert mismatch.status_code == 422
+
+
 # Health/probe regressions use the same real Redis as the delivery transaction.
 PROBE_PHONE = "09120000001"
 HEALTH_KEY = f"rpa:forwarder:connected:{PROBE_PHONE}"
