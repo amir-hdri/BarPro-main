@@ -1,6 +1,6 @@
 # گراف دانش مرجع BarPro
 
-> نسخه سند: 2026-10-07 (شامل snapshot تا 2026-10-07؛ بخش‌های snapshot برچسب تاریخی دارند و وضعیت زنده را تضمین نمی‌کنند)
+> نسخه سند: 2026-10-11 (شامل snapshot تا 2026-10-11؛ بخش‌های snapshot برچسب تاریخی دارند و وضعیت زنده را تضمین نمی‌کنند)
 >
 > commit مبنای audit اولیه: 9c472f1
 >
@@ -23,8 +23,17 @@
 - CONFIG-REQUIRED (الزامات راه‌اندازی راننده): فلور `driver` «بدون تنظیم» کار نمی‌کند. حداقل سه مقدار لازم است: (۱) توکن وب‌هوک برای امضای پاکت (`SmsRelayHelper.kt:73`)، (۲) شماره سیم‌کارت هاب، چون پیش‌فرض build خالی است و مقدار از `fallbackServerPhoneNumber` خوانده می‌شود، (۳) `driverPhone` برای تشخیص اپراتور و ساخت پاکت (یا شناسایی خودکار از سیم‌کارت دستگاه). اگر شماره هاب خالی بماند `canSendSms` false شده و هیچ پیامکی ارسال نمی‌شود (`SmsForwardRepository.kt:570-578`).
 - NOT-IMPLEMENTED (پروکسی سلولار 4G / Tailscale): طرح استفاده از دیتای گوشی هاب به عنوان Exit Node برای عبور ترافیک صدور از IP سلولار ایران **هیچ پیاده‌سازی‌ای ندارد** — نه در `BarPro-main` و نه در `SMS-Forwarder-Pro` (جست‌وجوی `tailscale` در هر دو مخزن فقط به همین مستندات برمی‌خورد). مسیر egress واقعی همان زنجیره Squid است: `WORKER_*_PROXY` و `EGRESS_PROXY_MODE` (`worker_first` / `clean_pool_only`) در `.env.example:60-73` و `app/automation/worker_proxy.py`؛ تزریق پروکسی به کلاینت موبایل از `proxy_url` در `app/automation/utcms_mobile_client.py:155-176` انجام می‌شود. هر ادعای «حل شدن WAF از طریق گوشی هاب» تا زمان پیاده‌سازی و اثبات runtime بی‌پایه است.
 - UNVERIFIED (تأخیر): عدد «۱ ثانیه» برای تحویل پیامک درون‌شبکه‌ای هیچ بنچمارک یا لاگ زمان‌سنجی پشتیبان ندارد و باید به عنوان فرض عملیاتی تلقی شود، نه اندازه‌گیری.
-- TEST-VERIFIED (2026-10-10): `tests/test_otp_delivery_contract.py` + `tests/test_otp_forwarder.py` → `49 passed`؛ `uvx ruff check app/ tests/` → `All checks passed!`؛ `black --check app/ tests/` → `427 files would be left unchanged`؛ `.venv/bin/mypy app/ --ignore-missing-imports` → `Success: no issues found in 217 source files`؛ اندروید `testDriverDebugUnitTest` و `testHubDebugUnitTest` → هر یک `tests=82 failures=0 errors=0` (۱۶۴ آزمون کل).
-- BUILD-VERIFIED: نام‌گذاری بسته‌های توزیع دیگر دستی نیست؛ `assembleDriverDebug` / `assembleHubDebug` به صورت خودکار تسک `copy<Variant>DistributionApk` را اجرا کرده و فایل‌ها را در `app/build/outputs/distribution/` با نام `Forward-BarPro-Driver-driverDebug.apk` و `Forward-BarPro-Hub-hubDebug.apk` تولید می‌کنند (`app/build.gradle.kts:110-137`).
+- TEST-VERIFIED (2026-10-11): `tests/test_otp_delivery_contract.py` + `tests/test_otp_forwarder.py` + `tests/test_full_relay_and_bot_simulation.py` → `52 passed in 24.84s`؛ `uvx ruff check app/ tests/` → `All checks passed!`؛ `black --check app/ tests/` → `428 files would be left unchanged`؛ `.venv/bin/mypy app/ --ignore-missing-imports` → `Success: no issues found in 217 source files`؛ اندروید `testDriverDebugUnitTest` و `testHubDebugUnitTest` → هر یک `tests=86 failures=0 errors=0` (۱۷۲ آزمون کل در ۲۶ فایل گزارش XML).
+- BUILD-VERIFIED (2026-10-10 19:39): تسک‌های `assembleDriverDebug` / `assembleHubDebug` خروجی‌های معتبر را در `app/build/outputs/distribution/` تولید کردند:
+  - `Forward-BarPro-Driver-driverDebug.apk`: 19,043,871 بایت، هش SHA256 برابر `243cc4ba3cf078f0759d728c3d0a1935cc4028f13a4e5f009388b16f0bb507be`.
+  - `Forward-BarPro-Hub-hubDebug.apk`: 19,043,875 بایت، هش SHA256 برابر `b0c0493e6449bba5fbda910bd71bba9ae77959aba2212e158d35702cb9227653`.
+  - هر دو فلور سورس‌ست یکسان (`app/src/main`) و مجوزهای مانیفست یکپارچه دارند؛ رفتار آن‌ها در سطح کد با `BuildConfig.APP_ROLE` تمایز می‌یابد.
+- TELEPHONY-INVARIANT (محدودیت سخت‌افزاری DSDS دوسیم‌کارت): گوشی‌های هوشمند بازار ایران در مود Dual-SIM Dual Standby کار می‌کنند؛ اتصال بسته دیتای سلولار هم‌زمان روی هر دو سیم‌کارت سخت‌افزاراً ناممکن است (فقط یک سیم‌کارت کانکشن فعال دیتا دارد). این اصل در رله لحاظ شده است:
+  - فلور `driver`: ۱۰۰٪ مستقل از دیتای اینترنت (صرفاً سیگنالینگ پیامک GSM).
+  - فلور `hub`: هر دو سیم‌کارت همراه اول و ایرانسل به صورت Dual Standby هم‌زمان پیامک‌های ورودی را در کانال‌های پیجینگ رادیویی دریافت می‌کنند؛ ترنسپورت وب‌هوک به سرور بارپرو به صورت ایده‌آل از طریق Wi-Fi یا دیتای یک سیم‌کارت انجام می‌شود.
+- SIMULATION-VERIFIED (شبیه‌سازی سه‌گانه راننده-هاب-ربات): اتصال و چرخه سرتاسری در هر دو پروژه اثبات شد:
+  - اندروید (`EndToEndRelaySimulationTest.kt`): استخراج پیامک OTP، انکود پاکت BP1 با امضای HMAC-SHA256، تطبیق اپراتور و فیل‌اور، دکود و اعتبارسنجی در هاب، و دیسپچ به درگاه وب‌هوک.
+  - بارپرو (`tests/test_full_relay_and_bot_simulation.py`): دریافت در درگاه FastAPI (`/api/v1/otp/sms-gateway`) با گارد ۴۲۲ عدم تطابق شماره و اعتبارسنجی امضا، ذخیره‌سازی اتمیک با اسکریپت Lua در Redis Streams، و مصرف در ربات (`fetch_scoped_otp` با Lease Lock، ثبت موفق بارنامه و پاک‌سازی با `consume_scoped_otp`).
 
 ## تطبیق جامع سرشماره ۷۷۷۷۰۰۰۹۸۲ و کد اعتبارسنجی ۶ رقمی صدور بارنامه — 2026-10-09 (CODE-VERIFIED)
 

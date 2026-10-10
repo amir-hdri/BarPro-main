@@ -140,6 +140,11 @@ URL/Data URI and has no direct tracking-code column.
     client via `proxy_url` (`app/automation/utcms_mobile_client.py:155-176`). Iranian-egress WAF
     compliance is still satisfied by proxy admission (`egress_verified=true` AND
     `observed_country=IR`), not by any phone.
+  - **DSDS Telephony Hardware Constraint**: Consumer mobile devices operate in Dual-SIM Dual Standby (DSDS) mode; concurrent packet data (PDP context) across both SIM cards is physically impossible. The relay architecture is strictly aligned with this:
+    - **Driver**: 100% cellular-data free (GSM SMS signaling only).
+    - **Hub**: Maintains dual GSM standby for incoming SMS across both MCI and Irancell, and delivers webhooks to BarPro over Wi-Fi (recommended) or single-SIM mobile data.
+  - **Three-Way End-to-End Simulation**: Verified via `EndToEndRelaySimulationTest.kt` on Android (172 unit tests across 26 XML reports) and `tests/test_full_relay_and_bot_simulation.py` on BarPro (52 unit/integration tests).
+  - **Build Artifacts & Permissions**: `app/build/outputs/distribution/` produces `Forward-BarPro-Driver-driverDebug.apk` (SHA256: `243cc4ba3c...`) and `Forward-BarPro-Hub-hubDebug.apk` (SHA256: `b0c0493e64...`). Both share the identical manifest permissions from `app/src/main`; behavior is gated by `BuildConfig.APP_ROLE`.
 - `CAPTCHA_PROVIDER=auto` uses CNN → PyTorch Fuel CRNN → Keras → Enhanced OCR →
   Local OCR.
 - Keras lazy-loads and runs in-process in each Worker. `KERAS_PYTHON_PATH` is a

@@ -72,6 +72,17 @@ implements it.
   HMAC-authenticated envelope.
 - **Sub-second relay latency — unmeasured.** No benchmark or timing artifact exists.
   Treat any "~1 second" figure as an operational assumption, not a measurement.
+- **Simultaneous Dual-SIM Cellular Data — physically impossible on DSDS phones.**
+  Consumer Android devices operate in Dual-SIM Dual Standby (DSDS) mode; only one SIM
+  can have an active packet data (PDP context) connection at any time. The architecture
+  does not require dual cellular data: the Driver app requires zero mobile internet
+  (operates purely via GSM SMS signaling), and the Hub maintains simultaneous SMS
+  standby across both SIMs (MCI + Irancell) while relaying to BarPro over Wi-Fi
+  (recommended) or single-SIM cellular mobile data.
+- **Separate Flavor Manifest Permissions — do not exist.** Both `driver` and `hub`
+  flavors build from `app/src/main` and share identical manifest permissions (including
+  `INTERNET` and `SEND_SMS`/`RECEIVE_SMS`). Role behavior is governed by
+  `BuildConfig.APP_ROLE`, not manifest isolation.
 
 <!-- original-agents:0013-0055:start -->
 ## Agent Conduct Rules (Mandatory — apply to every task in this repo)
