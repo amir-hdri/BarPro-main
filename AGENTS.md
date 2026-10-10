@@ -41,6 +41,38 @@
 The [reference index](docs/agent-reference/README.md) also records provenance and
 the preservation manifest. It is navigation, not an instruction to load every file.
 
+### Known non-features — do not document these as delivered
+
+Verified absent from source on 2026-10-10. Each was previously written up as
+working and had to be retracted. Re-check the source before asserting any of them,
+and never relabel one as `CODE-VERIFIED` without a file reference that actually
+implements it.
+
+- **Cellular 4G / Tailscale exit-node proxy for UTCMS egress — not implemented.**
+  No code or configuration exists in `BarPro-main` or `SMS-Forwarder-Pro`
+  (`grep -ri tailscale` reaches only documentation and one optional future-Headscale
+  note in `docs/adding_new_worker.md`). UTCMS egress is the Squid chain:
+  `WORKER_*_PROXY` and `EGRESS_PROXY_MODE` (`worker_first` / `clean_pool_only`),
+  `app/automation/worker_proxy.py`, with pool admission fail-closed on
+  `egress_verified=true` AND `observed_country=IR`. Proxy injection into the mobile
+  client is `proxy_url` in `app/automation/utcms_mobile_client.py`.
+- **60-second forwarder heartbeat — does not exist.** The interval is
+  `healthCheckIntervalMinutes`: default 5 minutes, clamped to 1–60 **minutes**
+  (`ForwardConfig.kt`, `ServerHealthMonitor.kt`).
+- **Per-flavor Android UI — does not exist.** `driver` and `hub` build from the one
+  `app/src/main` source set. Only `applicationId`, `versionNameSuffix` and three
+  `BuildConfig` fields differ. There is no `app/src/driver/` or `app/src/hub/`.
+- **A zero-configuration driver app — does not exist.** The `driver` flavor needs the
+  webhook token (it signs the envelope), a Hub SIM number, and `driverPhone`; with no
+  Hub number `canSendSms` is false and nothing is sent.
+- **HTTPS — intentionally not used.** HTTP on port 80 is the chosen transport
+  (`infra/nginx/nginx.conf`, `listen 443 ssl` commented out). Do not describe the
+  forwarder as delivering "via HTTPS", and do not treat the plaintext transport as a
+  defect to fix; the mitigation is network-level restriction of the gateway plus the
+  HMAC-authenticated envelope.
+- **Sub-second relay latency — unmeasured.** No benchmark or timing artifact exists.
+  Treat any "~1 second" figure as an operational assumption, not a measurement.
+
 <!-- original-agents:0013-0055:start -->
 ## Agent Conduct Rules (Mandatory — apply to every task in this repo)
 

@@ -4,6 +4,47 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-10 — Two-Flavor Driver-Hub SMS Relay Topology
+
+- Architecture alignment for low-connectivity fleet operations: introduced a two-tier SMS relay that
+  decouples driver phones from direct server connectivity.
+- `SMS-Forwarder-Pro` product flavors (dimension `role`, `app/build.gradle.kts:39-63`). Both flavors
+  build from the single `app/src/main` source set — only `applicationId`, `versionNameSuffix` and
+  three `BuildConfig` fields differ; there is no role-specific UI.
+  - `driver` (`ir.barpro.fleet.smsforwarder.driver`): catches UTCMS OTP SMS, signs it with
+    HMAC-SHA256 truncated to 16 bytes into the ASCII envelope
+    `BP1#phone#timestamp#code#signature`, and dispatches it over GSM SMS to the Hub phone without
+    internet. Requires three settings to function: webhook token (signing key), Hub SIM number, and
+    `driverPhone`.
+  - `hub` (`ir.barpro.fleet.smsforwarder.hub`): listens for `BP1#...` envelopes, verifies the HMAC
+    locally in constant time and discards forgeries before they consume an outbox slot, queues the
+    rest in the Room outbox, and delivers to `/api/v1/otp/sms-gateway` with `X-OTP-Webhook-Token`.
+    The server re-verifies with `hmac.compare_digest`.
+- Dual-SIM carrier matching is now reachable from configuration. `ForwardConfig` gained
+  `hubIrancellPhoneNumber` (Room migration 9→10) with a UI field, remote-config support, and a pure
+  `CarrierDetector.resolveHubNumbers` precedence helper. Previously the Irancell leg was read from a
+  `BuildConfig` field that no normal build defines, so every APK collapsed to single-number delivery
+  and the SIM failover branch was unreachable.
+- Hub-side `SmsFallbackEnvelope.verify` now compares via `MessageDigest.isEqual` instead of
+  `String.equals`, and is wired into the intake path rather than being test-only code.
+- Distribution APK names are produced by the build: `assembleDriverDebug` / `assembleHubDebug`
+  finalize with `copy<Variant>DistributionApk`, writing
+  `app/build/outputs/distribution/Forward-BarPro-{Driver,Hub}-<variant>.apk`. No manual copy step.
+- Transport reality: this deployment serves **HTTP on port 80 by design**
+  (`infra/nginx/nginx.conf:70`; the `listen 443 ssl` block is commented out), so the Hub must have
+  `allowCleartextTransport` enabled. The envelope is HMAC-authenticated, but the webhook token and
+  OTP are not encrypted in transit — network-level restriction of the gateway is part of the design.
+  Health heartbeat interval is `healthCheckIntervalMinutes` — default **5 minutes**, clamped to
+  **1-60 minutes**; there is no 60-second heartbeat.
+- **Not implemented:** the 4G cellular / Tailscale exit-node proxy. No code or configuration exists
+  in either repository; UTCMS egress remains the Squid chain with Iranian-egress proxy admission.
+  Previously documented here as delivered — corrected after source verification.
+- Verification (2026-10-10): `tests/test_otp_delivery_contract.py` + `tests/test_otp_forwarder.py` →
+  `48 passed`; `ruff` → `All checks passed!`; `black --check` → `427 files would be left unchanged`;
+  `mypy app/` → `Success: no issues found in 217 source files`; Android
+  `testDriverDebugUnitTest` / `testHubDebugUnitTest` → `tests=80 failures=0 errors=0` each (including
+  gateway URL path normalization and carrier-matched fallback dispatch tests).
+
 ### 2026-10-09 — UTCMS 6-Digit OTP & 7777000982 Shortcode Alignment
 
 - Grounded real-world evidence from live Hagigi waybill issuance and SMS intake: identified official shortcode `7777000982` (range 7777), template `کد ورود: XXXXXX`, and 6-digit OTP modal on `com.baarnameshahri`.

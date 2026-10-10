@@ -100,6 +100,42 @@ URL/Data URI and has no direct tracking-code column.
   - Atomic invalidation (`consume_scoped_otp`) purges job, phone, pending_doc session (`rpa:job:pending_doc:{job_id}`), and phone pending set immediately on successful issuance.
   - Shared GSM gateway / SIM fallback: `resolve_single_flight_pending_phone` matches incoming SMS lacking driver phone to a sole pending waybill; if multiple waybills are pending, it strictly fails closed with HTTP 422 (`AMBIGUOUS_OTP`).
   - Clock skew & Iranian DST resilience: `sms_received_at` normalizes the 1-hour daylight saving shift resulting from Iran's 1402 time change abolishment on unpatched phones (+/- 3600s with 90s tolerance); automation anchors on server `ingested_at` rather than client device clock. Worker loop monitors `completed_otp:{job_id}` for zero-latency exit.
+- **Two-Flavor Mobile Relay Topology (Driver & Hub, 2026-10-10):**
+  - **Driver flavor** (`applicationId ir.barpro.fleet.smsforwarder.driver`): intercepts UTCMS OTP SMS,
+    signs it with HMAC-SHA256 truncated to 16 bytes into the ASCII envelope
+    `BP1#phone#timestamp#code#signature` (`SmsFallbackEnvelope.encode`), and dispatches it over GSM
+    SMS to the Hub phone with no mobile internet (`SmsForwardRepository.kt:521-575`). It is **not**
+    zero-config: the webhook token (to sign), the Hub SIM number, and `driverPhone` must all be set,
+    otherwise `canSendSms` is false and nothing is sent.
+  - **Hub flavor** (`applicationId ir.barpro.fleet.smsforwarder.hub`): receives `BP1#...`, verifies
+    the HMAC locally in constant time (`MessageDigest.isEqual`) and drops forgeries before they take
+    an outbox slot (`SmsForwardRepository.kt:384-414`), queues the rest in the Room outbox, and
+    delivers to `POST /api/v1/otp/sms-gateway`. The server re-verifies authoritatively with
+    `hmac.compare_digest` (`app/api/routes/otp_forwarder.py:192-195`).
+  - Both flavors build from the single `app/src/main` source set. There is no per-flavor source
+    directory and no role-specific UI; only `applicationId`, `versionNameSuffix` and three
+    `BuildConfig` fields differ (`app/build.gradle.kts:39-63`).
+  - **Carrier-matched routing**: `CarrierDetector.resolveHubNumbers` prefers build-time defaults
+    (`-PBARPRO_HUB_PHONE_MCI` / `-PBARPRO_HUB_PHONE_IRANCELL`) and otherwise reads operator config
+    (`fallbackServerPhoneNumber` = Hub MCI leg, `hubIrancellPhoneNumber` = Hub Irancell leg).
+    `resolveRoute` then makes the same-carrier SIM primary and the other the failover.
+    **With only one number filled in, delivery degrades to a single destination and failover is
+    inert** — the repository failover branch requires `failover != primary`.
+  - **Transport**: HTTP by design for this deployment. Nginx listens on port 80
+    (`infra/nginx/nginx.conf:70`); the `listen 443 ssl` block is commented out (lines 94-104). The
+    app refuses an `http://` endpoint unless the operator enables `allowCleartextTransport`, which
+    defaults to false so a cleartext endpoint is never used by a typo. Accepted consequence: the
+    envelope's authenticity is covered by HMAC, but the webhook token and the OTP are not encrypted
+    in transit, so network-level restriction of the gateway is part of the design, not optional.
+  - **Health heartbeat**: interval is `healthCheckIntervalMinutes`, default **5 minutes**, clamped to
+    **1-60 minutes** (`ForwardConfig.kt:37`, `ServerHealthMonitor.kt:141-142`). There is no 60-second
+    heartbeat.
+  - **4G mobile proxy / Tailscale exit node: NOT IMPLEMENTED.** No code or configuration exists in
+    either repository. UTCMS egress is the Squid chain (`WORKER_*_PROXY`, `EGRESS_PROXY_MODE` of
+    `worker_first` / `clean_pool_only`, `app/automation/worker_proxy.py`), injected into the mobile
+    client via `proxy_url` (`app/automation/utcms_mobile_client.py:155-176`). Iranian-egress WAF
+    compliance is still satisfied by proxy admission (`egress_verified=true` AND
+    `observed_country=IR`), not by any phone.
 - `CAPTCHA_PROVIDER=auto` uses CNN → PyTorch Fuel CRNN → Keras → Enhanced OCR →
   Local OCR.
 - Keras lazy-loads and runs in-process in each Worker. `KERAS_PYTHON_PATH` is a
