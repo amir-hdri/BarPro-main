@@ -39,12 +39,15 @@ All notable changes to the UTCMS Automation System.
 - **Not implemented:** the 4G cellular / Tailscale exit-node proxy. No code or configuration exists
   in either repository; UTCMS egress remains the Squid chain with Iranian-egress proxy admission.
   Previously documented here as delivered — corrected after source verification.
-- Verification (2026-10-10): `tests/test_otp_delivery_contract.py` + `tests/test_otp_forwarder.py` →
-  `49 passed`; `ruff` → `All checks passed!`; `black --check` → `427 files would be left unchanged`;
+- Verification (2026-10-10): `tests/test_otp_delivery_contract.py` + `tests/test_otp_forwarder.py` + `tests/test_full_relay_and_bot_simulation.py` →
+  `52 passed in 23.89s`; `ruff` → `All checks passed!`; `black --check` → `428 files would be left unchanged`;
   `mypy app/` → `Success: no issues found in 217 source files`; Android
-  `testDriverDebugUnitTest` / `testHubDebugUnitTest` → `tests=82 failures=0 errors=0` each (164 total, including
+  `testDriverDebugUnitTest` / `testHubDebugUnitTest` → `tests=86 failures=0 errors=0` each (172 total, including
+  complete end-to-end Driver-to-Hub relay simulations and boundary forge rejection).
 - Added `POST /api/v1/otp/sms-gateway/{path_driver_phone}` to FastAPI router with path-to-origin driver phone consistency checks, fully matching `BarProContract.isPathValid`.
 - Codified GSM Relay Sanitization & Route Parity rules in `CRITICAL_RULES.md` (§11.5), `runtime-contracts.md`, and `pitfalls-and-captcha.md`.
+- Implemented full three-way end-to-end simulation (`tests/test_full_relay_and_bot_simulation.py`) verifying Driver SMS extraction, carrier route resolution, GSM HMAC envelope encoding, Hub boundary verification, FastAPI Gateway ingestion, Redis Lua transactions, Bot OTP consumption, and two-witness waybill confirmation.
+
 
 
 ### 2026-10-09 — UTCMS 6-Digit OTP & 7777000982 Shortcode Alignment
