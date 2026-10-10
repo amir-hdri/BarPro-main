@@ -114,7 +114,7 @@ URL/Data URI and has no direct tracking-code column.
     delivers to `POST /api/v1/otp/sms-gateway` or `POST /api/v1/otp/sms-gateway/{driver_phone}`. The server re-verifies authoritatively with
     `hmac.compare_digest` and checks path phone consistency (`app/api/routes/otp_forwarder.py:175-200`).
     - **Driver Identity Sanitization**: The fallback relay never substitutes raw incoming `sender` for `driverPhone` when `driverPhone` is blank. Systemic gateway senders (e.g. `7777000982`) violate the required `09[0-9]{9}` regex and fail closed without throwing unhandled exceptions.
-    - **Endpoint Parity**: All permitted client forwarder endpoints (`/api/v1/otp/sms-gateway`, `/api/v1/otp/sms-forwarder`, `/api/v1/otp/webhook`) support optional `{path_driver_phone}` path parameters with strict validation ensuring path phone matches payload phone (returning HTTP 422 on mismatch).
+    - **Endpoint Parity**: All permitted client forwarder endpoints (`/api/v1/otp/sms-gateway`, `/api/v1/otp/sms-forwarder`, `/api/v1/otp/webhook`) support optional `{path_driver_phone}` path parameters; `/sms-gateway` strictly enforces that path phone matches envelope phone (returning HTTP 422 on mismatch), while legacy webhook routes use it to initialize driver identity.
   - Both flavors build from the single `app/src/main` source set. There is no per-flavor source
     directory and no role-specific UI; only `applicationId`, `versionNameSuffix` and three
     `BuildConfig` fields differ (`app/build.gradle.kts:39-63`).
