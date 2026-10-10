@@ -784,6 +784,16 @@ export default function FuelInquiryPage() {
                     تاریخچه استعلام‌های سهمیه سوخت
                   </h2>
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void refetchHistory()}
+                      disabled={historyLoading}
+                      title="بروزرسانی تاریخچه"
+                      className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 border border-white/5 transition active:scale-95 disabled:opacity-50"
+                      aria-label="بروزرسانی تاریخچه استعلام‌ها"
+                    >
+                      <ArrowPathIcon className={`h-4 w-4 ${historyLoading ? 'animate-spin text-cyan-400' : ''}`} />
+                    </button>
                     <span className="text-[10px] sm:text-xs font-bold text-slate-400 bg-slate-900 px-3 py-1 rounded-xl border border-white/5">
                       {toPersianDigitsPreserveZero(historyTotal)} رکورد
                     </span>
