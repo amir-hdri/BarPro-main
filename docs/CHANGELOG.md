@@ -43,8 +43,9 @@ All notable changes to the UTCMS Automation System.
   `49 passed`; `ruff` → `All checks passed!`; `black --check` → `427 files would be left unchanged`;
   `mypy app/` → `Success: no issues found in 217 source files`; Android
   `testDriverDebugUnitTest` / `testHubDebugUnitTest` → `tests=82 failures=0 errors=0` each (164 total, including
-  gateway URL path normalization, root-domain resolution, operator-swapped hub carrier alignment, and carrier-matched fallback dispatch tests).
 - Added `POST /api/v1/otp/sms-gateway/{path_driver_phone}` to FastAPI router with path-to-origin driver phone consistency checks, fully matching `BarProContract.isPathValid`.
+- Codified GSM Relay Sanitization & Route Parity rules in `CRITICAL_RULES.md` (§11.5), `runtime-contracts.md`, and `pitfalls-and-captcha.md`.
+
 
 ### 2026-10-09 — UTCMS 6-Digit OTP & 7777000982 Shortcode Alignment
 

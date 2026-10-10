@@ -34,6 +34,9 @@ root, not this directory. Commands are examples, not automatic execution steps.
 | Missing Redis connection pool settings | No timeout/retry configuration | ✅ Fixed |
 | Docker Compose V1 (`docker-compose`) usage | CI/CD and deploy scripts must use `docker compose` V2 — root `docker-compose.yml` uses `include:` (Compose >= 2.20) which V1 does not support | ✅ Fixed (.github/workflows/cd-deploy.yml) |
 | Multi-IP proxy routing — topology mismatch | `AVAILABLE_IP_INDICES` is topology-specific and must match fresh Worker Registry entries. The intended 3-worker Model B fleet uses indices `1,2,3`; smaller deployments must narrow the set. | ✅ Runtime filtering prevents unregistered indices, but effective values still require deployment verification |
+| Fallback SMS sender substitution | Blindly using incoming shortcode (e.g. 7777000982) as driver phone crashes envelope encoder; requires hardware SIM detection or fail-closed guard | ✅ Fixed |
+| Gateway route parity mismatch | Client sending to /sms-gateway/{driver_phone} received 404; requires both root and parameterized route registration in FastAPI | ✅ Fixed |
+
 
 <!-- original-agents:0355-0374:end -->
 
