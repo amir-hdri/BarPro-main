@@ -245,9 +245,13 @@ class FuelScraper:
         perf_quota_sum = parse_liters(perf_rows)
 
         # Handle screenshot
-        FUEL_SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-        screenshot_filename = f"fuel_inquiry_{inquiry_id}.png"
-        screenshot_path = FUEL_SCREENSHOTS_DIR / screenshot_filename
+        screenshot_path = None
+        try:
+            FUEL_SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+            screenshot_filename = f"fuel_inquiry_{inquiry_id}.png"
+            screenshot_path = FUEL_SCREENSHOTS_DIR / screenshot_filename
+        except Exception as e_dir:
+            logger.warning(f"Could not prepare FUEL_SCREENSHOTS_DIR: {e_dir}")
 
         primary_screenshot_bytes = perf_screenshot_bytes or base_screenshot_bytes
         if not primary_screenshot_bytes:
@@ -259,20 +263,20 @@ class FuelScraper:
         screenshot_url = None
         screenshot_data_uri = None
         if primary_screenshot_bytes:
-            try:
-                # Save locally for file endpoint / inspection
-                with open(screenshot_path, "wb") as f:
-                    f.write(primary_screenshot_bytes)
-                import base64
+            import base64
 
-                screenshot_data_uri = (
-                    f"data:image/png;base64,{base64.b64encode(primary_screenshot_bytes).decode('utf-8')}"
-                )
-                screenshot_url = screenshot_data_uri
-                logger.info(f"Fuel inquiry screenshot saved to {screenshot_path} and Data URI created")
-            except Exception as e:
-                logger.error(f"Failed to save screenshot file or encode base64: {e}")
-                screenshot_url = f"/api/v1/fuel-inquiries/{inquiry_id}/screenshot"
+            screenshot_data_uri = (
+                f"data:image/png;base64,{base64.b64encode(primary_screenshot_bytes).decode('utf-8')}"
+            )
+            screenshot_url = screenshot_data_uri
+
+            if screenshot_path:
+                try:
+                    with open(screenshot_path, "wb") as f:
+                        f.write(primary_screenshot_bytes)
+                    logger.info(f"Fuel inquiry screenshot saved to {screenshot_path}")
+                except Exception as e_file:
+                    logger.warning(f"Failed to save screenshot file to disk: {e_file}")
         else:
             screenshot_url = f"/api/v1/fuel-inquiries/{inquiry_id}/screenshot"
 
@@ -754,12 +758,18 @@ class FuelScraper:
         if not provider:
             raise WaybillError("کلاس حل کپچا پیکربندی نشده است")
 
-        # Bypass CnnCaptchaProvider for the fuel page as it only solves math digits
+        # Filter and prioritize fuel captcha providers (PyTorchFuelCaptchaProvider first)
         from app.automation.captcha import CnnCaptchaProvider, CompositeCaptchaProvider
+        from app.automation.captcha.fuel_captcha_solver import PyTorchFuelCaptchaProvider
 
         if isinstance(provider, CompositeCaptchaProvider):
-            fuel_providers = [p_obj for p_obj in provider.providers if not isinstance(p_obj, CnnCaptchaProvider)]
-            provider = CompositeCaptchaProvider(fuel_providers)
+            fuel_first = [p_obj for p_obj in provider.providers if isinstance(p_obj, PyTorchFuelCaptchaProvider)]
+            others = [
+                p_obj
+                for p_obj in provider.providers
+                if not isinstance(p_obj, (CnnCaptchaProvider, PyTorchFuelCaptchaProvider))
+            ]
+            provider = CompositeCaptchaProvider(fuel_first + others)
 
         captcha_element = await p.query_selector("#imgCapchaEdit1")
         if not captcha_element:
