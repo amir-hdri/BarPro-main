@@ -28,8 +28,10 @@ import {
   formatDateTime,
   formatFuelTrackingCode,
   parseQuotaData,
+  parseWaybillPayload,
   toPersianDigitsPreserveZero,
 } from '@/lib/format';
+import { formatFuelErrorMessage } from '@/components/fuel/FuelTypes';
 import { useSession } from '@/hooks/useSession';
 import type { Driver, FuelInquiry, WaybillJob, Plate } from '@/lib/types';
 import { toast } from 'react-hot-toast';
@@ -361,7 +363,7 @@ export default function FuelInquiryPage() {
             if (updated.status === 'success') {
               toast.success('استعلام با موفقیت تکمیل شد');
             } else if (updated.status === 'failed') {
-              toast.error(updated.error_message || 'استعلام با خطا مواجه شد');
+              toast.error(formatFuelErrorMessage(updated.error_message));
             }
             setActiveInquiryId(null);
             setSubmitting(false);
@@ -744,14 +746,20 @@ export default function FuelInquiryPage() {
                         let route = "مسیر نامشخص";
                         if (wb.payload_json) {
                           try {
-                            const payload = typeof wb.payload_json === 'string' ? JSON.parse(wb.payload_json) : wb.payload_json;
-                            if (payload && typeof payload === 'object' && 'origin' in payload && 'destination' in payload) {
-                              route = `${(payload as { origin: string; destination: string }).origin} به ${(payload as { origin: string; destination: string }).destination}`;
+                            const parsed = parseWaybillPayload(wb.payload_json);
+                            if (parsed.originCity && parsed.destinationCity) {
+                              route = `${parsed.originCity} به ${parsed.destinationCity}`;
+                            } else if (parsed.originCity || parsed.destinationCity) {
+                              route = parsed.originCity || parsed.destinationCity || "مسیر نامشخص";
                             }
                           } catch {
                             route = "مسیر نامشخص";
                           }
                         }
+
+                        const isSuccess = wb.status === 'success';
+                        const isFailed = wb.status === 'failed';
+                        const isNeedsReview = wb.status === 'needs_review';
 
                         return (
                           <div key={wb.id} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition">
@@ -760,11 +768,12 @@ export default function FuelInquiryPage() {
                               <span className="text-[9px] text-slate-400 block">{formatDateTime(wb.created_at)}</span>
                             </div>
                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg uppercase ${
-                              wb.status === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                              wb.status === 'failed' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                              'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              isSuccess ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                              isNeedsReview ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20' :
+                              isFailed ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                              'bg-slate-500/10 text-slate-400 border border-slate-500/20'
                             }`}>
-                              {wb.status === 'success' ? 'موفق' : wb.status === 'failed' ? 'ناموفق' : 'در صف'}
+                              {isSuccess ? 'موفق' : isNeedsReview ? 'نیازمند بررسی' : isFailed ? 'ناموفق' : 'در صف'}
                             </span>
                           </div>
                         );

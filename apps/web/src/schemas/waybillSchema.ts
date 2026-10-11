@@ -50,6 +50,23 @@ const isValidIranNationalCode = (code: string): boolean => {
   return remainder < 2 ? control === remainder : control === 11 - remainder;
 };
 
+const requiredNationalCode = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `کد ملی ${label} الزامی است`)
+    .transform((value) => digitsOnly(value))
+    .refine((value) => /^\d{10}$/.test(value), `کد ملی ${label} باید دقیقاً ۱۰ رقم باشد`)
+    .refine((value) => isValidIranNationalCode(value), `کد ملی ${label} معتبر نیست (رقم کنترل نامعتبر است)`);
+
+const requiredPostalCode = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `کدپستی ${label} الزامی است`)
+    .transform((value) => digitsOnly(value))
+    .refine((value) => /^\d{10}$/.test(value), `کدپستی ${label} باید دقیقاً ۱۰ رقم باشد`);
+
 export const waybillSchema = z.object({
   driver_national_code: z
     .string()
@@ -61,10 +78,12 @@ export const waybillSchema = z.object({
   origin_province: requiredText(2, "استان مبدأ الزامی است", 120, "استان مبدأ حداکثر ۱۲۰ حرف مجاز است"),
   origin_address: requiredText(5, "آدرس مبدأ الزامی است", 500, "آدرس مبدأ حداکثر ۵۰۰ حرف مجاز است"),
   origin_district: optionalText(120, "ناحیه مبدأ حداکثر ۱۲۰ حرف مجاز است"),
+  origin_postal_code: requiredPostalCode("مبدأ"),
   destination: requiredText(2, "شهر مقصد باید حداقل ۲ حرف باشد", 500, "مقصد حداکثر ۵۰۰ حرف مجاز است"),
   destination_province: requiredText(2, "استان مقصد الزامی است", 120, "استان مقصد حداکثر ۱۲۰ حرف مجاز است"),
   destination_address: requiredText(5, "آدرس مقصد الزامی است", 500, "آدرس مقصد حداکثر ۵۰۰ حرف مجاز است"),
   destination_district: optionalText(120, "ناحیه مقصد حداکثر ۱۲۰ حرف مجاز است"),
+  destination_postal_code: requiredPostalCode("مقصد"),
   plate_number: z
     .string()
     .transform((value) => canonicalizePlate(value))
@@ -85,8 +104,12 @@ export const waybillSchema = z.object({
   cargo_value: numericText("ارزش بار الزامی است", "ارزش بار باید عددی بزرگ‌تر از صفر باشد", 50, "ارزش بار حداکثر ۵۰ حرف مجاز است"),
   sender_name: requiredPersonName("فرستنده"),
   sender_phone: requiredMobile("فرستنده"),
+  sender_national_code: requiredNationalCode("فرستنده"),
+  sender_postal_code: requiredPostalCode("فرستنده"),
   receiver_name: requiredPersonName("گیرنده"),
   receiver_phone: requiredMobile("گیرنده"),
+  receiver_national_code: requiredNationalCode("گیرنده"),
+  receiver_postal_code: requiredPostalCode("گیرنده"),
 });
 
 export type WaybillFormValues = z.input<typeof waybillSchema>;

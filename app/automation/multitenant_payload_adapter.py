@@ -55,8 +55,13 @@ def _extract_valid_coordinates(source: dict[str, Any] | None) -> dict[str, float
     return None
 
 
-def _preserve_coordinates(location_dict: dict[str, Any], metadata_section: dict[str, Any]) -> None:
-    """Keep valid coordinates in location_dict; fall back to metadata if needed.
+def _preserve_coordinates(
+    location_dict: dict[str, Any],
+    metadata_section: dict[str, Any],
+    payload: dict[str, Any] | None = None,
+    prefix: str | None = None,
+) -> None:
+    """Keep valid coordinates in location_dict; fall back to metadata or payload if needed.
 
     The UTCMS form submission requires non-zero destLatM/destLonM and
     sourceLatM/sourceLonM.  When the original payload or metadata provides
@@ -64,12 +69,32 @@ def _preserve_coordinates(location_dict: dict[str, Any], metadata_section: dict[
     inject them into the browser JS globals.
     """
     existing = _extract_valid_coordinates(location_dict)
+    if not existing and payload and prefix:
+        flat_coords = _extract_valid_coordinates(
+            {
+                "lat": _first_value(
+                    payload.get(f"{prefix}_lat"), payload.get(f"{prefix}Lat"), payload.get(f"{prefix}_latitude")
+                ),
+                "lng": _first_value(
+                    payload.get(f"{prefix}_lng"),
+                    payload.get(f"{prefix}Lng"),
+                    payload.get(f"{prefix}_lon"),
+                    payload.get(f"{prefix}_longitude"),
+                ),
+            }
+        )
+        if flat_coords:
+            existing = flat_coords
+    if not existing:
+        from_meta = _extract_valid_coordinates(metadata_section)
+        if from_meta:
+            existing = from_meta
+
     if existing:
         location_dict["coordinates"] = existing
-        return
-    from_meta = _extract_valid_coordinates(metadata_section)
-    if from_meta:
-        location_dict["coordinates"] = from_meta
+        location_dict.setdefault("lat", existing["lat"])
+        location_dict.setdefault("lon", existing["lng"])
+        location_dict.setdefault("lng", existing["lng"])
         return
     # No valid coordinates available — leave as None
     location_dict["coordinates"] = None
@@ -382,8 +407,20 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "province": province,
                 "city": city,
                 "address": address,
-                "postal_code": _first_value(origin_meta.get("postal_code"), origin_meta.get("postalCode")),
+                "postal_code": _first_value(
+                    origin_meta.get("postal_code"),
+                    origin_meta.get("postalCode"),
+                    payload.get("origin_postal_code"),
+                    metadata.get("origin_postal_code"),
+                ),
             }
+        if not origin_dict.get("postal_code"):
+            origin_dict["postal_code"] = _first_value(
+                payload.get("origin_postal_code"),
+                origin_meta.get("postal_code"),
+                origin_meta.get("postalCode"),
+                metadata.get("origin_postal_code"),
+            )
 
         raw_destination = payload.get("destination")
         destination_meta = _metadata_section(metadata, "destination")
@@ -395,8 +432,20 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "province": province,
                 "city": city,
                 "address": address,
-                "postal_code": _first_value(destination_meta.get("postal_code"), destination_meta.get("postalCode")),
+                "postal_code": _first_value(
+                    destination_meta.get("postal_code"),
+                    destination_meta.get("postalCode"),
+                    payload.get("destination_postal_code"),
+                    metadata.get("destination_postal_code"),
+                ),
             }
+        if not dest_dict.get("postal_code"):
+            dest_dict["postal_code"] = _first_value(
+                payload.get("destination_postal_code"),
+                destination_meta.get("postal_code"),
+                destination_meta.get("postalCode"),
+                metadata.get("destination_postal_code"),
+            )
 
         raw_sender = payload.get("sender")
         sender = dict(raw_sender) if isinstance(raw_sender, dict) else dict(_metadata_section(metadata, "sender"))
@@ -413,6 +462,24 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             )
             if sender_phone:
                 sender["phone"] = sender_phone
+        if not sender.get("national_code"):
+            sender_nat = _first_value(
+                payload.get("sender_national_code"),
+                sender_meta.get("national_code"),
+                metadata.get("sender_national_code"),
+            )
+            if sender_nat:
+                sender["national_code"] = sender_nat
+        if not sender.get("postal_code"):
+            sender_post = _first_value(
+                payload.get("sender_postal_code"),
+                sender_meta.get("postal_code"),
+                sender_meta.get("postalCode"),
+                metadata.get("sender_postal_code"),
+            )
+            if sender_post:
+                sender["postal_code"] = sender_post
+
         if not receiver.get("phone"):
             receiver_phone = _first_value(
                 payload.get("receiver_phone"),
@@ -422,9 +489,56 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             )
             if receiver_phone:
                 receiver["phone"] = receiver_phone
+        if not receiver.get("national_code"):
+            recv_nat = _first_value(
+                payload.get("receiver_national_code"),
+                receiver_meta.get("national_code"),
+                metadata.get("receiver_national_code"),
+            )
+            if recv_nat:
+                receiver["national_code"] = recv_nat
+        if not receiver.get("postal_code"):
+            recv_post = _first_value(
+                payload.get("receiver_postal_code"),
+                receiver_meta.get("postal_code"),
+                receiver_meta.get("postalCode"),
+                metadata.get("receiver_postal_code"),
+            )
+            if recv_post:
+                receiver["postal_code"] = recv_post
 
         raw_cargo = payload.get("cargo")
         cargo = dict(raw_cargo) if isinstance(raw_cargo, dict) else dict(_metadata_section(metadata, "cargo"))
+        raw_items = cargo.get("items") or cargo.get("load_list")
+        if not raw_items:
+            c_weight = cargo.get("weight") or payload.get("cargo_weight") or 10
+            try:
+                c_w_val = float(str(c_weight).replace(",", ""))
+                if c_w_val > 100:
+                    c_w_val = round(c_w_val / 1000.0, 3)
+                c_weight = c_w_val if c_w_val % 1 != 0 else int(c_w_val)
+            except (ValueError, TypeError):
+                pass
+            c_count = cargo.get("count") or cargo.get("box_num") or payload.get("cargo_count") or 1
+            c_prod = cargo.get("product_id") or payload.get("product_id") or 10956
+            c_pack = cargo.get("pack_type_id") or payload.get("pack_type_id") or 18074
+            c_desc = str(
+                cargo.get("description") or payload.get("cargo_description") or cargo.get("type") or "محموله عمومی"
+            )
+            cargo["items"] = [
+                {
+                    "productId": int(c_prod),
+                    "product_id": int(c_prod),
+                    "packTypeId": int(c_pack),
+                    "pack_type_id": int(c_pack),
+                    "wheight": float(c_weight),
+                    "weight": float(c_weight),
+                    "boxNum": int(c_count),
+                    "box_num": int(c_count),
+                    "count": int(c_count),
+                    "description": c_desc,
+                }
+            ]
         raw_vehicle = payload.get("vehicle")
         vehicle = dict(raw_vehicle) if isinstance(raw_vehicle, dict) else dict(_metadata_section(metadata, "vehicle"))
         raw_financial = payload.get("financial")
@@ -465,11 +579,11 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
         # LngSource, LatDestination, LngDestination).  Without these the form
         # submission sends destLatM=0&destLonM=0 and UTCMS rejects with
         # "مختصات انتخابی نامعتبر میباشند!".
-        _preserve_coordinates(origin_dict, origin_meta)
+        _preserve_coordinates(origin_dict, origin_meta, payload=payload, prefix="origin")
         origin_dict["location_mode"] = "user_text"
         origin_dict["route_source"] = "user_text"
 
-        _preserve_coordinates(dest_dict, destination_meta)
+        _preserve_coordinates(dest_dict, destination_meta, payload=payload, prefix="dest")
         dest_dict["location_mode"] = "user_text"
         dest_dict["route_source"] = "user_text"
 
@@ -534,6 +648,68 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
         logger.warning("default_fare_applied")
         compact_cost = "5000000"
 
+    fallback_origin = {
+        "province": origin_province or str(_first_value(metadata.get("origin_province")) or ""),
+        "city": origin_city,
+        "district": _first_value(origin_meta.get("district")),
+        "address": str(_first_value(origin_address, metadata.get("origin_address")) or ""),
+        "postal_code": _first_value(
+            payload.get("origin_postal_code"),
+            origin_meta.get("postal_code"),
+            origin_meta.get("postalCode"),
+            metadata.get("origin_postal_code"),
+        ),
+        "route_source": "user_text",
+        "location_mode": "user_text",
+    }
+    _preserve_coordinates(fallback_origin, origin_meta, payload=payload, prefix="origin")
+
+    fallback_dest = {
+        "province": destination_province or str(_first_value(metadata.get("destination_province")) or ""),
+        "city": destination_city,
+        "district": _first_value(destination_meta.get("district")),
+        "address": str(_first_value(destination_address, metadata.get("destination_address")) or ""),
+        "postal_code": _first_value(
+            payload.get("destination_postal_code"),
+            destination_meta.get("postal_code"),
+            destination_meta.get("postalCode"),
+            metadata.get("destination_postal_code"),
+        ),
+        "route_source": "user_text",
+        "location_mode": "user_text",
+    }
+    _preserve_coordinates(fallback_dest, destination_meta, payload=payload, prefix="dest")
+
+    raw_fb_weight = cargo_weight or 10
+    try:
+        fb_w_val = float(str(raw_fb_weight).replace(",", ""))
+        if fb_w_val > 100:
+            fb_w_val = round(fb_w_val / 1000.0, 3)
+        final_weight = fb_w_val if fb_w_val % 1 != 0 else int(fb_w_val)
+    except (ValueError, TypeError):
+        final_weight = raw_fb_weight
+    fb_count = _first_value(cargo_meta.get("count"), metadata.get("cargo_count"), payload.get("cargo_count")) or 1
+    fb_prod = _first_value(cargo_meta.get("product_id"), payload.get("product_id")) or 10956
+    fb_pack = _first_value(cargo_meta.get("pack_type_id"), payload.get("pack_type_id")) or 18074
+    fb_desc = str(
+        _first_value(cargo_meta.get("description"), payload.get("cargo_description")) or cargo_type or "محموله عمومی"
+    )
+
+    fallback_items = [
+        {
+            "productId": int(fb_prod),
+            "product_id": int(fb_prod),
+            "packTypeId": int(fb_pack),
+            "pack_type_id": int(fb_pack),
+            "wheight": float(final_weight),
+            "weight": float(final_weight),
+            "boxNum": int(fb_count),
+            "box_num": int(fb_count),
+            "count": int(fb_count),
+            "description": fb_desc,
+        }
+    ]
+
     return {
         "route_source": "user_text",
         "location_mode": "user_text",
@@ -541,8 +717,17 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "name": default_sender_name,
             "phone": _first_value(payload.get("sender_phone"), sender_meta.get("phone"), metadata.get("sender_phone")),
             "address": _first_value(sender_meta.get("address"), metadata.get("sender_address")),
-            "national_code": _first_value(sender_meta.get("national_code"), metadata.get("sender_national_code")),
-            "postal_code": _first_value(sender_meta.get("postal_code"), sender_meta.get("postalCode")),
+            "national_code": _first_value(
+                payload.get("sender_national_code"),
+                sender_meta.get("national_code"),
+                metadata.get("sender_national_code"),
+            ),
+            "postal_code": _first_value(
+                payload.get("sender_postal_code"),
+                sender_meta.get("postal_code"),
+                sender_meta.get("postalCode"),
+                metadata.get("sender_postal_code"),
+            ),
             "entity_type": _first_value(sender_meta.get("entity_type"), sender_meta.get("type")) or "individual",
         },
         "receiver": {
@@ -551,35 +736,26 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 payload.get("receiver_phone"), receiver_meta.get("phone"), metadata.get("receiver_phone")
             ),
             "address": _first_value(receiver_meta.get("address"), metadata.get("receiver_address")),
-            "national_code": _first_value(receiver_meta.get("national_code"), metadata.get("receiver_national_code")),
-            "postal_code": _first_value(receiver_meta.get("postal_code"), receiver_meta.get("postalCode")),
+            "national_code": _first_value(
+                payload.get("receiver_national_code"),
+                receiver_meta.get("national_code"),
+                metadata.get("receiver_national_code"),
+            ),
+            "postal_code": _first_value(
+                payload.get("receiver_postal_code"),
+                receiver_meta.get("postal_code"),
+                receiver_meta.get("postalCode"),
+                metadata.get("receiver_postal_code"),
+            ),
             "entity_type": _first_value(receiver_meta.get("entity_type"), receiver_meta.get("type")) or "individual",
         },
-        "origin": {
-            "province": origin_province or str(_first_value(metadata.get("origin_province")) or ""),
-            "city": origin_city,
-            "district": _first_value(origin_meta.get("district")),
-            "address": str(_first_value(origin_address, metadata.get("origin_address")) or ""),
-            "postal_code": _first_value(origin_meta.get("postal_code"), origin_meta.get("postalCode")),
-            "coordinates": _extract_valid_coordinates(origin_meta),
-            "route_source": "user_text",
-            "location_mode": "user_text",
-        },
-        "destination": {
-            "province": destination_province or str(_first_value(metadata.get("destination_province")) or ""),
-            "city": destination_city,
-            "district": _first_value(destination_meta.get("district")),
-            "address": str(_first_value(destination_address, metadata.get("destination_address")) or ""),
-            "postal_code": _first_value(destination_meta.get("postal_code"), destination_meta.get("postalCode")),
-            "coordinates": _extract_valid_coordinates(destination_meta),
-            "route_source": "user_text",
-            "location_mode": "user_text",
-        },
+        "origin": fallback_origin,
+        "destination": fallback_dest,
         "cargo": {
             "type": str(cargo_type or ""),
             "weight": cargo_weight,
-            "count": _first_value(cargo_meta.get("count"), metadata.get("cargo_count")) or "1",
-            "description": _first_value(payload.get("cargo_description"), cargo_meta.get("description")),
+            "count": str(fb_count),
+            "description": fb_desc,
             "packaging": _first_value(payload.get("cargo_packaging"), cargo_meta.get("packaging")),
             "value": _first_value(
                 payload.get("cargo_value"),
@@ -587,6 +763,7 @@ def build_enhanced_waybill_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 financial_meta.get("cargo_value"),
                 metadata.get("cargo_value"),
             ),
+            "items": fallback_items,
         },
         "vehicle": {
             "driver_national_code": driver_code or None,

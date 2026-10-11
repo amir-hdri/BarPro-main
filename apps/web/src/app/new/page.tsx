@@ -54,10 +54,12 @@ const initialForm: WaybillFormValues = {
   origin_province: "",
   origin_address: "",
   origin_district: "",
+  origin_postal_code: "",
   destination: "",
   destination_province: "",
   destination_address: "",
   destination_district: "",
+  destination_postal_code: "",
   plate_number: "",
   vehicle_type: "کامیون",
   cargo_type: "",
@@ -66,16 +68,20 @@ const initialForm: WaybillFormValues = {
   cargo_value: "",
   sender_name: "",
   sender_phone: "",
+  sender_national_code: "",
+  sender_postal_code: "",
   receiver_name: "",
   receiver_phone: "",
+  receiver_national_code: "",
+  receiver_postal_code: "",
 };
 
 const STEPS = [
   { id: 1, label: "راننده و خودرو", icon: TruckIcon, fields: ["driver_national_code", "plate_number", "vehicle_type"] },
-  { id: 2, label: "مبدا", icon: MapPinIcon, fields: ["origin_province", "origin", "origin_address", "origin_district"] },
-  { id: 3, label: "مقصد", icon: MapPinIcon, fields: ["destination_province", "destination", "destination_address", "destination_district"] },
+  { id: 2, label: "مبدا", icon: MapPinIcon, fields: ["origin_province", "origin", "origin_address", "origin_district", "origin_postal_code"] },
+  { id: 3, label: "مقصد", icon: MapPinIcon, fields: ["destination_province", "destination", "destination_address", "destination_district", "destination_postal_code"] },
   { id: 4, label: "بار", icon: CubeIcon, fields: ["cargo_type", "cargo_packaging", "cargo_weight", "cargo_value"] },
-  { id: 5, label: "فرستنده و گیرنده", icon: UserIcon, fields: ["sender_name", "sender_phone", "receiver_name", "receiver_phone"] },
+  { id: 5, label: "فرستنده و گیرنده", icon: UserIcon, fields: ["sender_name", "sender_phone", "sender_national_code", "sender_postal_code", "receiver_name", "receiver_phone", "receiver_national_code", "receiver_postal_code"] },
   { id: 6, label: "ثبت و زمان‌بندی", icon: BanknotesIcon, fields: [] },
 ];
 
@@ -305,7 +311,16 @@ export default function NewWaybillPage() {
         const cleanDigits = normalizeDigits(nextValue).replace(/\D/g, "");
         nextValue = cleanDigits ? Number(cleanDigits).toLocaleString("en-US") : "";
       } else if (
-        ["driver_national_code", "cargo_weight"].includes(name)
+        [
+          "driver_national_code",
+          "cargo_weight",
+          "sender_national_code",
+          "sender_postal_code",
+          "receiver_national_code",
+          "receiver_postal_code",
+          "origin_postal_code",
+          "destination_postal_code",
+        ].includes(name)
       ) {
         nextValue = normalizeDigits(nextValue);
       }
@@ -468,8 +483,10 @@ export default function NewWaybillPage() {
 
     const payload = {
       driver_national_code: parsed.data.driver_national_code,
-      origin: parsed.data.origin,
-      destination: parsed.data.destination,
+      origin_city: parsed.data.origin,
+      destination_city: parsed.data.destination,
+      origin_postal_code: parsed.data.origin_postal_code,
+      destination_postal_code: parsed.data.destination_postal_code,
       origin_lat: originCoords?.lat,
       origin_lng: originCoords?.lng,
       dest_lat: destinationCoords?.lat,
@@ -485,8 +502,58 @@ export default function NewWaybillPage() {
       vehicle_type: vehicleTypeVal,
       plate_number: parsed.data.plate_number,
       driver_phone: driverPhoneVal,
+      sender_name: parsed.data.sender_name,
       sender_phone: parsed.data.sender_phone,
+      sender_national_code: parsed.data.sender_national_code,
+      sender_postal_code: parsed.data.sender_postal_code,
+      receiver_name: parsed.data.receiver_name,
       receiver_phone: parsed.data.receiver_phone,
+      receiver_national_code: parsed.data.receiver_national_code,
+      receiver_postal_code: parsed.data.receiver_postal_code,
+      sender: {
+        name: parsed.data.sender_name,
+        phone: parsed.data.sender_phone,
+        national_code: parsed.data.sender_national_code,
+        postal_code: parsed.data.sender_postal_code,
+      },
+      receiver: {
+        name: parsed.data.receiver_name,
+        phone: parsed.data.receiver_phone,
+        national_code: parsed.data.receiver_national_code,
+        postal_code: parsed.data.receiver_postal_code,
+      },
+      origin: {
+        province: parsed.data.origin_province,
+        city: parsed.data.origin,
+        district: parsed.data.origin_district || undefined,
+        address: parsed.data.origin_address,
+        postal_code: parsed.data.origin_postal_code,
+        coordinates: originCoords || undefined,
+        lat: originCoords?.lat,
+        lng: originCoords?.lng,
+      },
+      destination: {
+        province: parsed.data.destination_province,
+        city: parsed.data.destination,
+        district: parsed.data.destination_district || undefined,
+        address: parsed.data.destination_address,
+        postal_code: parsed.data.destination_postal_code,
+        coordinates: destinationCoords || undefined,
+        lat: destinationCoords?.lat,
+        lng: destinationCoords?.lng,
+      },
+      cargo: {
+        type: parsed.data.cargo_type,
+        packaging: parsed.data.cargo_packaging,
+        weight: parsed.data.cargo_weight,
+        value: parsed.data.cargo_value,
+      },
+      vehicle: {
+        driver_national_code: parsed.data.driver_national_code,
+        plate: parsed.data.plate_number,
+        type: vehicleTypeVal,
+        driver_phone: driverPhoneVal,
+      },
       metadata_json: {
         origin_lat: originCoords?.lat,
         origin_lng: originCoords?.lng,
@@ -495,9 +562,11 @@ export default function NewWaybillPage() {
         origin_province: parsed.data.origin_province,
         origin_address: parsed.data.origin_address,
         origin_district: parsed.data.origin_district || undefined,
+        origin_postal_code: parsed.data.origin_postal_code,
         destination_province: parsed.data.destination_province,
         destination_address: parsed.data.destination_address,
         destination_district: parsed.data.destination_district || undefined,
+        destination_postal_code: parsed.data.destination_postal_code,
         cargo_packaging: parsed.data.cargo_packaging,
         cargo_value: parsed.data.cargo_value,
         vehicle_type: vehicleTypeVal,
@@ -506,13 +575,28 @@ export default function NewWaybillPage() {
         receiver_name: parsed.data.receiver_name,
         sender_phone: parsed.data.sender_phone,
         receiver_phone: parsed.data.receiver_phone,
-        sender: { name: parsed.data.sender_name, phone: parsed.data.sender_phone },
-        receiver: { name: parsed.data.receiver_name, phone: parsed.data.receiver_phone },
+        sender_national_code: parsed.data.sender_national_code,
+        sender_postal_code: parsed.data.sender_postal_code,
+        receiver_national_code: parsed.data.receiver_national_code,
+        receiver_postal_code: parsed.data.receiver_postal_code,
+        sender: {
+          name: parsed.data.sender_name,
+          phone: parsed.data.sender_phone,
+          national_code: parsed.data.sender_national_code,
+          postal_code: parsed.data.sender_postal_code,
+        },
+        receiver: {
+          name: parsed.data.receiver_name,
+          phone: parsed.data.receiver_phone,
+          national_code: parsed.data.receiver_national_code,
+          postal_code: parsed.data.receiver_postal_code,
+        },
         origin: {
           province: parsed.data.origin_province,
           city: parsed.data.origin,
           district: parsed.data.origin_district || undefined,
           address: parsed.data.origin_address,
+          postal_code: parsed.data.origin_postal_code,
           coordinates: originCoords || undefined,
           lat: originCoords?.lat,
           lng: originCoords?.lng,
@@ -522,6 +606,7 @@ export default function NewWaybillPage() {
           city: parsed.data.destination,
           district: parsed.data.destination_district || undefined,
           address: parsed.data.destination_address,
+          postal_code: parsed.data.destination_postal_code,
           coordinates: destinationCoords || undefined,
           lat: destinationCoords?.lat,
           lng: destinationCoords?.lng,
@@ -987,6 +1072,18 @@ export default function NewWaybillPage() {
                       />
                     </Field>
 
+                    <Field label="کد پستی مبدا" error={errors.origin_postal_code} hint="۱۰ رقم بدون خط تیره" required>
+                      <input
+                        dir="ltr"
+                        inputMode="numeric"
+                        maxLength={10}
+                        className={`field ${errors.origin_postal_code ? "error" : ""}`}
+                        placeholder="مثال: ۱۲۳۴۵۶۷۸۹۰"
+                        value={form.origin_postal_code}
+                        onChange={(e) => handleChange("origin_postal_code", e.target.value)}
+                      />
+                    </Field>
+
                     <Field label="ناحیه / منطقه مبدا" error={errors.origin_district} hint="اختیاری">
                       <input
                         className="field"
@@ -1109,6 +1206,18 @@ export default function NewWaybillPage() {
                       />
                     </Field>
 
+                    <Field label="کد پستی مقصد" error={errors.destination_postal_code} hint="۱۰ رقم بدون خط تیره" required>
+                      <input
+                        dir="ltr"
+                        inputMode="numeric"
+                        maxLength={10}
+                        className={`field ${errors.destination_postal_code ? "error" : ""}`}
+                        placeholder="مثال: ۹۸۷۶۵۴۳۲۱۰"
+                        value={form.destination_postal_code}
+                        onChange={(e) => handleChange("destination_postal_code", e.target.value)}
+                      />
+                    </Field>
+
                     <Field label="ناحیه / منطقه مقصد" error={errors.destination_district} hint="اختیاری">
                       <input
                         className="field"
@@ -1184,10 +1293,21 @@ export default function NewWaybillPage() {
                   <SectionHeader
                     icon={UserIcon}
                     title="اطلاعات فرستنده و گیرنده"
-                    subtitle="مشخصات کامل طرفین قرارداد حمل"
+                    subtitle="مشخصات کامل و کدهای هویتی/پستی طرفین قرارداد حمل"
                   />
                   <div>
-                    <p className="text-xs font-black text-cyan-400 uppercase r mb-3">فرستنده</p>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-black text-cyan-400 uppercase">فرستنده</p>
+                      {form.origin_postal_code && (
+                        <button
+                          type="button"
+                          onClick={() => handleChange("sender_postal_code", form.origin_postal_code)}
+                          className="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium transition"
+                        >
+                          + کپی کد پستی از مبدا ({form.origin_postal_code})
+                        </button>
+                      )}
+                    </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.sender_name} required>
                         <input className={`field ${errors.sender_name ? "error" : ""}`} value={form.sender_name} onChange={(e) => handleChange("sender_name", e.target.value)} />
@@ -1203,11 +1323,44 @@ export default function NewWaybillPage() {
                           onChange={(e) => handleChange("sender_phone", e.target.value)}
                         />
                       </Field>
+                      <Field label="کد ملی / شناسه ملی فرستنده" error={errors.sender_national_code} hint="۱۰ رقم کد ملی یا ۱۱ رقم شناسه ملی" required>
+                        <input
+                          dir="ltr"
+                          inputMode="numeric"
+                          maxLength={11}
+                          className={`field ${errors.sender_national_code ? "error" : ""}`}
+                          placeholder="مثال: ۱۲۳۴۵۶۷۸۹۰"
+                          value={form.sender_national_code}
+                          onChange={(e) => handleChange("sender_national_code", e.target.value)}
+                        />
+                      </Field>
+                      <Field label="کد پستی فرستنده" error={errors.sender_postal_code} hint="۱۰ رقم بدون خط تیره" required>
+                        <input
+                          dir="ltr"
+                          inputMode="numeric"
+                          maxLength={10}
+                          className={`field ${errors.sender_postal_code ? "error" : ""}`}
+                          placeholder="مثال: ۱۲۳۴۵۶۷۸۹۰"
+                          value={form.sender_postal_code}
+                          onChange={(e) => handleChange("sender_postal_code", e.target.value)}
+                        />
+                      </Field>
                     </div>
                   </div>
 
                   <div className="border-t border-white/5 pt-5">
-                    <p className="text-xs font-black text-cyan-400 uppercase r mb-3">گیرنده</p>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-black text-cyan-400 uppercase">گیرنده</p>
+                      {form.destination_postal_code && (
+                        <button
+                          type="button"
+                          onClick={() => handleChange("receiver_postal_code", form.destination_postal_code)}
+                          className="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium transition"
+                        >
+                          + کپی کد پستی از مقصد ({form.destination_postal_code})
+                        </button>
+                      )}
+                    </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <Field label="نام و نام خانوادگی" error={errors.receiver_name} required>
                         <input className={`field ${errors.receiver_name ? "error" : ""}`} value={form.receiver_name} onChange={(e) => handleChange("receiver_name", e.target.value)} />
@@ -1221,6 +1374,28 @@ export default function NewWaybillPage() {
                           placeholder="۰۹۱۲۳۴۵۶۷۸۹"
                           value={form.receiver_phone}
                           onChange={(e) => handleChange("receiver_phone", e.target.value)}
+                        />
+                      </Field>
+                      <Field label="کد ملی / شناسه ملی گیرنده" error={errors.receiver_national_code} hint="۱۰ رقم کد ملی یا ۱۱ رقم شناسه ملی" required>
+                        <input
+                          dir="ltr"
+                          inputMode="numeric"
+                          maxLength={11}
+                          className={`field ${errors.receiver_national_code ? "error" : ""}`}
+                          placeholder="مثال: ۰۹۸۷۶۵۴۳۲۱"
+                          value={form.receiver_national_code}
+                          onChange={(e) => handleChange("receiver_national_code", e.target.value)}
+                        />
+                      </Field>
+                      <Field label="کد پستی گیرنده" error={errors.receiver_postal_code} hint="۱۰ رقم بدون خط تیره" required>
+                        <input
+                          dir="ltr"
+                          inputMode="numeric"
+                          maxLength={10}
+                          className={`field ${errors.receiver_postal_code ? "error" : ""}`}
+                          placeholder="مثال: ۹۸۷۶۵۴۳۲۱۰"
+                          value={form.receiver_postal_code}
+                          onChange={(e) => handleChange("receiver_postal_code", e.target.value)}
                         />
                       </Field>
                     </div>

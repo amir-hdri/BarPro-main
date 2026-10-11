@@ -32,3 +32,20 @@ export const getTrackingCode = (inquiry: { id: number; year?: number | null; mon
   const idStr = inquiry.id.toString().padStart(4, '0');
   return toPersianDigitsPreserveZero(`UTC-${yy}${mm}-${idStr}`);
 };
+
+export const FUEL_INQUIRY_ERROR_DESCRIPTIONS: Record<string, string> = {
+  "101": "اطلاعات ورودی (کد ملی یا پلاک) در سامانه یافت نشد",
+  "102": "عدم موفقیت در احراز هویت یا ورود به سامانه سوخت",
+  "103": "سامانه سوخت پاسخگو نبود (تایم‌اوت ارتباط)",
+  "104": "خطا در حل کپچای امنیتی سامانه سوخت",
+  "105": "تغییر ساختار سامانه سوخت و عدم دسترسی به داده‌ها",
+  "106": "شناسایی و مسدودسازی توسط دیوار امنیتی سامانه",
+  "107": "خطای موقت شبکه و زیرساخت ارتباطی",
+  "108": "محدودیت منابع یا خطای داخلی مرورگر در ورکر",
+};
+
+export function formatFuelErrorMessage(errorCode?: string | null): string {
+  if (!errorCode) return "استعلام با خطا مواجه شد";
+  const desc = FUEL_INQUIRY_ERROR_DESCRIPTIONS[errorCode.trim()];
+  return desc ? `${desc} (${errorCode})` : errorCode;
+}

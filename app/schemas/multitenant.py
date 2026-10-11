@@ -822,6 +822,7 @@ class WaybillJobUpdateRequest(BaseModel):
     terminal_reason: str | None = Field(default=None, max_length=64, description="دلیل پایان کار")
     business_date: str | None = Field(default=None, max_length=16, description="تاریخ تجاری")
     correlation_id: str | None = Field(default=None, max_length=128, description="شناسه همبستگی")
+    payload: dict[str, Any] | None = Field(default=None, description="اطلاعات بارنامه جهت اصلاح و تکمیل")
 
     model_config = ConfigDict(extra="forbid")
 

@@ -156,6 +156,7 @@ class WaybillJobService:
             metadata["vehicle"] = metadata_vehicle
             payload_dict["metadata_json"] = metadata
 
+        from app.automation.mobile_payload_adapter import validate_mobile_source_payload
         from app.automation.multitenant_payload_adapter import (
             build_enhanced_waybill_payload,
             validate_live_waybill_payload,
@@ -168,12 +169,17 @@ class WaybillJobService:
             expected_plate=norm_plate,
             expected_driver_mobile=driver.phone,
         )
+        mobile_errors = validate_mobile_source_payload(enhanced_payload)
+        for me in mobile_errors:
+            if me not in payload_errors:
+                payload_errors.append(me)
+
         if payload_errors:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
                     "error": "WAYBILL_PAYLOAD_INCOMPLETE",
-                    "message": "اطلاعات اجباری بارنامه کامل یا معتبر نیست",
+                    "message": "اطلاعات اجباری بارنامه کامل یا معتبر نیست: " + "، ".join(payload_errors),
                     "errors": payload_errors,
                 },
             )
@@ -434,8 +440,9 @@ class WaybillJobService:
         # Check if job is in a terminal state that requires safe retry logic
         terminal_statuses = {TaskStatus.FAILED.value, TaskStatus.NEEDS_REVIEW.value}
         if job.status in terminal_statuses:
-            # Only allow retry if error_category is transient/retryable
-            if not is_retryable_terminal_category(job.error_category):
+            # Only allow retry if error_category is transient/retryable or remedied
+            is_remedied = job.status == TaskStatus.NEEDS_REVIEW.value and job.error_category is None
+            if not is_remedied and not is_retryable_terminal_category(job.error_category):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Job in '{job.status}' with error_category='{job.error_category}' cannot be retried directly. Use reconciliation or admin review.",
@@ -1204,6 +1211,65 @@ class WaybillJobService:
             update_data["business_date"] = request.business_date
         if request.correlation_id is not None:
             update_data["correlation_id"] = request.correlation_id
+
+        if request.payload is not None:
+            mutable_statuses = {
+                TaskStatus.NEEDS_REVIEW.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.PENDING.value,
+            }
+            if job.status not in mutable_statuses:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"امکان ویرایش پی‌لود برای کار در وضعیت «{job.status}» مجاز نیست.",
+                )
+
+            existing_payload = dict(job.payload_json) if isinstance(job.payload_json, dict) else {}
+            merged_payload = dict(existing_payload)
+            for k, v in request.payload.items():
+                if isinstance(v, dict) and isinstance(merged_payload.get(k), dict):
+                    merged_payload[k] = {**merged_payload[k], **v}
+                elif v is not None:
+                    merged_payload[k] = v
+
+            from app.automation.mobile_payload_adapter import validate_mobile_source_payload
+            from app.automation.multitenant_payload_adapter import (
+                build_enhanced_waybill_payload,
+                validate_live_waybill_payload,
+            )
+
+            enhanced = build_enhanced_waybill_payload(merged_payload)
+
+            driver = None
+            if job.driver_id:
+                driver = (await session.exec(select(Driver).where(Driver.id == job.driver_id))).first()
+
+            expected_driver_code = driver.driver_national_code if driver else None
+            expected_driver_mobile = driver.phone if driver else None
+
+            payload_errors = validate_live_waybill_payload(
+                enhanced,
+                expected_driver_national_code=expected_driver_code,
+                expected_driver_mobile=expected_driver_mobile,
+            )
+            mobile_errors = validate_mobile_source_payload(enhanced)
+            for me in mobile_errors:
+                if me not in payload_errors:
+                    payload_errors.append(me)
+
+            if payload_errors:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "WAYBILL_PAYLOAD_INCOMPLETE",
+                        "message": "اطلاعات ویرایش‌شده بارنامه کامل نیست: " + "، ".join(payload_errors),
+                        "errors": payload_errors,
+                    },
+                )
+
+            update_data["payload_json"] = enhanced
+            update_data["error_category"] = None
+            update_data["last_error"] = None
 
         for key, value in update_data.items():
             setattr(job, key, value)

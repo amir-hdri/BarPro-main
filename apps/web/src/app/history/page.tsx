@@ -12,6 +12,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
 import { copyText } from '@/lib/clipboard';
+import { normalizeDigits } from '@/lib/plate';
 import dynamic from 'next/dynamic';
 
 const ShippingRouteMap = dynamic(
@@ -492,6 +493,14 @@ export default function HistoryPage() {
     business_date: '',
     correlation_id: '',
   });
+  const [editPayload, setEditPayload] = useState({
+    sender_national_code: '',
+    sender_postal_code: '',
+    receiver_national_code: '',
+    receiver_postal_code: '',
+    origin_postal_code: '',
+    destination_postal_code: '',
+  });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState<string | null>(null);
 
@@ -738,6 +747,20 @@ export default function HistoryPage() {
       business_date: job.business_date || '',
       correlation_id: job.correlation_id || '',
     });
+    const rawPayload = typeof job.payload_json === 'object' && job.payload_json ? (job.payload_json as Record<string, any>) : {};
+    const sender = (rawPayload.sender as Record<string, any>) || {};
+    const receiver = (rawPayload.receiver as Record<string, any>) || {};
+    const origin = (rawPayload.origin as Record<string, any>) || {};
+    const destination = (rawPayload.destination as Record<string, any>) || {};
+
+    setEditPayload({
+      sender_national_code: String(sender.national_code || sender.nationalCode || rawPayload.sender_national_code || ''),
+      sender_postal_code: String(sender.postal_code || sender.postalCode || rawPayload.sender_postal_code || ''),
+      receiver_national_code: String(receiver.national_code || receiver.nationalCode || rawPayload.receiver_national_code || ''),
+      receiver_postal_code: String(receiver.postal_code || receiver.postalCode || rawPayload.receiver_postal_code || ''),
+      origin_postal_code: String(origin.postal_code || origin.postalCode || rawPayload.origin_postal_code || ''),
+      destination_postal_code: String(destination.postal_code || destination.postalCode || rawPayload.destination_postal_code || ''),
+    });
     setEditModalOpen(true);
     setActionMenuJobId(null);
   }, []);
@@ -750,10 +773,34 @@ export default function HistoryPage() {
   };
 
   async function handleEditJob(jobId: string) {
-    const payload = { ...editForm };
+    const payload: Record<string, any> = { ...editForm };
     if (!payload.terminal_reason) delete payload.terminal_reason;
     if (!payload.business_date) delete payload.business_date;
     if (!payload.correlation_id) delete payload.correlation_id;
+
+    payload.payload = {
+      sender: {
+        national_code: normalizeDigits(editPayload.sender_national_code.trim()),
+        postal_code: normalizeDigits(editPayload.sender_postal_code.trim()),
+      },
+      receiver: {
+        national_code: normalizeDigits(editPayload.receiver_national_code.trim()),
+        postal_code: normalizeDigits(editPayload.receiver_postal_code.trim()),
+      },
+      origin: {
+        postal_code: normalizeDigits(editPayload.origin_postal_code.trim()),
+      },
+      destination: {
+        postal_code: normalizeDigits(editPayload.destination_postal_code.trim()),
+      },
+      sender_national_code: normalizeDigits(editPayload.sender_national_code.trim()),
+      sender_postal_code: normalizeDigits(editPayload.sender_postal_code.trim()),
+      receiver_national_code: normalizeDigits(editPayload.receiver_national_code.trim()),
+      receiver_postal_code: normalizeDigits(editPayload.receiver_postal_code.trim()),
+      origin_postal_code: normalizeDigits(editPayload.origin_postal_code.trim()),
+      destination_postal_code: normalizeDigits(editPayload.destination_postal_code.trim()),
+    };
+
     const response = await api.patch(`/api/v1/waybill-jobs/${jobId}`, payload);
     if (response.success) {
       setEditSuccess('تغییرات ماموریت با موفقیت ذخیره شد');
@@ -963,6 +1010,15 @@ export default function HistoryPage() {
                           </div>
 
                           <div className="flex items-center gap-2">
+                            {selectedJob.status === 'needs_review' && (
+                              <button
+                                onClick={(e) => handleEditModalOpen(selectedJob, e)}
+                                className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3.5 py-2 text-xs font-bold text-cyan-400 shadow-md transition hover:bg-cyan-500/20 flex items-center gap-1.5"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                                اصلاح کدهای ملی/پستی
+                              </button>
+                            )}
                             {(selectedJob.status === 'failed' || selectedJob.status === 'needs_review' || selectedJob.status === 'waiting_auth' || selectedJob.status === 'waiting_retry') && (
                               <button
                                 onClick={() => void handleRetryJob(selectedJob.job_id)}
@@ -1569,59 +1625,153 @@ export default function HistoryPage() {
 
           {/* Edit Job Modal */}
           {editModalOpen && editingJob && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
-              <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-slate-900 p-6 shadow-2xl text-white text-right" onClick={(e) => e.stopPropagation()}>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true">
+              <div className="w-full max-w-lg rounded-[2rem] border border-white/10 bg-slate-900 p-6 sm:p-7 shadow-2xl text-white text-right my-8" onClick={(e) => e.stopPropagation()}>
                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                   <h3 className="text-lg font-black text-white">ویرایش مشخصات ماموریت</h3>
-                   <button onClick={handleEditModalClose} className="p-3 text-slate-400 hover:text-slate-200 rounded-xl hover:bg-white/5 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بستن">
+                   <div>
+                     <h3 className="text-base sm:text-lg font-black text-white">ویرایش و اصلاح مشخصات ماموریت</h3>
+                     <p className="text-[11px] text-slate-400 mt-0.5">شناسه کار: {editingJob.job_id.slice(0, 16)}</p>
+                   </div>
+                   <button onClick={handleEditModalClose} className="p-2 text-slate-400 hover:text-slate-200 rounded-xl hover:bg-white/5 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-label="بستن">
                      <X className="h-5 w-5" />
                    </button>
                  </div>
 
                 {editSuccess && (
-                  <div className="mt-3 rounded-xl bg-emerald-500/10 p-3 text-xs font-bold text-emerald-400">
+                  <div className="mt-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs font-bold text-emerald-400">
                     {editSuccess}
                   </div>
                 )}
                 {editError && (
-                  <div className="mt-3 rounded-xl bg-rose-500/10 p-3 text-xs font-bold text-rose-400">
+                  <div className="mt-3 rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 text-xs font-bold text-rose-400">
                     {editError}
                   </div>
                 )}
 
+                 {/* اصلاح کدهای ملی و پستی الزامی UTCMS */}
+                 <div className="mt-4 rounded-2xl bg-slate-950/70 border border-cyan-500/20 p-4 space-y-3">
+                   <div className="flex items-center gap-2">
+                     <div className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                     <span className="text-xs font-bold text-cyan-300">اطلاعات هویتی و پستی طرفین بارنامه (الزامی سامانه UTCMS)</span>
+                   </div>
+
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-right">
+                     <div>
+                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">کد ملی / شناسه ملی فرستنده</label>
+                       <input
+                         dir="ltr"
+                         inputMode="numeric"
+                         maxLength={11}
+                         value={editPayload.sender_national_code}
+                         onChange={(e) => setEditPayload((prev) => ({ ...prev, sender_national_code: normalizeDigits(e.target.value) }))}
+                         placeholder="۱۰ یا ۱۱ رقم"
+                         className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
+
+                     <div>
+                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">کد پستی فرستنده</label>
+                       <input
+                         dir="ltr"
+                         inputMode="numeric"
+                         maxLength={10}
+                         value={editPayload.sender_postal_code}
+                         onChange={(e) => setEditPayload((prev) => ({ ...prev, sender_postal_code: normalizeDigits(e.target.value) }))}
+                         placeholder="۱۰ رقم بدون خط تیره"
+                         className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
+
+                     <div>
+                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">کد ملی / شناسه ملی گیرنده</label>
+                       <input
+                         dir="ltr"
+                         inputMode="numeric"
+                         maxLength={11}
+                         value={editPayload.receiver_national_code}
+                         onChange={(e) => setEditPayload((prev) => ({ ...prev, receiver_national_code: normalizeDigits(e.target.value) }))}
+                         placeholder="۱۰ یا ۱۱ رقم"
+                         className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
+
+                     <div>
+                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">کد پستی گیرنده</label>
+                       <input
+                         dir="ltr"
+                         inputMode="numeric"
+                         maxLength={10}
+                         value={editPayload.receiver_postal_code}
+                         onChange={(e) => setEditPayload((prev) => ({ ...prev, receiver_postal_code: normalizeDigits(e.target.value) }))}
+                         placeholder="۱۰ رقم بدون خط تیره"
+                         className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
+
+                     <div>
+                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">کد پستی مبدأ</label>
+                       <input
+                         dir="ltr"
+                         inputMode="numeric"
+                         maxLength={10}
+                         value={editPayload.origin_postal_code}
+                         onChange={(e) => setEditPayload((prev) => ({ ...prev, origin_postal_code: normalizeDigits(e.target.value) }))}
+                         placeholder="۱۰ رقم بدون خط تیره"
+                         className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
+
+                     <div>
+                       <label className="block text-[11px] font-semibold text-slate-300 mb-1">کد پستی مقصد</label>
+                       <input
+                         dir="ltr"
+                         inputMode="numeric"
+                         maxLength={10}
+                         value={editPayload.destination_postal_code}
+                         onChange={(e) => setEditPayload((prev) => ({ ...prev, destination_postal_code: normalizeDigits(e.target.value) }))}
+                         placeholder="۱۰ رقم بدون خط تیره"
+                         className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
+                   </div>
+                 </div>
+
+                 {/* مشخصات نوبت کاری و اولویت */}
                  <div className="mt-4 space-y-3">
-                   <div>
-                     <label className="block text-xs font-bold text-slate-400 mb-1">اولویت (0 الی 9)</label>
-                     <input
-                       type="number"
-                       min="0"
-                       max="9"
-                       value={editForm.priority}
-                       onChange={(e) => setEditForm({ ...editForm, priority: Number(e.target.value) })}
-                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
-                     />
+                   <div className="grid grid-cols-2 gap-3">
+                     <div>
+                       <label className="block text-xs font-bold text-slate-400 mb-1">اولویت (0 الی 9)</label>
+                       <input
+                         type="number"
+                         min="0"
+                         max="9"
+                         value={editForm.priority}
+                         onChange={(e) => setEditForm({ ...editForm, priority: Number(e.target.value) })}
+                         className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
+
+                     <div>
+                       <label className="block text-xs font-bold text-slate-400 mb-1">حداکثر تلاش مجدد</label>
+                       <input
+                         type="number"
+                         min="0"
+                         max="10"
+                         value={editForm.max_retries}
+                         onChange={(e) => setEditForm({ ...editForm, max_retries: Number(e.target.value) })}
+                         className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       />
+                     </div>
                    </div>
 
                    <div>
-                     <label className="block text-xs font-bold text-slate-400 mb-1">حداکثر تعداد تلاش مجدد</label>
-                     <input
-                       type="number"
-                       min="0"
-                       max="10"
-                       value={editForm.max_retries}
-                       onChange={(e) => setEditForm({ ...editForm, max_retries: Number(e.target.value) })}
-                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
-                     />
-                   </div>
-
-                   <div>
-                     <label className="block text-xs font-bold text-slate-400 mb-1">علت پایان / یادداشت</label>
+                     <label className="block text-xs font-bold text-slate-400 mb-1">علت پایان / یادداشت بازبینی</label>
                      <input
                        type="text"
                        value={editForm.terminal_reason || ''}
                        onChange={(e) => setEditForm({ ...editForm, terminal_reason: e.target.value })}
-                       placeholder="مثال: ویرایش اولویت توسط مدیر سیستم"
-                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 touch-target"
+                       placeholder="مثال: اصلاح کدهای ملی و پستی توسط کاربر"
+                       className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-2.5 text-xs text-white outline-none focus:border-cyan-400 touch-target"
                      />
                    </div>
                  </div>
@@ -1630,7 +1780,7 @@ export default function HistoryPage() {
                    <button onClick={handleEditModalClose} className="rounded-xl bg-slate-950 border border-white/5 px-5 py-3 text-xs font-bold text-slate-300 touch-target focus:outline-none focus:ring-2 focus:ring-white">
                      انصراف
                    </button>
-                   <button onClick={() => void handleEditJob(editingJob.job_id)} className="rounded-xl bg-cyan-500 px-5 py-3 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                   <button onClick={() => void handleEditJob(editingJob.job_id)} className="rounded-xl bg-cyan-500 px-6 py-3 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition touch-target focus:outline-none focus:ring-2 focus:ring-cyan-500">
                      ذخیره تغییرات
                    </button>
                  </div>

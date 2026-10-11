@@ -395,7 +395,7 @@ class BrowserManager:
         context_args = {
             "ignore_https_errors": True,
             "user_agent": dynamic_ua,
-            "locale": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+            "locale": "fa-IR",
             "timezone_id": "Asia/Tehran",
             "viewport": {"width": 1920, "height": 1080},
             "java_script_enabled": True,

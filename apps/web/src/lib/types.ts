@@ -261,6 +261,7 @@ export interface WaybillJobUpdateRequest {
   terminal_reason?: string;
   business_date?: string;
   correlation_id?: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface WaybillJob {

@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.exceptions import WaybillError
-from app.schemas.multitenant import WaybillJobResponse
+from app.schemas.multitenant import WaybillJobResponse, WaybillJobUpdateRequest
 from app.schemas.task import TaskStatus, WaybillTaskStatusResponse
 from app.schemas.waybill import (
     CargoModel,
@@ -331,3 +331,96 @@ async def test_retry_rejects_job_with_persisted_tracking_code():
         await service.retry_job(user_context, "job-ack-1", session)
     assert exc_info.value.status_code == 409
     assert "کد رهگیری" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_update_job_payload_remedies_needs_review():
+    job = _JobLike(
+        status="needs_review",
+        error_category="mobile_payload_validation_failed",
+        last_error="اطلاعات صریح transport موبایل ناقص است: کد ملی فرستنده",
+        driver_id=None,
+        payload_json={
+            "sender": {"name": "علی رضایی", "phone": "09121111111", "national_code": "", "postal_code": ""},
+            "receiver": {
+                "name": "حسن محمدی",
+                "phone": "09122222222",
+                "national_code": "0084575948",
+                "postal_code": "1234567890",
+            },
+            "origin": {
+                "province": "تهران",
+                "city": "تهران",
+                "address": "خیابان آزادی پلاک ۱",
+                "postal_code": "1111111111",
+                "lat": 35.7,
+                "lng": 51.4,
+            },
+            "destination": {
+                "province": "البرز",
+                "city": "کرج",
+                "address": "خیابان بهشتی پلاک ۲",
+                "postal_code": "2222222222",
+                "lat": 35.8,
+                "lng": 51.0,
+            },
+            "cargo": {"type": "آهن", "weight": 5, "packaging": "فله", "value": 10000000},
+            "vehicle": {
+                "driver_national_code": "0084575948",
+                "driver_phone": "09123333333",
+                "plate": "12ب345ایران11",
+                "type": "کامیون",
+            },
+            "financial": {"cost": 5000000},
+        },
+    )
+    session = MagicMock()
+    exec_result = MagicMock()
+    exec_result.first = MagicMock(return_value=job)
+    session.exec = AsyncMock(return_value=exec_result)
+    session.add = MagicMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+
+    client_obj = _JobLike(id=1, client_id=1)
+    user_context = {"role": "client", "user": client_obj}
+
+    req = WaybillJobUpdateRequest(
+        payload={
+            "sender": {"national_code": "0084575948", "postal_code": "1234567890"},
+        }
+    )
+    resp = await WaybillJobService.update_job(user_context, "job-review-1", session, req)
+    assert resp.job_id == job.job_id
+    assert job.error_category is None
+    assert job.last_error is None
+    assert job.payload_json["sender"]["national_code"] == "0084575948"
+    assert job.payload_json["sender"]["postal_code"] == "1234567890"
+
+
+@pytest.mark.asyncio
+async def test_retry_job_allows_remedied_needs_review():
+    job = _JobLike(
+        status="needs_review",
+        error_category=None,
+        last_error=None,
+        result_json={},
+        driver_id=None,
+    )
+    session = MagicMock()
+    exec_result = MagicMock()
+    exec_result.first = MagicMock(return_value=job)
+    session.exec = AsyncMock(return_value=exec_result)
+    session.add = MagicMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+
+    client_obj = _JobLike(id=1, client_id=1)
+    user_context = {"role": "client", "user": client_obj}
+
+    with (
+        patch("app.orchestrator.state_machine.JobStateMachine.transition", MagicMock(return_value=job)),
+        patch("app.services.night_submission_policy.is_in_night_window", return_value=False),
+    ):
+        resp = await WaybillJobService.retry_job(user_context, "job-remedied-1", session)
+        assert resp.job_id == job.job_id

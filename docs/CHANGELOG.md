@@ -4,6 +4,25 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-11 — Waybill Mandatory Fields Enforcement, Needs-Review Remediation & Fuel Inquiry Chromium Locale Fix
+
+- **Fuel Inquiry Chromium Locale Fix**:
+  - Replaced comma-separated multi-locale string `"fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"` with single locale `"fa-IR"` in `app/automation/browser.py:398`. Eliminates Chromium CDP crash `Protocol error (Emulation.setLocaleOverride): Invalid locale name` which previously surfaced as error code `108` (`WORKER_RESOURCE_ERROR`).
+  - Added user-friendly Persian descriptions and toast messages for error categories 101–108 in `apps/web/src/components/fuel/FuelTypes.ts`.
+  - Fixed waybill route display in `apps/web/src/app/fuel/page.tsx` (`parseWaybillPayload`) to avoid rendering raw `[object Object]` when payload contains nested city/province objects, and added `needs_review` badge styling.
+- **Waybill Form & Schema Mandatory Postal/National Codes**:
+  - Added mandatory validations in `apps/web/src/schemas/waybillSchema.ts` for `sender_national_code`, `sender_postal_code`, `receiver_national_code`, `receiver_postal_code`, `origin_postal_code`, and `destination_postal_code` using exact 10-digit regex and checksum validations.
+  - Added interactive form fields in `apps/web/src/app/new/page.tsx` for Sender/Receiver National Codes, Postal Codes, and Origin/Destination Postal Codes with Persian digit auto-normalization and "+ کپی کد پستی از مبدا/مقصد" helpers.
+- **Early API Validation Synchronization**:
+  - Enriched `app/automation/multitenant_payload_adapter.py` to preserve coordinates and map explicit `sender.national_code`, `sender.postal_code`, `receiver.national_code`, `receiver.postal_code`, `origin.postal_code`, `destination.postal_code`, and cargo items structure.
+  - Updated `app/services/waybill_job_service.py:create_job` to invoke `validate_mobile_source_payload` before queueing, rejecting incomplete payloads immediately with HTTP 422 (`WAYBILL_PAYLOAD_INCOMPLETE`).
+- **Needs-Review Payload Editing & Remediation Workflow**:
+  - Extended `WaybillJobUpdateRequest` in `app/schemas/multitenant.py` and `apps/web/src/lib/types.ts` to accept `payload`.
+  - Updated `app/services/waybill_job_service.py:update_job` to permit editing payloads of `needs_review` jobs. Validates remediated payload against live and mobile schemas, and clears `error_category` and `last_error` so the job can be retried via `retry_job`.
+  - Added national/postal code editing inputs to the `Edit Job Modal` and a direct "اصلاح کدهای ملی/پستی" remediation button in `apps/web/src/app/history/page.tsx`.
+- **Automated Test Coverage**:
+  - Added unit tests in `tests/test_waybill_service.py` verifying that payload update remedies `needs_review` jobs, resets error categories, and allows subsequent retries. All 15 tests in suite pass.
+
 ### 2026-10-11 — Jalali Calendar Everywhere, Route Templates Interactive Map, Unfiltered CartoDB Tiles & UI Hardening
 
 - **Full Jalali (Shamsi) Calendar Adoption**:
