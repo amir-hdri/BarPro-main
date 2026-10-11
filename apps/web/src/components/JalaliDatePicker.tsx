@@ -39,7 +39,9 @@ export function JalaliDatePicker({
   id: propId,
   className = '',
   disabled = false,
-  required = false,
+  required: _required,
+  min,
+  max,
   'aria-label': ariaLabel,
 }: JalaliDatePickerProps) {
   const generatedId = useId();
@@ -117,17 +119,31 @@ export function JalaliDatePicker({
     }
   };
 
+  const isDayDisabled = (day: number) => {
+    const iso = jalaliToGregorianIso(viewYear, viewMonth, day);
+    if (min && iso < min) return true;
+    if (max && iso > max) return true;
+    return false;
+  };
+
+  const todayIso = useMemo(() => {
+    return jalaliToGregorianIso(today.jy, today.jm, today.jd);
+  }, [today]);
+
+  const isTodayDisabled = Boolean((min && todayIso < min) || (max && todayIso > max));
+
   const handleSelectDay = (day: number) => {
+    if (isDayDisabled(day)) return;
     const iso = jalaliToGregorianIso(viewYear, viewMonth, day);
     onChange(iso);
     setIsOpen(false);
   };
 
   const handleSelectToday = () => {
-    const iso = jalaliToGregorianIso(today.jy, today.jm, today.jd);
+    if (isTodayDisabled) return;
     setViewYear(today.jy);
     setViewMonth(today.jm);
-    onChange(iso);
+    onChange(todayIso);
     setIsOpen(false);
   };
 
@@ -138,47 +154,47 @@ export function JalaliDatePicker({
 
   // Year choices for quick selection
   const yearOptions = useMemo(() => {
-    const start = today.jy - 5;
-    const end = today.jy + 5;
+    const minJalali = min ? gregorianIsoToJalali(min) : null;
+    const maxJalali = max ? gregorianIsoToJalali(max) : null;
+    const start = minJalali ? Math.min(minJalali.jy, today.jy - 5) : today.jy - 7;
+    const end = maxJalali ? Math.max(maxJalali.jy, today.jy + 5) : today.jy + 7;
     const years: number[] = [];
     for (let y = start; y <= end; y++) {
       years.push(y);
     }
     return years;
-  }, [today.jy]);
+  }, [today.jy, min, max]);
 
   return (
     <div ref={containerRef} className="relative w-full">
-      {/* Visual trigger input */}
-      <div
-        role="button"
-        tabIndex={disabled ? -1 : 0}
-        aria-haspopup="dialog"
-        aria-expanded={isOpen}
-        aria-label={ariaLabel || 'انتخاب تاریخ خورشیدی'}
-        onClick={() => !disabled && setIsOpen((prev) => !prev)}
-        onKeyDown={(e) => {
-          if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            setIsOpen((prev) => !prev);
-          }
-        }}
-        className={`flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3.5 text-sm text-white transition hover:border-cyan-500/50 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 cursor-pointer ${
-          disabled ? 'opacity-50 cursor-not-allowed' : ''
-        } ${className}`}
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <CalendarDaysIcon className="h-5 w-5 text-cyan-400 shrink-0" />
-          <span className={`truncate font-medium ${value ? 'text-white' : 'text-slate-500'}`}>
-            {value ? formatJalaliDisplay(value) : placeholder}
-          </span>
-        </div>
+      {/* Visual trigger button with separate clear button */}
+      <div className="relative flex items-center">
+        <button
+          type="button"
+          id={inputId}
+          disabled={disabled}
+          aria-haspopup="dialog"
+          aria-expanded={isOpen}
+          aria-label={ariaLabel || 'انتخاب تاریخ خورشیدی'}
+          onClick={() => !disabled && setIsOpen((prev) => !prev)}
+          className={`w-full flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3.5 text-sm text-white transition hover:border-cyan-500/50 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 cursor-pointer ${
+            disabled ? 'opacity-50 cursor-not-allowed' : ''
+          } ${className}`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <CalendarDaysIcon className="h-5 w-5 text-cyan-400 shrink-0" />
+            <span className={`truncate font-medium ${value ? 'text-white' : 'text-slate-500'}`}>
+              {value ? formatJalaliDisplay(value) : placeholder}
+            </span>
+          </div>
+          {value && !disabled && <div className="w-6 shrink-0" />}
+        </button>
 
         {value && !disabled && (
           <button
             type="button"
             onClick={handleClear}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition"
+            className="absolute end-3 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition z-10"
             aria-label="پاک کردن تاریخ"
           >
             <XMarkIcon className="h-4 w-4" />
@@ -186,12 +202,10 @@ export function JalaliDatePicker({
         )}
       </div>
 
-      {/* Hidden real input for form integration / required validation */}
       <input
         type="hidden"
-        id={inputId}
+        name={propId || undefined}
         value={value}
-        required={required}
         readOnly
       />
 
@@ -200,7 +214,7 @@ export function JalaliDatePicker({
         <div
           role="dialog"
           aria-label="تقویم شمسی"
-          className="absolute z-50 mt-2 start-0 w-[300px] sm:w-[320px] rounded-2xl border border-white/15 bg-slate-950 p-4 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150"
+          className="absolute z-50 mt-2 start-0 w-[300px] sm:w-[320px] rounded-2xl border border-white/15 bg-slate-950 p-4 shadow-2xl backdrop-blur-xl animate-in duration-150"
         >
           {/* Header: navigation & month/year selectors */}
           <div className="flex items-center justify-between gap-1 mb-4 pb-3 border-b border-white/10">
@@ -280,13 +294,18 @@ export function JalaliDatePicker({
                 today.jy === viewYear && today.jm === viewMonth && today.jd === day;
               const isFriday = (firstDayOfWeek + idx) % 7 === 6;
 
+              const isDisabled = isDayDisabled(day);
+
               return (
                 <button
                   key={day}
                   type="button"
+                  disabled={isDisabled}
                   onClick={() => handleSelectDay(day)}
                   className={`h-9 w-9 mx-auto rounded-xl text-xs font-bold flex items-center justify-center transition-all ${
-                    isSelected
+                    isDisabled
+                      ? 'opacity-20 cursor-not-allowed text-slate-600 pointer-events-none'
+                      : isSelected
                       ? 'bg-cyan-500 text-slate-950 font-black shadow-lg shadow-cyan-500/30 scale-105'
                       : isToday
                       ? 'border border-cyan-400 text-cyan-300 hover:bg-cyan-500/20'
@@ -305,8 +324,9 @@ export function JalaliDatePicker({
           <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between">
             <button
               type="button"
+              disabled={isTodayDisabled}
               onClick={handleSelectToday}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold text-cyan-400 hover:bg-cyan-500/10 transition"
+              className="px-3 py-1.5 rounded-lg text-xs font-bold text-cyan-400 hover:bg-cyan-500/10 transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               امروز ({toPersianDigits(today.jd)} {JALALI_MONTH_NAMES[today.jm - 1]})
             </button>

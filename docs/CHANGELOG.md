@@ -15,20 +15,32 @@ All notable changes to the UTCMS Automation System.
 - **Interactive Route Templates Map & Reverse Geocoding**:
   - Integrated `LocationMapPicker` dynamically (`ssr: false`) inside `apps/web/src/app/route-templates/page.tsx` to prevent Leaflet SSR errors.
   - Enabled interactive map toggles for both Origin (مبدأ) and Destination (مقصد), syncing pin drag/click coordinates with `origin_lat`/`origin_lng` and `dest_lat`/`dest_lng`, while automatically resolving province, city, and address via `/api/v1/locations/reverse-geocode`.
-- **Unfiltered, High-Speed Map Tiles in Iran**:
-  - Updated `apps/web/src/lib/map-tiles.ts` to use CartoDB Voyager and Light raster tiles (`https://{s}.basemaps.cartocdn.com/...`) with distributed `abcd` subdomains, accessible without VPN or WAF filtering in Iran. Maintained fallbacks to OSM Germany and OSM Standard. Verified full conformance with Nginx Content-Security-Policy headers.
+- **Key-Free, High-Speed Map Tiles Without Watermarks**:
+  - Replaced watermarked CartoDB tiles (`API KEY REQUIRED`) with 100% key-free, unwatermarked raster providers in `apps/web/src/lib/map-tiles.ts`: OpenStreetMap Germany (`osmDe`, default), OSM Standard (`osmStandard`), Humanitarian OSM (`osmHot`), and Google Maps (`google`).
+  - Added `https://*.openstreetmap.org`, `https://*.openstreetmap.de`, `https://*.openstreetmap.fr`, and `https://*.tile.openstreetmap.fr` to both `img-src` and `connect-src` in Nginx `security-headers.conf` and FastAPI `app/main.py` Content-Security-Policy headers to support Service Worker PWA caching and iOS WebKit multi-level subdomains.
+  - Added Persian localization (`hl=fa`) to Google Maps fallback tiles in `apps/web/src/lib/map-tiles.ts`.
+  - Updated PWA service worker caching in `apps/web/next.config.mjs` and DNS preconnects in `apps/web/src/app/layout.tsx`.
+  - Updated `apps/web/test/map-tiles.test.mjs` to test sequential fallback, fallback recovery on load, timeout-driven fallback, and retry across all configured key-free providers.
 - **Account Settings & Profile UI Hardening**:
   - Removed obsolete description banner under "حساب کاربری مشتری" in `apps/web/src/app/settings/page.tsx`.
   - Hardened `InfoCard` against value overflow by adding `min-w-0`, `overflow-hidden`, `truncate block w-full`, and LTR text direction (`dir="ltr" text-left font-mono`) for email/username values.
-- **Fuel Inquiries Cleanup**:
-  - Removed outdated subtitle, manual "بروزرسانی اطلاعات" button, and informational callout card in `apps/web/src/app/fuel/page.tsx`.
+- **Fuel Inquiries Header & Compact Refresh**:
+  - Cleaned up redundant subtitle and banner callout card in `apps/web/src/app/fuel/page.tsx`.
+  - Replaced bulky manual refresh button with a compact, accessible icon button (`refetchHistory`) directly in the history table header (`7f9a954`).
+- **CI Test Alignment & Tehran Day Boundary Precision**:
+  - Updated `apps/web/test/map-tiles.test.mjs` to validate sequential fallback and retry across all 4 configured providers (`osmDe` default, `osmStandard`, `osmHot`, `google`).
+  - Hardened SQLite `daily_summary` grouping in `app/services/user_reporting_service.py` using `func.strftime` second truncation before `+210 minutes` to prevent floating-point Julian day microsecond rounding at `midnight - 1µs`.
 - **Verification Evidence**:
-  - Frontend Jalali tests: 3 suites, 58 assertions passed (`node apps/web/test/jalali.test.mjs`).
+  - Frontend test suite: 63 tests passed across 5 test suites (`tsx --test test/*.test.mjs`, exit code 0).
+  - Frontend production build: `npm --prefix apps/web run build` passed (21/21 static pages generated, standalone output, exit code 0).
   - Frontend typecheck: `npm --prefix apps/web run typecheck` passed (exit code 0).
   - Frontend lint: `npm --prefix apps/web run lint` passed (exit code 0).
-  - Backend tests: `uv run pytest tests/test_driver_tracking.py` passed (13 passed in 1.59s).
-  - Backend lint: `uvx ruff check app/core/jalali.py tests/test_driver_tracking.py` passed (exit code 0).
-  - Production build & container: `barpro-frontend:latest` rebuilt and started (`healthy`).
+  - Backend tests: `pytest tests/test_audit_shipping_reporting_regressions.py` passed (45 passed in 5.72s).
+  - Backend lint & format: `ruff` and `black` clean across all 428 project files (`uv run ruff check app/ tests/` and `uv run black --check app/ tests/`).
+  - Backend unit test suite: 250 passed (`uv run pytest -m unit` in 16.94s).
+  - Android SMS Relay test suite: 172 tests passed (`JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew test --rerun-tasks --no-daemon`, exit code 0).
+  - Live tile provider audit: CartoDB watermarked (`etag: "wm-..."`), OSM Standard blocked (`x-blocked`), OSM Germany, OSM HOT, and Google Maps unblocked (HTTP 200).
+  - Host runtime verification: Python 3.11 boundary check exact match across `hour=1` and `hour=21` (Docker daemon offline on host).
 
 ### 2026-10-10 — Two-Flavor Driver-Hub SMS Relay Topology
 

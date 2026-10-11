@@ -19,14 +19,14 @@ test('failed providers are tried once and expose retry instead of an endless gre
   const { tiles, layers, changes } = fixture();
   try {
     tiles.select();
-    for (let index = 0; index < 2; index++) {
+    for (let index = 0; index < 4; index++) {
       for (let count = 0; count < 3; count++) layers[index].handlers.tileerror();
     }
-    assert.equal(layers.length, 2);
-    assert.deepEqual(changes.at(-1), ['osmStandard', 'unavailable']);
+    assert.equal(layers.length, 4);
+    assert.deepEqual(changes.at(-1), ['google', 'unavailable']);
     tiles.select();
-    assert.equal(layers.length, 3);
-    assert.deepEqual(changes.at(-1), ['osm', 'loading']);
+    assert.equal(layers.length, 5);
+    assert.deepEqual(changes.at(-1), ['osmDe', 'loading']);
   } finally { tiles.dispose(); }
 });
 
@@ -43,3 +43,46 @@ test('late events from a replaced or disposed layer cannot change displayed stat
   layers[1].handlers.tileload();
   assert.equal(changes.length, count);
 });
+
+test('fallback order iterates through all key-free providers sequentially', () => {
+  const { tiles, layers, changes } = fixture();
+  try {
+    tiles.select();
+    assert.deepEqual(changes, [['osmDe', 'loading']]);
+    for (let count = 0; count < 3; count++) layers[0].handlers.tileerror();
+    assert.deepEqual(changes.slice(1, 2), [['osmStandard', 'loading']]);
+    for (let count = 0; count < 3; count++) layers[1].handlers.tileerror();
+    assert.deepEqual(changes.slice(2, 3), [['osmHot', 'loading']]);
+    for (let count = 0; count < 3; count++) layers[2].handlers.tileerror();
+    assert.deepEqual(changes.slice(3, 4), [['google', 'loading']]);
+    for (let count = 0; count < 3; count++) layers[3].handlers.tileerror();
+    assert.deepEqual(changes.slice(4, 5), [['google', 'unavailable']]);
+  } finally { tiles.dispose(); }
+});
+
+test('successful load on fallback layer transitions to ready', () => {
+  const { tiles, layers, changes } = fixture();
+  try {
+    tiles.select();
+    assert.deepEqual(changes, [['osmDe', 'loading']]);
+    for (let count = 0; count < 3; count++) layers[0].handlers.tileerror();
+    assert.deepEqual(changes.slice(1, 2), [['osmStandard', 'loading']]);
+    layers[1].handlers.tileload();
+    assert.deepEqual(changes.slice(2, 3), [['osmStandard', 'ready']]);
+  } finally { tiles.dispose(); }
+});
+
+test('timeout triggers fallback when tiles stall without error', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { tiles, changes } = fixture();
+  try {
+    tiles.select();
+    assert.deepEqual(changes, [['osmDe', 'loading']]);
+    t.mock.timers.tick(8000);
+    assert.deepEqual(changes.slice(1, 2), [['osmStandard', 'loading']]);
+  } finally {
+    tiles.dispose();
+    t.mock.timers.reset();
+  }
+});
+

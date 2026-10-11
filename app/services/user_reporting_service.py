@@ -670,7 +670,10 @@ class UserReportingService:
         # the same Tehran day as its filters and dashboard. PostgreSQL's
         # explicit source timezone avoids depending on the connection timezone.
         if session.get_bind().dialect.name == "sqlite":
-            report_day = func.date(col(WaybillJob.created_at), "+210 minutes")
+            # Truncating microseconds with strftime prevents SQLite's Julian day
+            # modifier (+210 minutes) from rounding fractional seconds within
+            # 1ms of midnight (e.g. 23:59:59.999999) up to the next day.
+            report_day = func.date(func.strftime("%Y-%m-%d %H:%M:%S", col(WaybillJob.created_at)), "+210 minutes")
         else:
             report_day = func.date(func.timezone("Asia/Tehran", func.timezone("UTC", col(WaybillJob.created_at))))
 
