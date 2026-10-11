@@ -23,6 +23,11 @@ All notable changes to the UTCMS Automation System.
   - Extended `WaybillJobUpdateRequest` in `app/schemas/multitenant.py` and `apps/web/src/lib/types.ts` to accept `payload`.
   - Updated `app/services/waybill_job_service.py:update_job` to permit editing payloads of `needs_review` jobs. Validates remediated payload against live and mobile schemas, and clears `error_category` and `last_error` so the job can be retried via `retry_job`.
   - Added national/postal code editing inputs to the `Edit Job Modal` and a direct "اصلاح کدهای ملی/پستی" remediation button in `apps/web/src/app/history/page.tsx`.
+- **Waybill Schema Postal Code & Coordinates Preservation in Pydantic**:
+  - Added `postal_code`, `lat`, and `lng` to `LocationModel`, `SenderModel`, and `ReceiverModel` in `app/schemas/waybill.py`, along with automatic coordinate normalization.
+  - Added optional `sender_national_code`, `sender_postal_code`, `receiver_national_code`, `receiver_postal_code`, `origin_postal_code`, and `destination_postal_code` to `WaybillPayload` in `app/schemas/multitenant.py`. Eliminates silent field dropping during Pydantic `model_dump()`.
+  - Verified on live server with creation of **Job ID 3** (`status: waiting_submission_window`), cleanly validating 10-digit postal codes, national codes, and coordinates without errors.
+  - Aligned `compose/backend.yml` memory limit to 2.5 GB (`mem_reservation: 1g`).
 - **Automated Test Coverage**:
   - Added unit tests in `tests/test_waybill_service.py` verifying that payload update remedies `needs_review` jobs, resets error categories, and allows subsequent retries. All 15 tests in suite pass.
 
