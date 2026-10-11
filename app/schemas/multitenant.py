@@ -651,6 +651,12 @@ class WaybillPayload(BaseModel):
     driver_phone: str | None = Field(default=None, max_length=20)
     sender_phone: str | None = Field(default=None, max_length=20)
     receiver_phone: str | None = Field(default=None, max_length=20)
+    sender_national_code: str | None = Field(default=None, max_length=10)
+    sender_postal_code: str | None = Field(default=None, max_length=10)
+    receiver_national_code: str | None = Field(default=None, max_length=10)
+    receiver_postal_code: str | None = Field(default=None, max_length=10)
+    origin_postal_code: str | None = Field(default=None, max_length=10)
+    destination_postal_code: str | None = Field(default=None, max_length=10)
 
     # Metadata
     notes: str | None = Field(default=None, max_length=500)

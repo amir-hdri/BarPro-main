@@ -98,8 +98,8 @@ services:
     <<: *backend-common
     container_name: barpro-backend
     shm_size: '512m'
-    mem_limit: 1.5g      # ↑ از 768m — متناسب با ۴ ورکر Uvicorn روی سرور مرکزی 32GB
-    mem_reservation: 768m
+    mem_limit: 2.5g      # ↑ از 1.5g — متناسب با ۴ ورکر Uvicorn، مدل‌های محلی و تله‌متری روی سرور مرکزی 32GB
+    mem_reservation: 1g
     environment:
       <<: *backend-env
       PORT: 8000

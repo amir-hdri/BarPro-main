@@ -28,18 +28,43 @@ class LocationModel(BaseModel):
     city: str = Field(..., min_length=1, description="شهر")
     district: str | None = Field(default=None, description="منطقه (در صورت وجود)")
     address: str = Field(..., min_length=1, description="آدرس متنی")
+    postal_code: str | None = Field(default=None, description="کد پستی ۱۰ رقمی")
+    lat: float | None = Field(default=None, description="عرض جغرافیایی")
+    lng: float | None = Field(default=None, description="طول جغرافیایی")
     coordinates: GeoCoordinateModel | None = Field(
         default=None, description="مختصات جغرافیایی (اختیاری، در user_text نادیده گرفته می‌شود)"
     )
     location_mode: str = Field(default="user_text", description="حالت مکان: پیش‌فرض user_text")
     route_source: str = Field(default="user_text", description="منبع مسیر: پیش‌فرض user_text")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_location_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "postalCode" in d and "postal_code" not in d:
+                d["postal_code"] = d["postalCode"]
+            lat = d.get("lat") or d.get("latitude")
+            lng = d.get("lng") or d.get("lon") or d.get("longitude")
+            coords = d.get("coordinates")
+            if isinstance(coords, dict):
+                lat = coords.get("lat") or coords.get("latitude") or lat
+                lng = coords.get("lng") or coords.get("lon") or coords.get("longitude") or lng
+            if lat is not None and lng is not None:
+                d["lat"] = float(lat)
+                d["lng"] = float(lng)
+                if not d.get("coordinates"):
+                    d["coordinates"] = {"lat": float(lat), "lng": float(lng)}
+            return d
+        return data
+
 
 class SenderModel(BaseModel):
     name: str = Field(..., description="نام فرستنده")
     phone: str | None = Field(None, description="موبایل فرستنده (در ثبت زنده UTCMS الزامی است)")
     address: str | None = Field(None, description="آدرس فرستنده (در مرحله مبدا ثبت می‌شود)")
-    national_code: str | None = Field(None, description="کد ملی فرستنده (اختیاری در UTCMS)")
+    national_code: str | None = Field(None, description="کد ملی فرستنده")
+    postal_code: str | None = Field(None, description="کد پستی ۱۰ رقمی فرستنده")
     entity_type: str = Field(default="individual", description="individual یا company")
 
     @model_validator(mode="before")
@@ -49,6 +74,8 @@ class SenderModel(BaseModel):
             d = dict(data)
             if "national_id" in d and "national_code" not in d:
                 d["national_code"] = d["national_id"]
+            if "postalCode" in d and "postal_code" not in d:
+                d["postal_code"] = d["postalCode"]
             return d
         return data
 
@@ -58,6 +85,7 @@ class ReceiverModel(BaseModel):
     phone: str | None = Field(None, description="موبایل گیرنده (در ثبت زنده UTCMS الزامی است)")
     address: str | None = Field(None, description="آدرس گیرنده (در مرحله مقصد ثبت می‌شود)")
     national_code: str | None = Field(None, description="کد ملی گیرنده")
+    postal_code: str | None = Field(None, description="کد پستی ۱۰ رقمی گیرنده")
     entity_type: str = Field(default="individual", description="individual یا company")
 
     @model_validator(mode="before")
@@ -67,6 +95,8 @@ class ReceiverModel(BaseModel):
             d = dict(data)
             if "national_id" in d and "national_code" not in d:
                 d["national_code"] = d["national_id"]
+            if "postalCode" in d and "postal_code" not in d:
+                d["postal_code"] = d["postalCode"]
             return d
         return data
 
