@@ -275,13 +275,25 @@ class DriverScheduleService:
                 payload.setdefault("fare", "5,000,000")
                 payload.setdefault("cost", 5000000)
 
-            request = WaybillJobCreateRequest(
-                driver_national_code=driver.driver_national_code,
-                payload=payload,  # type: ignore[arg-type]
-                priority=5,
-                max_retries=3,
-                idempotency_key=f"schedule:{schedule.id}:{slot_signature}",
-            )
+            try:
+                request = WaybillJobCreateRequest(
+                    driver_national_code=driver.driver_national_code,
+                    payload=payload,  # type: ignore[arg-type]
+                    priority=5,
+                    max_retries=3,
+                    idempotency_key=f"schedule:{schedule.id}:{slot_signature}",
+                )
+            except Exception as exc:
+                # A stored template that cannot materialize a job (e.g. created
+                # before mandatory-field enforcement) must skip the slot — never
+                # abort the whole run with an unhandled 500.
+                logger.error(
+                    "Skipping schedule %s: stored payload template cannot materialize a job: %s",
+                    schedule.id,
+                    exc,
+                )
+                skipped += 1
+                continue
             try:
                 job = await WaybillJobService.create_job(client, request, session, source=TaskSource.API)
                 created_jobs.append(job.job_id)

@@ -485,6 +485,10 @@ export default function NewWaybillPage() {
       driver_national_code: parsed.data.driver_national_code,
       origin_city: parsed.data.origin,
       destination_city: parsed.data.destination,
+      // Flat WaybillPayload contract requires top-level origin/destination STRINGS.
+      // Rich location objects are preserved inside metadata_json only.
+      origin: parsed.data.origin,
+      destination: parsed.data.destination,
       origin_postal_code: parsed.data.origin_postal_code,
       destination_postal_code: parsed.data.destination_postal_code,
       origin_lat: originCoords?.lat,
@@ -522,26 +526,9 @@ export default function NewWaybillPage() {
         national_code: parsed.data.receiver_national_code,
         postal_code: parsed.data.receiver_postal_code,
       },
-      origin: {
-        province: parsed.data.origin_province,
-        city: parsed.data.origin,
-        district: parsed.data.origin_district || undefined,
-        address: parsed.data.origin_address,
-        postal_code: parsed.data.origin_postal_code,
-        coordinates: originCoords || undefined,
-        lat: originCoords?.lat,
-        lng: originCoords?.lng,
-      },
-      destination: {
-        province: parsed.data.destination_province,
-        city: parsed.data.destination,
-        district: parsed.data.destination_district || undefined,
-        address: parsed.data.destination_address,
-        postal_code: parsed.data.destination_postal_code,
-        coordinates: destinationCoords || undefined,
-        lat: destinationCoords?.lat,
-        lng: destinationCoords?.lng,
-      },
+      // NOTE: top-level origin/destination MUST stay plain city strings (flat
+      // WaybillPayload contract). Rich location objects live in metadata_json
+      // below — do NOT re-add origin/destination objects here (422 + 500s).
       cargo: {
         type: parsed.data.cargo_type,
         packaging: parsed.data.cargo_packaging,

@@ -4,6 +4,27 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-13 — Wizard Submit 422 + Schedule Run-Due 500 (user-reported, with screenshots)
+
+- **Fixed wizard submit 422 (`origin`/`destination` must be strings)**: the `/new` step-6 payload
+  sent `origin`/`destination` as nested OBJECTS with no top-level strings and no `financial` key, so the
+  backend union `WaybillPayload | WaybillNestedPayload` rejected it
+  (`Input should be a valid string` ×2 + `financial: Field required`). The wizard now sends top-level
+  `origin`/`destination` city strings (flat `WaybillPayload` contract); the redundant nested objects were
+  removed (rich location data stays in `metadata_json`). No backend schema change — the flat manual-form
+  contract is the correct one for this page.
+  (`apps/web/src/app/new/page.tsx`)
+- **Run-due no longer 500s on unmaterializable templates**: `DriverScheduleService.run_due_schedules`
+  now wraps `WaybillJobCreateRequest(...)` construction per schedule — a stored template that cannot
+  materialize a job (e.g. empty template) is skipped with an error log instead of aborting the run with
+  an unhandled `ValidationError` (generic HTTP 500 «خطای داخلی سرور»).
+  (`app/services/driver_schedule_service.py`)
+- **Contract tests**: new `tests/test_submit_payload_contract.py` pins the screenshot diagnosis (nested-only
+  shape → the exact 3 union errors), proves the fixed shape validates as `WaybillPayload`, and proves
+  run-due skips empty templates without raising.
+- Verified: 3 new tests passed, `test_driver_multitenant.py` 14 passed, frontend `tsc --noEmit` + `eslint` +
+  node tests (63) green, `black --check`, `ruff check`.
+
 ### 2026-10-13 — Proxy Cache Type Fix (mypy) & Stale Cargo-Guard Fixture
 
 - **Widened `allowed_protocols` annotation to accept `str`**: `get_best_egress_proxy` and `get_worker_proxy_url`

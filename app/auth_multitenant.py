@@ -72,10 +72,16 @@ def _build_fernet() -> "Fernet":
     raw_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
     try:
         decoded = urlsafe_b64decode(raw_key)
-        if len(decoded) == 32:
-            return Fernet(raw_key.decode())
     except Exception:
-        logger.warning("fernet_decode_failed_using_pbkdf2", exc_info=True)
+        decoded = None
+    if decoded is not None and len(decoded) == 32:
+        return Fernet(raw_key.decode())
+    # Expected branch in every deployment: the configured key is a passphrase,
+    # not a raw 32-byte Fernet key, so derive deterministically via PBKDF2.
+    # Logged at info WITHOUT a traceback — a traceback here is routine noise,
+    # not an error (real decrypt failures surface later as
+    # driver_password_decrypt_failed with an actionable hint).
+    logger.info("fernet_using_pbkdf2_derived_key")
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b"barpro-fernet-kdf", iterations=600000)
     derived = urlsafe_b64encode(kdf.derive(raw_key))
     return Fernet(derived.decode())
