@@ -174,6 +174,17 @@ class DispatcherService:
                     )
                 return 0
 
+        # Submit intents require an assigned driver. If the job has no driver
+        # (e.g. unassigned or orphaned), executing it on worker will fail in preflight.
+        # Cancel the stale intent immediately to avoid wasting worker leases.
+        if operation == "submit" and job.driver_id is None:
+            logger.warning(
+                f"Intent {intent.intent_id} ({operation}) for job {job.job_id} has no driver; "
+                "cancelling stale intent (driver_missing)"
+            )
+            self._expire_intent(session, intent, reason="driver_missing")
+            return 0
+
         if job.status not in claimable:
             # The job moved to a status the state machine cannot claim from
             # (waiting_retry / needs_review / cancelled / running / ...) after

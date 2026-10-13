@@ -429,6 +429,65 @@ async def test_cleanup_stuck_jobs_routes_possible_mutations_to_reconciliation(
 
 
 @pytest.mark.asyncio
+async def test_cleanup_stuck_queued_job_recovers_to_pending_and_isolates_errors():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    stale_at = datetime(2026, 1, 1)
+    async with async_session() as session:
+        client = Client(
+            client_code="tenant-stuck-queued",
+            name="Tenant Stuck Queued",
+            email="stuck@example.com",
+            hashed_password="hash",
+            username="tenant_stuck",
+            full_name="Tenant Stuck Admin",
+        )
+        session.add(client)
+        await session.commit()
+        await session.refresh(client)
+        driver = Driver(
+            client_id=client.id,
+            driver_national_code="6234567890",
+            full_name="Driver Stuck",
+            utcms_username="driver-stuck",
+            utcms_password_encrypted="enc",
+        )
+        session.add(driver)
+        await session.commit()
+        await session.refresh(driver)
+        # Job 1: normal stuck QUEUED job
+        job1 = WaybillJob(
+            job_id="job-stuck-queued-1",
+            idempotency_key="idem-stuck-1",
+            client_id=client.id,
+            driver_id=driver.id,
+            status=TaskStatus.QUEUED.value,
+            payload_json={"driver_national_code": driver.driver_national_code},
+            result_json={},
+            updated_at=stale_at,
+        )
+        session.add(job1)
+        await session.commit()
+
+    with patch("app.services.rpa_scheduler_service.async_session_factory", new=async_session):
+        recovered = await rpa_scheduler_service.cleanup_stuck_jobs()
+
+    assert recovered == 1
+    async with async_session() as session:
+        job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-stuck-queued-1"))).one()
+        assert job.status == TaskStatus.PENDING.value
+        assert job.celery_task_id is None
+        assert job.worker_id is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_phase1_auth_success_dispatches_submit_for_resume_job():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
     from sqlmodel.ext.asyncio.session import AsyncSession

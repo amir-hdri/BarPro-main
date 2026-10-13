@@ -61,10 +61,10 @@ class LocationModel(BaseModel):
 
 class SenderModel(BaseModel):
     name: str = Field(..., description="نام فرستنده")
-    phone: str | None = Field(None, description="موبایل فرستنده (در ثبت زنده UTCMS الزامی است)")
-    address: str | None = Field(None, description="آدرس فرستنده (در مرحله مبدا ثبت می‌شود)")
-    national_code: str | None = Field(None, description="کد ملی فرستنده")
-    postal_code: str | None = Field(None, description="کد پستی ۱۰ رقمی فرستنده")
+    phone: str | None = Field(default=None, description="موبایل فرستنده (در ثبت زنده UTCMS الزامی است)")
+    address: str | None = Field(default=None, description="آدرس فرستنده (در مرحله مبدا ثبت می‌شود)")
+    national_code: str | None = Field(default=None, description="کد ملی فرستنده")
+    postal_code: str | None = Field(default=None, description="کد پستی ۱۰ رقمی فرستنده")
     entity_type: str = Field(default="individual", description="individual یا company")
 
     @model_validator(mode="before")
@@ -82,10 +82,10 @@ class SenderModel(BaseModel):
 
 class ReceiverModel(BaseModel):
     name: str = Field(..., description="نام گیرنده")
-    phone: str | None = Field(None, description="موبایل گیرنده (در ثبت زنده UTCMS الزامی است)")
-    address: str | None = Field(None, description="آدرس گیرنده (در مرحله مقصد ثبت می‌شود)")
-    national_code: str | None = Field(None, description="کد ملی گیرنده")
-    postal_code: str | None = Field(None, description="کد پستی ۱۰ رقمی گیرنده")
+    phone: str | None = Field(default=None, description="موبایل گیرنده (در ثبت زنده UTCMS الزامی است)")
+    address: str | None = Field(default=None, description="آدرس گیرنده (در مرحله مقصد ثبت می‌شود)")
+    national_code: str | None = Field(default=None, description="کد ملی گیرنده")
+    postal_code: str | None = Field(default=None, description="کد پستی ۱۰ رقمی گیرنده")
     entity_type: str = Field(default="individual", description="individual یا company")
 
     @model_validator(mode="before")

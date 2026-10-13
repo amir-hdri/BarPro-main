@@ -12,6 +12,19 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## استحکام‌بخشی ارکستریتور و ربات صدور موبایل (فاز ۲) و امنیت چرخه عمر راننده — 2026-10-12 (CODE-VERIFIED)
+
+- CODE-VERIFIED (گارد مسدودسازی حذف راننده دارای جاب فعال / P0 C1): در `app/services/driver_service.py` متد `delete_driver` به گارد بررسی کارهای بارنامه غیرترمینال (`col(WaybillJob.status).not_in(_TERMINAL_JOB_STATUSES)`) مجهز شد. در صورت وجود هرگونه جاب در حال پردازش یا در انتظار پنجره ثبت (`waiting_submission_window`, `pending`, `queued`, ...) حذف راننده با خطای `HTTP 409 Conflict` متوقف می‌شود تا از یتیم‌شدن پنهان کارها جلوگیری شود.
+- CODE-VERIFIED (حفظ رد حسابرسی رویدادهای DomainEvent / P0 C1): دستور مخرب `delete(DomainEvent)` هنگام حذف راننده حذف شد و با متد ایمن `driver_id = None` جایگزین گردید. کلیه رکوردهای حسابرسی (`event_id`, `event_type`, `job_id`, `payload_json`, `created_at`) برای ردیابی تاریخی دست‌نخورده حفظ می‌شوند.
+- CODE-VERIFIED (گارد حذف اینتنت‌های فاقد راننده در دیسپچر / P1 H5): در `app/orchestrator/dispatcher_service.py` در صورت نبود راننده (`operation == "submit" and job.driver_id is None`)، اینتنت ارسال بلافاصله با دلیل `driver_missing` لغو (`cancelled`) می‌شود و از اتلاف لیس ورکرها جلوگیری می‌گردد.
+- CODE-VERIFIED (شفاف‌سازی و لاگ هشداری کارهای یتیم در اسکجولر): در `app/orchestrator/scheduler_service.py` برای کارهایی که `driver_id is None` است لاگ هشدار ساختاریافته صادر می‌شود و در صورت رد شدن کارهای دارای نوبت به دلیل محدودیت‌های خط مشی، لاگ دیباگ ثبت می‌شود.
+- CODE-VERIFIED (انتقال‌های مجاز ماشین وضعیت به needs_review و بازیابی queued به pending): وضعیت‌های `"pending"` و `"waiting_submission_window"` در `ALLOWED_TRANSITIONS` (`app/orchestrator/state_machine.py`) مجوز انتقال به `"needs_review"` و همچنین انتقال `"queued"` به `"pending"` برای بازیابی جاب‌های منقضی‌شده لیس ثبت شد.
+- CODE-VERIFIED (تفکیک صف پایش پروکسی‌های پاک / H2): تسک دوره‌ای `clean-ip-pool-probe` در بیت سلری (`app/workers/celery_app.py`) از صف تک‌رشته‌ای `rpa_scheduler` به صف `CELERY_WAYBILL_TASKS_QUEUE` انتقال یافت تا از تجمیع و مرگ تسک‌های ۵ ثانیه‌ای دیسپچر جلوگیری شود.
+- CODE-VERIFIED (تطبیق ایمن ناوگان راننده در کلاینت موبایل / H6): فال‌بک خطرناک انتخاب اولین خودرو (`fleet_items[0]`) در `_find_matching_fleet_truck` حذف شد. در `_execute_mobile_waybill_job` در صورت وجود ناوگان اما عدم تطابق با پلاک درخواستی، تسک به شکل امن و Fail-Closed با وضعیت `needs_review` و خطای `fleet_plate_mismatch` متوقف می‌شود.
+- CODE-VERIFIED (تاب‌آوری تراکنشی بازیابی جاب‌های گیرکرده / H3): هر تسک در حلقه `cleanup_stuck_jobs` درون `async with session.begin_nested()` و بلوک محافظ `try/except` قرار گرفت تا خطای یک کار معلق مانع از بازیابی سایر کارها نشود.
+- CODE-VERIFIED (انتساب شاهد در تأییدیه OTP / H1): حالت اثبات `witness_mode = "otp_authority"` در پی‌لود نتیجه متد `submit_otp` به ثبت رسید تا بدون شکستن قراردادهای رفتاری، زنجیره اثبات مستند گردد.
+- TEST-VERIFIED: آزمون‌های `test_driver_multitenant.py` (۱۴ تست)، `test_dispatch_intents.py` (۸ تست)، `test_utcms_gate_and_migration.py` (۴ تست)، `test_beat_schedule_wiring.py` (۴ تست)، `test_queue_routing_contract.py` (۳۲ تست)، `test_otp_wakeup_and_lifecycle.py` (۵۹ تست)، `test_mobile_waybill_bot.py` (۲۲ تست) و `test_rpa_phase1_architecture.py` (۱۲ تست) با موفقیت ۱۰۰٪ پاس شدند.
+
 ## فیلدهای اجباری بارنامه، اصلاح جاب‌های نیازمند بررسی و بهینه‌سازی استعلام سوخت — 2026-10-11 (CODE-VERIFIED)
 
 - CODE-VERIFIED (رفع خطای ۱۰۸ و کرش لوکال کرومیوم استعلام سوخت): در فایل `app/automation/browser.py:398` مقدار تنظیم locale در کانتکست Playwright از رشته ترکیبی `"fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7"` به مقدار استاندارد تکی `"fa-IR"` تصحیح شد. خطای پروتکل CDP کرومیوم (`Protocol error (Emulation.setLocaleOverride): Invalid locale name`) که منجر به کرش ورکر و خطای `108` (`WORKER_RESOURCE_ERROR`) در استعلام سوخت می‌شد کاملاً برطرف شد و صحت باز شدن صفحه بر روی سرور مرکزی تایید تجربی شد.

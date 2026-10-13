@@ -31,6 +31,7 @@ from app.models_rpa import (
     DriverSessionMetadata,
     WaybillAttempt,
 )
+from app.orchestrator.state_machine import JobStatus
 from app.schemas.multitenant import (
     DriverCreateRequest,
     DriverResponse,
@@ -46,6 +47,16 @@ def _normalize_digits_str(val: str | None) -> str | None:
         return val
     table = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
     return val.translate(table).strip()
+
+
+_TERMINAL_JOB_STATUSES: frozenset[str] = frozenset(
+    {
+        JobStatus.SUCCESS.value,
+        JobStatus.FAILED.value,
+        JobStatus.CANCELLED.value,
+        JobStatus.DEAD_LETTER.value,
+    }
+)
 
 
 class DriverService:
@@ -416,6 +427,26 @@ class DriverService:
             assert isinstance(client, Client), "user_context must carry a Client"
             verify_tenant_ownership(client, driver, Driver)
 
+        # Guard: block deleting driver if non-terminal waybill jobs exist
+        active_jobs = (
+            await session.exec(
+                select(WaybillJob).where(
+                    WaybillJob.driver_id == driver.id,
+                    col(WaybillJob.status).not_in(_TERMINAL_JOB_STATUSES),
+                )
+            )
+        ).all()
+        if active_jobs:
+            active_statuses = sorted({j.status for j in active_jobs})
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Cannot delete driver {driver_id}: driver has {len(active_jobs)} active "
+                    f"waybill job(s) in status(es): {', '.join(active_statuses)}. "
+                    "Cancel or resolve these jobs before deleting the driver."
+                ),
+            )
+
         try:
             # 1. Clean up driver runtime states
             await session.exec(delete(DriverRuntimeState).where(col(DriverRuntimeState.driver_id) == driver.id))
@@ -433,8 +464,11 @@ class DriverService:
             await session.exec(delete(FuelInquiry).where(col(FuelInquiry.driver_id) == driver.id))
             # 8. Clean up waybill attempts belonging to this driver
             await session.exec(delete(WaybillAttempt).where(col(WaybillAttempt.driver_id) == driver.id))
-            # 9. Clean up domain events referencing this driver
-            await session.exec(delete(DomainEvent).where(col(DomainEvent.driver_id) == driver.id))
+            # 9. Nullify driver_id in domain events referencing this driver (preserving audit trail)
+            domain_events = (await session.exec(select(DomainEvent).where(DomainEvent.driver_id == driver.id))).all()
+            for ev in domain_events:
+                ev.driver_id = None
+                session.add(ev)
 
             # 10. Nullify driver_id in historical waybill jobs (preserving audit trail)
             jobs = (await session.exec(select(WaybillJob).where(WaybillJob.driver_id == driver.id))).all()
@@ -447,6 +481,9 @@ class DriverService:
             await session.commit()
             return True
 
+        except HTTPException:
+            await session.rollback()
+            raise
         except Exception as e:
             await session.rollback()
             logger.error(f"Failed to delete driver {driver_id}: {str(e)}", exc_info=True)

@@ -873,6 +873,7 @@ class WaybillJobService:
             )
             result_payload["_otp_challenge"] = challenge
             result_payload["_otp_issue"] = {**issue_fence, "state": "issued"}
+            result_payload["witness_mode"] = "otp_authority"
             if job.status in {TaskStatus.UNKNOWN.value, TaskStatus.NEEDS_REVIEW.value}:
                 JobStateMachine.transition(session, job, TaskStatus.RECONCILING.value)
             JobStateMachine.transition(

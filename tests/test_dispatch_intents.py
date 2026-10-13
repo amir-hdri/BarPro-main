@@ -41,12 +41,24 @@ async def test_dispatch_batch_selects_each_worker_with_current_block_state(monke
                     hashed_password="unused",
                 )
             )
+            session.add(
+                Driver(
+                    id=1,
+                    client_id=1,
+                    driver_national_code="1234567890",
+                    full_name="Routing Driver",
+                    phone="09123456789",
+                    utcms_username="drv",
+                    utcms_password_encrypted="pwd",
+                )
+            )
             for index in range(3):
                 session.add(
                     WaybillJob(
                         job_id=f"routing-job-{index}",
                         idempotency_key=f"routing-job-{index}",
                         client_id=1,
+                        driver_id=1,
                         status="queued",
                         payload_json={},
                     )
@@ -286,6 +298,70 @@ async def test_submit_intent_not_dispatched_when_tracking_code_persisted():
             ).first()
             assert intent_db is not None
             assert intent_db.status == "cancelled", intent_db.status
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_submit_intent_cancelled_when_driver_missing():
+    """A submit intent for a job with no driver must be cancelled with reason driver_missing."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    async with async_session() as session:
+        client = Client(
+            id=1,
+            client_code="tenant-orphan",
+            name="Tenant Orphan",
+            email="orphan@example.com",
+            hashed_password="hash",
+            username="tenant_orphan",
+            full_name="Tenant Orphan Admin",
+        )
+        session.add(client)
+        job = WaybillJob(
+            id=1,
+            job_id="job-orphan-1",
+            idempotency_key="idemp-orphan-1",
+            client_id=1,
+            driver_id=None,
+            status=TaskStatus.QUEUED.value,
+            payload_json={},
+        )
+        session.add(job)
+        submit_intent = DispatchIntent(
+            id=1,
+            intent_id="intent-submit-orphan",
+            client_id=1,
+            job_id="job-orphan-1",
+            attempt_no=1,
+            operation="submit",
+            fencing_token=1,
+            status="pending",
+        )
+        session.add(submit_intent)
+        await session.commit()
+
+    dispatcher = DispatcherService()
+    mock_send_task = MagicMock()
+    with (
+        patch("app.orchestrator.dispatcher_service.async_session_factory", new=async_session),
+        patch("app.orchestrator.dispatcher_service.celery_app") as mock_celery,
+    ):
+        mock_celery.send_task = mock_send_task
+        dispatched = await dispatcher.run()
+        assert dispatched == 0
+        mock_send_task.assert_not_called()
+
+    async with async_session() as session:
+        intent_db = (
+            await session.exec(select(DispatchIntent).where(DispatchIntent.intent_id == "intent-submit-orphan"))
+        ).first()
+        assert intent_db is not None
+        assert intent_db.status == "cancelled"
 
     await engine.dispose()
 

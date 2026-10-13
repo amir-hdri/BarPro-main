@@ -66,12 +66,8 @@ class WaybillAutomationBot:
         return s.lower()
 
     @staticmethod
-    def _find_matching_fleet_truck(
-        fleet_response: Any,
-        vehicle: dict[str, Any],
-        payload: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        """Find matching truck object from /Truck/GetUserFleetList response."""
+    def _extract_fleet_items(fleet_response: Any) -> list[dict[str, Any]]:
+        """Extract truck dictionaries from /Truck/GetUserFleetList response."""
         fleet_items: list[dict[str, Any]] = []
         if isinstance(fleet_response, list):
             fleet_items = [x for x in fleet_response if isinstance(x, dict)]
@@ -86,13 +82,18 @@ class WaybillAutomationBot:
                     if isinstance(nested, list):
                         fleet_items = [x for x in nested if isinstance(x, dict)]
                         break
+        return fleet_items
 
+    @staticmethod
+    def _find_matching_fleet_truck(
+        fleet_response: Any,
+        vehicle: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Find matching truck object from /Truck/GetUserFleetList response."""
+        fleet_items = WaybillAutomationBot._extract_fleet_items(fleet_response)
         if not fleet_items:
             return None
-
-        # If user has exactly 1 truck in fleet, return it directly
-        if len(fleet_items) == 1:
-            return fleet_items[0]
 
         raw_plate = (
             vehicle.get("plate") or vehicle.get("plate_number") or payload.get("plate_number") or payload.get("plate")
@@ -106,6 +107,10 @@ class WaybillAutomationBot:
         if not plate_str and req_t1 and req_t4:
             plate_str = f"{req_t1}{req_t2}{req_t3}{req_t4}"
         req_compact = WaybillAutomationBot._compact_plate(plate_str)
+
+        # If user has exactly 1 truck in fleet and no specific plate was requested, return it directly
+        if len(fleet_items) == 1 and not req_compact:
+            return fleet_items[0]
 
         for truck in fleet_items:
             candidates: list[str] = []
@@ -140,7 +145,7 @@ class WaybillAutomationBot:
                     if (req_t2 and (req_t2 == t2 or req_t2 == t3)) or (req_t3 and (req_t3 == t3 or req_t3 == t2)):
                         return truck
 
-        return fleet_items[0] if fleet_items else None
+        return None
 
     @staticmethod
     def _apply_fleet_truck_to_vehicle(vehicle: dict[str, Any], truck: dict[str, Any]) -> None:
@@ -463,6 +468,7 @@ class WaybillAutomationBot:
             if hasattr(client, "get_user_fleet_list"):
                 try:
                     fleet_response = await client.get_user_fleet_list()
+                    fleet_items = self._extract_fleet_items(fleet_response)
                     matched_truck = self._find_matching_fleet_truck(
                         fleet_response=fleet_response,
                         vehicle=normalized_payload.get("vehicle") or {},
@@ -481,6 +487,38 @@ class WaybillAutomationBot:
                                 }
                             },
                         )
+                    elif fleet_items:
+                        v_obj = normalized_payload.get("vehicle") or {}
+                        raw_plate = (
+                            v_obj.get("plate")
+                            or v_obj.get("plate_number")
+                            or payload.get("plate_number")
+                            or payload.get("plate")
+                        )
+                        if not raw_plate and v_obj.get("t1") and v_obj.get("t4"):
+                            raw_plate = f"{v_obj.get('t1')}{v_obj.get('t2', '')}{v_obj.get('t3', '')}{v_obj.get('t4')}"
+                        req_compact = self._compact_plate(str(raw_plate or ""))
+                        if req_compact:
+                            err_msg = f"پلاک درخواستی ({raw_plate}) در ناوگان راننده در سامانه UTCMS یافت نشد"
+                            logger.warning(
+                                "mobile_fleet_plate_mismatch",
+                                extra={
+                                    "extra_fields": {
+                                        "job_id": job_id,
+                                        "error": err_msg,
+                                        "fleet_count": len(fleet_items),
+                                    }
+                                },
+                            )
+                            result.update(
+                                status=TaskStatus.NEEDS_REVIEW.value,
+                                error=err_msg,
+                                error_category="fleet_plate_mismatch",
+                            )
+                            result["steps"].append(
+                                {"step": "mobile_fleet_match", "status": "failed", "message": err_msg}
+                            )
+                            return result
                 except Exception as exc:
                     logger.warning("Mobile fleet query/matching failed: %s", exc)
 

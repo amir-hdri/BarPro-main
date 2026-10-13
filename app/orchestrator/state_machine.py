@@ -33,6 +33,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "in_progress",
         "daily_limit_reached",
         "retrying",
+        "needs_review",
     },
     "waiting_auth": {
         "queued",
@@ -81,6 +82,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
         "in_progress",
         "daily_limit_reached",
         "retrying",
+        "needs_review",
     },
     "otp_backoff": {
         "pending",
@@ -95,6 +97,7 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     },
     "queued": {
         "claimed",
+        "pending",
         "waiting_retry",
         "waiting_submission_window",
         "cancelled",

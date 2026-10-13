@@ -4,6 +4,54 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-13 — Proxy Cache Type Fix (mypy) & Stale Cargo-Guard Fixture
+
+- **Widened `allowed_protocols` annotation to accept `str`**: `get_best_egress_proxy` and `get_worker_proxy_url`
+  (`app/automation/worker_proxy.py`) now declare `set[str] | frozenset[str] | str | None`, matching the
+  runtime `isinstance(allowed_protocols, str)` branch. Removes 3 new `unreachable` mypy errors; file is mypy-clean.
+  Verified: `mypy` (0 errors in file), `black --check`, `ruff check`, `tests/test_worker_proxy_resolve.py` (4 passed).
+- **Fixed stale `test_duplicate_cargo_guard.py` fixture**: `make_payload()` now includes the mandatory fields enforced
+  since 2026-10-11 (sender/receiver national codes + postal codes, origin/destination postal codes + coordinates),
+  so the tests reach the duplicate/busy-driver guards (HTTP 409) instead of failing at payload validation (HTTP 422).
+  Verified: 3 passed, `black --check`, `ruff check`. Failure was pre-existing on clean HEAD, not a regression.
+- **Fixed stale `test_e2e_fullstack_flows.py` fixtures (same root cause)**: both `WaybillPayload` and the
+  frontend-hybrid dict now carry the mandatory sender/receiver/origin/destination fields. The file carries no
+  `slow`/`integration`/`live_utcms` marker and runs in-memory, so it belongs to the standard sweep (it had been
+  wrongly assumed excluded). Verified: 2 passed, `black --check`, `ruff check`. Pre-existing on clean HEAD.
+
+### 2026-10-12 — Driver Lifecycle Safeguards, DomainEvent Audit Trail Preservation, Dispatcher Driver Guard & Orphan Job Diagnostics (P0/P1)
+
+- **Driver Deletion Block On Active/Non-Terminal Waybill Jobs (P0 / C1 Fix)**:
+  - Added strict guard in `DriverService.delete_driver` (`app/services/driver_service.py`): queries for non-terminal waybill jobs (`col(WaybillJob.status).not_in(_TERMINAL_JOB_STATUSES)`).
+  - Deleting a driver with active/pending/in-flight jobs now raises `HTTP 409 Conflict` (`Cannot delete driver {id}: driver has {N} active waybill job(s) in status(es): ...`).
+  - Added unit test `test_delete_driver_blocked_when_active_jobs_exist` in `tests/test_driver_multitenant.py`.
+- **DomainEvent Audit Trail Preservation on Driver Deletion (P0 / C1 Fix)**:
+  - Removed destructive `delete(DomainEvent)` cascade on driver deletion. Instead, nullifies `driver_id` on `DomainEvent` (`app/services/driver_service.py`), preserving complete audit trails (`event_id`, `event_type`, `client_id`, `job_id`, `payload_json`, `created_at`).
+  - Added unit test `test_delete_driver_preserves_domain_events_and_nullifies_fks` in `tests/test_driver_multitenant.py`.
+- **Dispatcher Driver-Missing Guard (P1 / H5 Fix)**:
+  - Added check in `DispatcherService._dispatch_intent` (`app/orchestrator/dispatcher_service.py`): if `operation == "submit"` and `job.driver_id is None`, the intent is immediately expired with reason `driver_missing` rather than sending a doomed job to worker queue.
+  - Added unit test `test_submit_intent_cancelled_when_driver_missing` in `tests/test_dispatch_intents.py`.
+- **Scheduler Orphan Job Warning & Non-Silent Skips (P1 Fix)**:
+  - Added structured warning logging in `SchedulerService.run` (`app/orchestrator/scheduler_service.py`) whenever a due job has `job.driver_id is None`.
+  - Added debug logging when 0 jobs are scheduled but due jobs are skipped by policy (`skipped > 0`).
+- **State Machine Transitions to Needs-Review & Queued-Pending Recovery**:
+  - Added `"needs_review"` as a legal transition target from `"pending"` and `"waiting_submission_window"` in `ALLOWED_TRANSITIONS` (`app/orchestrator/state_machine.py`), allowing administrative or automated remediation of orphaned/flagged jobs without `StateTransitionError`.
+  - Added `"pending"` to `ALLOWED_TRANSITIONS["queued"]` (`app/orchestrator/state_machine.py`) for safe recovery of expired broker leases.
+  - Added automated transition test in `tests/test_utcms_gate_and_migration.py`.
+- **Clean-IP Pool Probe Queue Separation (H2 Fix)**:
+  - Routed periodic `clean-ip-pool-probe` task in Celery beat (`app/workers/celery_app.py`) to `CELERY_WAYBILL_TASKS_QUEUE` (`barpro_waybill_tasks`) instead of `rpa_scheduler`.
+  - Prevents prolonged network probes (120-145s) on single-concurrency scheduler worker from starving high-frequency (5s) `orchestrator.dispatcher.run` tasks.
+- **Fail-Closed Mobile Fleet Matching on Plate Mismatch (H6 Fix)**:
+  - Eliminated dangerous fallback that defaulted unmatched fleet trucks to `fleet_items[0]` in `WaybillAutomationBot._find_matching_fleet_truck` (`app/automation/waybill_bot_multitenant.py`).
+  - Added fail-closed guard in `_execute_mobile_waybill_job`: if a driver has trucks in fleet on UTCMS but none match the requested plate, execution halts cleanly into `needs_review` with `error_category="fleet_plate_mismatch"`.
+  - Added unit test `test_mobile_bot_fleet_plate_mismatch_fails_closed` in `tests/test_mobile_waybill_bot.py`.
+- **Stuck Jobs Recovery Resilience & Transaction Isolation (H3 Fix)**:
+  - Wrapped each stuck job processing step in `cleanup_stuck_jobs` (`app/services/rpa_scheduler_service.py`) in `async with session.begin_nested()` and `try/except`.
+  - An exception on an individual corrupted job no longer aborts the loop or rolls back recovery of other stuck jobs.
+  - Added unit test `test_cleanup_stuck_queued_job_recovers_to_pending_and_isolates_errors` in `tests/test_rpa_phase1_architecture.py`.
+- **OTP Witness Proof Attribution Mode (H1 Fix)**:
+  - Explicitly marked `witness_mode = "otp_authority"` on `result_payload` in `WaybillJobService.submit_otp` (`app/services/waybill_job_service.py`), formalizing authority proof without regressions.
+
 ### 2026-10-11 — Waybill Mandatory Fields Enforcement, Needs-Review Remediation & Fuel Inquiry Chromium Locale Fix
 
 - **Fuel Inquiry Chromium Locale Fix & Solver Optimization**:

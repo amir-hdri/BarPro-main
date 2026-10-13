@@ -440,6 +440,63 @@ async def test_mobile_bot_matches_driver_fleet():
 
 
 @pytest.mark.asyncio
+async def test_mobile_bot_fleet_plate_mismatch_fails_closed():
+    """Verify fleet matching fails closed to needs_review when requested plate is not in driver's fleet."""
+    payload = _mobile_payload()
+
+    class _MismatchedFleetMockClient:
+        extract_document_id = staticmethod(UtcmsMobileClient.extract_document_id)
+        extract_tracking_code = staticmethod(UtcmsMobileClient.extract_tracking_code)
+        extract_otp_required = staticmethod(UtcmsMobileClient.extract_otp_required)
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def login(self, username: str, password: str, cap_token: str):
+            return SimpleNamespace(token="token-fleet", refresh_token=None, expires_at="2026-09-11T12:00:00")
+
+        async def get_user_fleet_list(self):
+            return {
+                "resultCode": 200,
+                "obj": [
+                    {
+                        "carTag": "99ج888ایران77",
+                        "tagType": 2,
+                        "capacity": 25000,
+                        "type": "تریلی چادری",
+                        "haveCertificate": True,
+                        "have3rdInsurance": True,
+                        "freighterId": 777,
+                        "id": 9999,
+                    }
+                ],
+            }
+
+    bot = WaybillAutomationBot()
+
+    with (
+        patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_TRANSPORT", "mobile"),
+        patch("app.automation.waybill_bot_multitenant.utcms_config.ALLOW_LIVE_SUBMIT", True),
+        patch("app.automation.waybill_bot_multitenant.utcms_config.UTCMS_CAPTCHA_VALUE", "cap-1"),
+        patch("app.automation.waybill_bot_multitenant.build_enhanced_waybill_payload", return_value=payload),
+        patch("app.automation.waybill_bot_multitenant.validate_live_waybill_payload", return_value=[]),
+        patch("app.automation.utcms_mobile_client.UtcmsMobileClient", _MismatchedFleetMockClient),
+    ):
+        result = await bot.execute_waybill_job(
+            username="user",
+            password="password",
+            payload={**payload, "mobile_issue_cap_token": "issue-cap"},
+            job_id="job-fleet-mismatch",
+            client_id=1,
+            allow_live_submit=True,
+        )
+
+    assert result["status"] == TaskStatus.NEEDS_REVIEW.value
+    assert result["error_category"] == "fleet_plate_mismatch"
+    assert "یافت نشد" in result["error"]
+
+
+@pytest.mark.asyncio
 async def test_mobile_bot_live_submit_success():
     """Verify live submit executes insert_document and records document_id and tracking_code."""
     payload = _mobile_payload()

@@ -139,6 +139,14 @@ class SchedulerService:
                         continue
 
                     # Driver eligibility: status active/ready.
+                    if job.driver_id is None:
+                        logger.warning(
+                            f"Scheduler: job {job.job_id} has driver_id=None; skipping scheduling. "
+                            "Job is orphaned and requires manual driver assignment or review."
+                        )
+                        skipped += 1
+                        continue
+
                     driver = driver_cache.get(job.driver_id, _MISSING_DRIVER)
                     if driver is _MISSING_DRIVER:
                         driver = await session.get(Driver, job.driver_id) if job.driver_id else None
@@ -254,6 +262,8 @@ class SchedulerService:
                             extra={"extra_fields": {"scheduled_count": scheduled_count}},
                             exc_info=True,
                         )
+                elif skipped > 0:
+                    logger.debug(f"Scheduler run: 0 jobs scheduled ({skipped} skipped by policy).")
                 return scheduled_count
 
             except Exception as e:

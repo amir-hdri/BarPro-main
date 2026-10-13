@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 from app.auth_multitenant import get_current_client, get_current_user_or_admin
 from app.core.database import get_session
 from app.main import app
-from app.models_multitenant import Client, Driver
+from app.models_multitenant import Client, Driver, WaybillJob
+from app.models_rpa import DomainEvent
 
 
 @pytest.fixture
@@ -534,6 +535,130 @@ def test_delete_driver_success(test_client):
     mock_session.commit.assert_called_once()
 
     app.dependency_overrides.clear()
+
+
+def test_delete_driver_blocked_when_active_jobs_exist(test_client):
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+    )
+
+    mock_driver = Driver(
+        id=1,
+        client_id=1,
+        driver_national_code="1234567890",
+        full_name="Driver With Active Job",
+        utcms_username="activeuser",
+        utcms_password_encrypted="pwd",
+        status="active",
+    )
+
+    mock_active_job = WaybillJob(
+        id=10,
+        job_id="job_active_123",
+        client_id=1,
+        driver_id=1,
+        status="waiting_submission_window",
+    )
+
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=mock_driver)
+
+    mock_active_jobs_result = MagicMock()
+    mock_active_jobs_result.all.return_value = [mock_active_job]
+    mock_session.exec = AsyncMock(return_value=mock_active_jobs_result)
+    mock_session.delete = AsyncMock()
+    mock_session.commit = AsyncMock()
+    mock_session.rollback = AsyncMock()
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    try:
+        response = test_client.delete("/api/v1/drivers/1")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        data = response.json()
+        assert "Cannot delete driver" in data["message"]
+        assert "waiting_submission_window" in data["message"]
+        mock_session.delete.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_delete_driver_preserves_domain_events_and_nullifies_fks(test_client):
+    mock_client = Client(
+        id=1,
+        client_code="tenant-1",
+        name="Tenant 1",
+        email="tenant1@example.com",
+    )
+
+    mock_driver = Driver(
+        id=1,
+        client_id=1,
+        driver_national_code="1234567890",
+        full_name="Driver To Delete",
+        utcms_username="deleteuser",
+        utcms_password_encrypted="pwd",
+        status="active",
+    )
+
+    mock_terminal_job = WaybillJob(
+        id=10,
+        job_id="job_terminal_123",
+        client_id=1,
+        driver_id=1,
+        status="success",
+    )
+
+    mock_event = DomainEvent(
+        id=5,
+        event_id="evt_123",
+        event_type="waybill.created",
+        client_id=1,
+        driver_id=1,
+        job_id="job_terminal_123",
+    )
+
+    mock_session = MagicMock()
+    mock_session.get = AsyncMock(return_value=mock_driver)
+
+    async def mock_exec_side_effect(stmt):
+        res = MagicMock()
+        stmt_str = str(stmt).lower()
+        if "from domain_events" in stmt_str or "select domain_events" in stmt_str:
+            res.all.return_value = [mock_event]
+        elif "from waybill_jobs" in stmt_str or "select waybill_jobs" in stmt_str:
+            if "not in" in stmt_str or "status not in" in stmt_str:
+                res.all.return_value = []
+            else:
+                res.all.return_value = [mock_terminal_job]
+        else:
+            res.all.return_value = []
+        return res
+
+    mock_session.exec = AsyncMock(side_effect=mock_exec_side_effect)
+    mock_session.add = MagicMock()
+    mock_session.delete = AsyncMock()
+    mock_session.commit = AsyncMock()
+
+    app.dependency_overrides[get_current_client] = lambda: mock_client
+    app.dependency_overrides[get_current_user_or_admin] = lambda: {"role": "client", "user": mock_client}
+    app.dependency_overrides[get_session] = lambda: mock_session
+
+    try:
+        response = test_client.delete("/api/v1/drivers/1")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert mock_terminal_job.driver_id is None
+        assert mock_event.driver_id is None
+        assert mock_session.add.call_count >= 2
+        mock_session.delete.assert_called_once_with(mock_driver)
+        mock_session.commit.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_create_driver_schedule_with_persian_and_underscore_dates(test_client):

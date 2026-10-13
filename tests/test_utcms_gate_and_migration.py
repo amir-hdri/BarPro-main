@@ -88,6 +88,29 @@ def test_state_machine_waiting_submission_window_transitions():
     JobStateMachine.transition(None, job, JobStatus.SUCCESS)
     assert job.status == JobStatus.SUCCESS.value
 
+    # Test transitions to needs_review from pending and waiting_submission_window
+    job_pending = WaybillJob(
+        job_id="job_test_nr_1",
+        idempotency_key="idemp_test_nr_1",
+        client_id=1,
+        driver_id=1,
+        status=JobStatus.PENDING.value,
+        payload_json={},
+    )
+    JobStateMachine.transition(None, job_pending, JobStatus.NEEDS_REVIEW)
+    assert job_pending.status == JobStatus.NEEDS_REVIEW.value
+
+    job_wsw = WaybillJob(
+        job_id="job_test_nr_2",
+        idempotency_key="idemp_test_nr_2",
+        client_id=1,
+        driver_id=1,
+        status=JobStatus.WAITING_SUBMISSION_WINDOW.value,
+        payload_json={},
+    )
+    JobStateMachine.transition(None, job_wsw, JobStatus.NEEDS_REVIEW)
+    assert job_wsw.status == JobStatus.NEEDS_REVIEW.value
+
 
 def test_sqlite_in_memory_table_creation():
     """Verify that tables with new columns and UTCMSSystemObservation can be created in DB."""

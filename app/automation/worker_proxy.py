@@ -211,7 +211,7 @@ def clear_proxy_cache() -> None:
         logger.debug("worker_proxy: clean pool cache clear failed: %s", exc)
 
 
-def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = None) -> str | None:
+def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | str | None = None) -> str | None:
     """
     Return the best egress proxy URL based on the configured EGRESS_PROXY_MODE:
     - 'worker_first' (default): Try dedicated worker Squid. If unreachable or blocked,
@@ -227,8 +227,17 @@ def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = 
 
     now = time.time()
     ttl = _proxy_cache_ttl_success() if _cached_proxy_url else _PROXY_CACHE_TTL_FAILURE
-    cached_protocol = urlparse(_cached_proxy_url).scheme.lower() if _cached_proxy_url else None
-    cache_allowed = allowed_protocols is None or cached_protocol in allowed_protocols
+    if _cached_proxy_url:
+        cached_protocol = urlparse(_cached_proxy_url).scheme.lower()
+        if allowed_protocols is None:
+            cache_allowed = True
+        elif isinstance(allowed_protocols, str):
+            cache_allowed = cached_protocol == allowed_protocols.lower()
+        else:
+            cache_allowed = cached_protocol in allowed_protocols
+    else:
+        cache_allowed = False
+
     if _cached_proxy_timestamp > 0 and (now - _cached_proxy_timestamp) < ttl and cache_allowed:
         return _cached_proxy_url
 
@@ -361,7 +370,7 @@ def get_best_egress_proxy(allowed_protocols: set[str] | frozenset[str] | None = 
     return None
 
 
-def get_worker_proxy_url(allowed_protocols: set[str] | frozenset[str] | None = None) -> str | None:
+def get_worker_proxy_url(allowed_protocols: set[str] | frozenset[str] | str | None = None) -> str | None:
     """
     Return the active proxy URL for this worker (Squid or Clean IP Pool fallback).
     Result is cached per worker process with short TTL.
