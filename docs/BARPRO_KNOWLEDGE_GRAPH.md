@@ -12,6 +12,13 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## ثبت ویزارد، تاب‌آوری run-due و لاگ بی‌صدای Fernet — 2026-10-13 (CODE-VERIFIED)
+
+- CODE-VERIFIED (قرارداد flat ویزارد / رفع HTTP 422 گزارش‌شده با اسکرین‌شات): ویزارد `/new` در قدم ۶ آبجکت‌های تودرتوی `origin`/`destination` را بدون رشته‌های سطح‌بالا و بدون کلید `financial` می‌فرستاد و union backend (`WaybillPayload | WaybillNestedPayload` در `app/schemas/multitenant.py:768-776`) آن را با ۴۲۲ رد می‌کرد. فرانت‌энд اکنون رشته‌های شهر سطح‌بالا می‌فرستد (`apps/web/src/app/new/page.tsx`) و آبجکت‌های تکراری حذف شدند (داده غنی در `metadata_json` می‌ماند)؛ قرارداد flat، قرارداد صحیح فرم دستی است و هیچ تضعیف اسکیمای backend لازم نبود.
+- CODE-VERIFIED (گارد run-due / رفع HTTP 500): ساخت `WaybillJobCreateRequest` در `DriverScheduleService.run_due_schedules` (`app/services/driver_schedule_service.py`) اکنون per-schedule در try/except است؛ تمپلیت ذخیره‌شده نامعتبر (مثلاً خالی) باعث skip با لاگ خطا می‌شود، نه ۵۰۰ سراسری.
+- CODE-VERIFIED (لاگ Fernet در info بدون traceback): شاخه PBKDF2 در `_build_fernet` (`app/auth_multitenant.py`) که در همه استقرارها مسیر عادی است، دیگر warning+traceback نمی‌دهد؛ خطای واقعی decrypt همچنان با `driver_password_decrypt_failed` سطح error ثبت می‌شود.
+- TEST-VERIFIED: `tests/test_submit_payload_contract.py` (۳ تست: پین تشخیص ۴۲۲، اعتبارسنجی شکل post-fix به‌صورت `WaybillPayload`، و skip بدون raise در run-due با تمپلیت خالی).
+
 ## استحکام‌بخشی ارکستریتور و ربات صدور موبایل (فاز ۲) و امنیت چرخه عمر راننده — 2026-10-12 (CODE-VERIFIED)
 
 - CODE-VERIFIED (گارد مسدودسازی حذف راننده دارای جاب فعال / P0 C1): در `app/services/driver_service.py` متد `delete_driver` به گارد بررسی کارهای بارنامه غیرترمینال (`col(WaybillJob.status).not_in(_TERMINAL_JOB_STATUSES)`) مجهز شد. در صورت وجود هرگونه جاب در حال پردازش یا در انتظار پنجره ثبت (`waiting_submission_window`, `pending`, `queued`, ...) حذف راننده با خطای `HTTP 409 Conflict` متوقف می‌شود تا از یتیم‌شدن پنهان کارها جلوگیری شود.
