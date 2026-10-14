@@ -977,6 +977,9 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
             "reason": "duplicate_idempotency",
         }
 
+    # WARNING: this materializes a WaybillJob ORM row from a raw payload template
+    # with no Pydantic guard — validate via WaybillJobCreateRequest first (see
+    # driver_schedule_service run-due guard) or a bad template 500s the run.
     new_job = WaybillJob(
         job_id=f"job_{uuid.uuid4().hex[:16]}",
         idempotency_key=idempotency_key,

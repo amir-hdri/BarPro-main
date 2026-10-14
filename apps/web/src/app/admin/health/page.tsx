@@ -12,10 +12,25 @@ import {
   Zap,
   Globe,
   Settings,
+  Smartphone,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
 // ── Types for API responses ───────────────────────────────────────────
+
+interface HubStatusResponse {
+  status: "connected" | "disconnected";
+  is_connected: boolean;
+  last_seen: number | null;
+  seconds_ago: number | null;
+  last_heartbeat_at: string | null;
+  device_id: string | null;
+  hub_numbers: string[];
+  permissions: Record<string, boolean>;
+  message: string;
+}
 
 interface ReadyzResponse {
   status: string;
@@ -109,6 +124,7 @@ export default function AdminHealthPage() {
   const [workers, setWorkers] = useState<WorkerHeartbeats | null>(null);
   const [proxies, setProxies] = useState<ProxyHealthResponse | null>(null);
   const [captcha, setCaptcha] = useState<CaptchaMonitorResponse | null>(null);
+  const [hubStatus, setHubStatus] = useState<HubStatusResponse | null>(null);
 
   const [loading, setLoading] = useState(false);
 
@@ -121,6 +137,11 @@ export default function AdminHealthPage() {
   const fetchOverview = useCallback(async () => {
     const res = await api.get<ReadyzResponse>("/readyz");
     if (res.success && res.data) setReadyz(res.data);
+  }, []);
+
+  const fetchHubStatus = useCallback(async () => {
+    const res = await api.get<HubStatusResponse>("/api/v1/admin/hub-status");
+    if (res.success && res.data) setHubStatus(res.data);
   }, []);
 
   const fetchBrowserPool = useCallback(async () => {
@@ -148,6 +169,7 @@ export default function AdminHealthPage() {
     try {
       await Promise.all([
         fetchOverview(),
+        fetchHubStatus(),
         fetchBrowserPool(),
         fetchWorkers(),
         fetchProxies(),
@@ -158,7 +180,7 @@ export default function AdminHealthPage() {
     } finally {
       setLoading(false);
     }
-  }, [fetchOverview, fetchBrowserPool, fetchWorkers, fetchProxies, fetchCaptcha]);
+  }, [fetchOverview, fetchHubStatus, fetchBrowserPool, fetchWorkers, fetchProxies, fetchCaptcha]);
 
   useEffect(() => {
     loadAll();
@@ -307,6 +329,58 @@ export default function AdminHealthPage() {
               }`}
             >
               {isCBEnabled ? "غیرفعال کردن محافظت" : "فعال کردن محافظ خودکار"}
+            </button>
+          </div>
+
+          {/* Hub Phone Relay Live Status Card */}
+          <div className={`rounded-2xl border p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-br ${
+            hubStatus?.is_connected
+              ? "from-cyan-500/10 to-slate-900/40 border-cyan-500/20 text-slate-200"
+              : "from-red-500/15 to-red-950/30 border-red-500/30 text-red-200"
+          }`}>
+            <div className="flex items-start gap-4">
+              <div className={`p-3 rounded-xl ${hubStatus?.is_connected ? "bg-cyan-500/20 text-cyan-300" : "bg-red-500/20 text-red-400"}`}>
+                <Smartphone className="h-6 w-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-100">ارتباط گوشی هاب پیامک (Hub Phone Relay)</h3>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                    hubStatus?.is_connected
+                      ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                      : "bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse"
+                  }`}>
+                    {hubStatus?.is_connected ? (
+                      <>
+                        <Wifi className="h-3 w-3" />
+                        متصل (آنلاین)
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff className="h-3 w-3" />
+                        قطع ارتباط
+                      </>
+                    )}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
+                  {hubStatus?.is_connected
+                    ? `گوشی هاب با سرور همگام است. آخرین ضربان اتصال: ${hubStatus.seconds_ago !== null ? `${hubStatus.seconds_ago} ثانیه پیش` : "اکنون"} (${hubStatus.last_heartbeat_at || ""}). پیامک‌های OTP و کدهای رهگیری رانندگان بدون تاخیر از طریق این هاب هدایت می‌شوند.`
+                    : `هشدار! ارتباط گوشی هاب با سرور قطع شده است. ${hubStatus?.seconds_ago !== null ? `آخرین اتصال: ${Math.round((hubStatus?.seconds_ago || 0) / 60)} دقیقه پیش.` : "هیچ سیگنالی دریافت نشده است."} لطفاً وضعیت اینترنت، شارژ سیم‌کارت و فعال بودن برنامه SMS-Forwarder-Pro را روی گوشی هاب بررسی فرمایید.`}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                  <span>شناسه دستگاه: <strong className="font-mono text-slate-200">{hubStatus?.device_id || "نامشخص"}</strong></span>
+                  <span>|</span>
+                  <span>خطوط هاب: <strong className="font-mono text-cyan-400">{hubStatus?.hub_numbers?.length ? hubStatus.hub_numbers.join(" / ") : "نامشخص"}</strong></span>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={fetchHubStatus}
+              className="flex items-center gap-1.5 rounded-xl bg-white/5 hover:bg-white/10 hover:text-cyan-300 px-3.5 py-2 text-xs font-semibold text-slate-300 transition border border-white/5 whitespace-nowrap self-start md:self-center"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              بروزرسانی وضعیت هاب
             </button>
           </div>
 

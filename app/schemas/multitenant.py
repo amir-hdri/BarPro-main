@@ -205,6 +205,7 @@ class DriverCreateRequest(BaseModel):
     plate_number: str = Field(..., min_length=2, max_length=50, description="پلاک یکتای خودرو")
     vehicle_type: str | None = Field("کامیون", max_length=50)
     default_payload: dict[str, Any] | None = Field(None)
+    status: str | None = Field(default=None, description="Initial driver status ('active' or 'pending')")
     client_id: int | None = Field(
         None,
         description=(

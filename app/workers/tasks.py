@@ -380,6 +380,23 @@ if celery_app is not None:
 
         return _run_async(_run())
 
+    @celery_app.task(name="monitor.hub_liveness")
+    def monitor_hub_liveness():
+        """Raise / auto-acknowledge the Hub phone disconnect alert.
+
+        Owns the mutating half of Hub liveness. The admin ``GET /hub-status``
+        endpoint is read-only, so without this sweep a Hub outage would only be
+        noticed while someone had the dashboard open.
+        """
+        from app.core.database import async_session_factory
+        from app.services.hub_liveness_service import sweep_hub_liveness
+
+        async def _run():
+            async with async_session_factory() as session:
+                return await sweep_hub_liveness(session)
+
+        return _run_async(_run())
+
     @celery_app.task(name="barpro.proxy.probe_squid_recovery")
     def probe_squid_recovery(worker_id: str = "1"):
         """Periodic probe to check if Squid egress has unblocked, reverting from clean pool."""

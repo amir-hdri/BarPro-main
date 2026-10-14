@@ -25,6 +25,7 @@ class ClientStatus(StrEnum):
 
 class DriverStatus(StrEnum):
     ACTIVE = "active"
+    PENDING = "pending"
     INACTIVE = "inactive"
     BLOCKED = "blocked"
     AUTH_REQUIRED = "auth_required"

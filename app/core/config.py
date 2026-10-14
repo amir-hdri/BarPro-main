@@ -376,6 +376,25 @@ class UTCMSConfig:
         # Shared token authenticating the SMS-forwarder webhook (X-OTP-Webhook-Token).
         # The webhook fails closed (503) when this is not configured.
         self.OTP_WEBHOOK_SECRET = os.getenv("OTP_WEBHOOK_SECRET", "").strip()
+
+        # ── Hub phone (SMS relay) liveness ──────────────────────────────
+        # MSISDNs of the SIMs installed in the Hub phone. Used both to
+        # recognise an inbound heartbeat as the Hub and to display the lines
+        # in the admin UI. Comma-separated; whitespace tolerated.
+        self.HUB_NUMBERS = [
+            n.strip() for n in os.getenv("HUB_NUMBERS", "09966567754,09047119812").split(",") if n.strip()
+        ]
+        # The Hub app pings on a fixed coroutine delay of
+        # `healthCheckIntervalMinutes` (SMS-Forwarder-Pro ForwardConfig.kt
+        # default 5 min, clamped 1-60 min by ServerHealthMonitor.kt).
+        self.HUB_HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HUB_HEARTBEAT_INTERVAL_SECONDS", "300"))
+        # Staleness threshold before the Hub is declared disconnected. MUST be a
+        # multiple of the ping interval: an equal value flaps on every cycle
+        # because `now - last_seen` legitimately reaches the full interval just
+        # before each ping (plus latency and Android Doze deferral). Default 3x.
+        self.HUB_HEARTBEAT_STALE_SECONDS = int(
+            os.getenv("HUB_HEARTBEAT_STALE_SECONDS", str(self.HUB_HEARTBEAT_INTERVAL_SECONDS * 3))
+        )
         # Public base URL of this deployment, used to build webhook URLs shown in
         # setup guides (e.g. /securesms-config). Must be https:// in production.
         # Empty by default: guides then tell the operator to configure it.

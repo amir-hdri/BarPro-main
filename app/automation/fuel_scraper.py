@@ -265,9 +265,7 @@ class FuelScraper:
         if primary_screenshot_bytes:
             import base64
 
-            screenshot_data_uri = (
-                f"data:image/png;base64,{base64.b64encode(primary_screenshot_bytes).decode('utf-8')}"
-            )
+            screenshot_data_uri = f"data:image/png;base64,{base64.b64encode(primary_screenshot_bytes).decode('utf-8')}"
             screenshot_url = screenshot_data_uri
 
             if screenshot_path:

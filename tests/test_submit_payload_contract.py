@@ -74,6 +74,13 @@ def test_nested_only_wizard_payload_rejected_with_screenshot_errors():
     assert flat_origin and "valid string" in str(flat_origin[0]["msg"])
     assert flat_destination and "valid string" in str(flat_destination[0]["msg"])
     assert nested_financial and nested_financial[0]["type"] == "missing"
+    # No more, no less: the union must fail on exactly these three top-level locs.
+    top_level_locs = {(e["loc"][-2], e["loc"][-1]) for e in errors}
+    assert top_level_locs == {
+        ("WaybillPayload", "origin"),
+        ("WaybillPayload", "destination"),
+        ("WaybillNestedPayload", "financial"),
+    }
 
 
 def test_wizard_payload_with_flat_strings_validates():
@@ -87,10 +94,15 @@ def test_wizard_payload_with_flat_strings_validates():
     del payload["destination"]
     payload["origin"] = "همدان"
     payload["destination"] = "همدان"
+    payload["metadata_json"] = {"wizard": "new", "route": {"origin_city": "همدان", "destination_city": "همدان"}}
     req = WaybillJobCreateRequest(driver_national_code="0084575948", payload=payload)
     assert isinstance(req.payload, WaybillPayload)
     assert req.payload.origin == "همدان"
     assert req.payload.destination == "همدان"
+    assert req.payload.metadata_json == {
+        "wizard": "new",
+        "route": {"origin_city": "همدان", "destination_city": "همدان"},
+    }
 
 
 @pytest.mark.asyncio
@@ -141,4 +153,14 @@ async def test_run_due_with_empty_template_skips_without_raising():
         result = await DriverScheduleService.run_due_schedules(client, session)
         assert result["created_count"] == 0
         assert result["skipped"] >= 1
+        # Invalid-template skip consumes the slot but leaves the row in place
+        # and creates no job.
+        from sqlmodel import select
+
+        from app.models_multitenant import DriverSchedule, WaybillJob
+
+        remaining_schedules = (await session.exec(select(DriverSchedule))).all()
+        assert len(remaining_schedules) == 1
+        created_jobs = (await session.exec(select(WaybillJob))).all()
+        assert created_jobs == []
     await engine.dispose()

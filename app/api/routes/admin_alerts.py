@@ -382,3 +382,20 @@ async def alertmanager_webhook(
                 processed += 1
 
     return {"status": "success", "processed_alerts": processed}
+
+
+@router.get(
+    "/hub-status",
+    summary="وضعیت زنده اتصال گوشی هاب به سرور",
+    dependencies=[Depends(get_current_admin)],
+)
+async def get_hub_status() -> dict[str, Any]:
+    """Live connection status of the Hub phone. Read-only.
+
+    Raising and auto-acknowledging the ``hub:disconnected`` alert is owned by the
+    ``monitor.hub_liveness`` beat task, not by this endpoint: an alert that only
+    fires while an administrator has the dashboard open cannot notify anyone.
+    """
+    from app.services.hub_liveness_service import get_hub_liveness
+
+    return (await get_hub_liveness()).to_payload()

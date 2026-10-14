@@ -21,6 +21,7 @@ from app.automation.otp_keys import (
 )
 from app.core.config import utcms_config
 from app.core.database import async_session_factory
+from app.core.phone_utils import normalize_iranian_phone
 from app.core.redis_client import redis_manager
 from app.models_multitenant import Driver
 from app.services.forwarder_health import (
@@ -29,6 +30,7 @@ from app.services.forwarder_health import (
     probe_timestamp_ms,
     record_observation,
 )
+from app.services.hub_liveness_service import HUB_STATE_KEY
 from app.services.otp_delivery import accept_forwarded_otp, recipient_phone
 
 logger = logging.getLogger(__name__)
@@ -284,10 +286,50 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
                         if raw_receipt:
                             return {"success": True, "status": "probe_received", **json.loads(raw_receipt)}
                         return {"success": True, "status": "probe_pending"}
+
+                    # Record Hub phone heartbeat if role is HUB or matches known Hub numbers.
+                    # Hub MSISDNs come from utcms_config.HUB_NUMBERS (env HUB_NUMBERS) so the
+                    # deployment's SIMs are not baked into the source.
+                    hub_numbers_list = json_data.get("hub_numbers") or list(utcms_config.HUB_NUMBERS)
+                    is_hub = (
+                        request.headers.get("x-app-role", "").upper() == "HUB"
+                        or str(json_data.get("app_role", "")).upper() == "HUB"
+                        or str(json_data.get("role", "")).upper() == "HUB"
+                        or (norm_phone in set(utcms_config.HUB_NUMBERS))
+                    )
+                    if is_hub:
+                        hub_state = {
+                            "app_role": "HUB",
+                            "device_id": device_id,
+                            "last_seen": time.time(),
+                            "last_health_at": time.time(),
+                            "permissions": permissions or {},
+                            "hub_numbers": hub_numbers_list,
+                        }
+                        await redis.set(HUB_STATE_KEY, json.dumps(hub_state), ex=86400 * 90)
+
                     if norm_phone:
                         await record_observation(
                             redis, norm_phone, via="http_health_check", permissions=permissions, device_id=device_id
                         )
+                        # Check auto-activation for any pending driver matching this phone
+                        try:
+                            from app.core.database import async_session_factory
+                            from app.models_multitenant import Driver, DriverStatus
+                            from app.services.driver_service import DriverService
+
+                            async with async_session_factory() as db_session:
+                                pending_drivers = (
+                                    await db_session.exec(
+                                        select(Driver).where(
+                                            (Driver.phone == norm_phone) & (Driver.status == DriverStatus.PENDING.value)
+                                        )
+                                    )
+                                ).all()
+                                for p_driver in pending_drivers:
+                                    await DriverService.check_and_auto_activate_driver(p_driver.id, db_session)
+                        except Exception as auto_act_err:
+                            logger.debug("Auto-activation check on health check skipped: %s", auto_act_err)
                 except Exception as exc:
                     raise HTTPException(status_code=503, detail="OTP storage unavailable") from exc
                 return {"success": True, "status": "ready", "protocol": "barpro-otp-v1"}
@@ -516,6 +558,31 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
         "sms_forwarder_otp_received",
         extra={"extra_fields": {"code_len": len(otp_code), "sender": sender, "phone": phone}},
     )
+
+    if phone:
+        norm_phone_for_act = normalize_iranian_phone(phone)
+        try:
+            from app.core.database import async_session_factory
+            from app.models_multitenant import Driver, DriverStatus
+            from app.services.driver_service import DriverService
+
+            async with async_session_factory() as db_session:
+                pending_drivers = (
+                    await db_session.exec(
+                        select(Driver).where(
+                            (Driver.phone == norm_phone_for_act) & (Driver.status == DriverStatus.PENDING.value)
+                        )
+                    )
+                ).all()
+                for p_driver in pending_drivers:
+                    meta = dict(p_driver.metadata_json or {})
+                    meta["otp_verified"] = True
+                    p_driver.metadata_json = meta
+                    db_session.add(p_driver)
+                    await db_session.commit()
+                    await DriverService.check_and_auto_activate_driver(p_driver.id, db_session)
+        except Exception as auto_act_err:
+            logger.debug("Auto-activation check on OTP arrival skipped: %s", auto_act_err)
 
     return stored
 

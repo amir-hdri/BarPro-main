@@ -17,11 +17,27 @@ import {
   Server,
   Download,
   ArrowUpDown,
+  Smartphone,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
+
+interface HubStatus {
+  status: "connected" | "disconnected";
+  is_connected: boolean;
+  last_seen: number | null;
+  seconds_ago: number | null;
+  last_heartbeat_at: string | null;
+  device_id: string | null;
+  hub_numbers: string[];
+  permissions: Record<string, boolean>;
+  message: string;
+}
 
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [summary, setSummary] = useState<AdminClientSummary | null>(null);
+  const [hubStatus, setHubStatus] = useState<HubStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -36,12 +52,16 @@ export default function AdminDashboardPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await api.get<AdminClientSummary>("/api/v1/admin/reports/clients/summary", {
-        page: "1",
-        page_size: "50",
-      });
+      const [res, hubRes] = await Promise.all([
+        api.get<AdminClientSummary>("/api/v1/admin/reports/clients/summary", {
+          page: "1",
+          page_size: "50",
+        }),
+        api.get<HubStatus>("/api/v1/admin/hub-status"),
+      ]);
       if (res.data) setSummary(res.data);
       else setFetchError(res.error || 'خطا در بارگذاری گزارش');
+      if (hubRes.data) setHubStatus(hubRes.data);
     } catch {
       setFetchError('خطا در ارتباط با سرور');
     }
@@ -114,6 +134,56 @@ export default function AdminDashboardPage() {
           <span className="font-bold">خطا:</span> {fetchError}
         </div>
       )}
+
+      {/* Hub Phone Connection Alert */}
+      {hubStatus && !hubStatus.is_connected && (
+        <div className="rounded-2xl border border-red-500/40 bg-red-950/20 p-4 text-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-red-950/30 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-red-500/20 text-red-400">
+              <WifiOff className="h-6 w-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-sm text-red-100 flex items-center gap-2">
+                هشدار فوری: ارتباط گوشی هاب پیامک (Hub Phone Relay) با سرور قطع است!
+              </h4>
+              <p className="text-xs text-red-300/80 mt-0.5">
+                {hubStatus.seconds_ago !== null
+                  ? `آخرین ضربان اتصال: ${Math.round(hubStatus.seconds_ago / 60)} دقیقه پیش (${hubStatus.last_heartbeat_at || ""}). دریافت پیامک‌های OTP و رله ممکن است متوقف شده باشد.`
+                  : "هیچ ضربان ارتباطی از گوشی هاب دریافت نشده است. برنامه SMS-Forwarder-Pro را روی گوشی هاب بررسی فرمایید."}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => router.push("/admin/health")}
+            className="rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-200 px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap self-start sm:self-auto transition border border-red-500/30"
+          >
+            مشاهده در سلامت سیستم
+          </button>
+        </div>
+      )}
+
+      {/* Hub Phone Connected Subtle Pill */}
+      {hubStatus && hubStatus.is_connected && (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/10 px-4 py-2.5 text-xs text-emerald-300 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <Smartphone className="h-4 w-4 text-emerald-400" />
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <Wifi className="h-3.5 w-3.5 text-emerald-400" />
+            <span>گوشی هاب پیامک (Hub Relay): <strong className="font-semibold text-emerald-200">متصل به سرور (آنلاین)</strong></span>
+            {hubStatus.seconds_ago !== null && (
+              <span className="text-slate-400 text-[11px]">({hubStatus.seconds_ago} ثانیه پیش)</span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 flex items-center gap-3">
+            <span>شناسه: <strong className="font-mono text-slate-300">{hubStatus.device_id || "Hub-01"}</strong></span>
+            <span>خطوط هاب: <strong className="font-mono text-cyan-400">{hubStatus.hub_numbers?.length ? hubStatus.hub_numbers.join(" / ") : "نامشخص"}</strong></span>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
           title="کل مشتریان"

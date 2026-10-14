@@ -1,10 +1,12 @@
 """Per-driver automatic waybill schedule management service."""
 
+import copy
 import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -248,7 +250,7 @@ class DriverScheduleService:
                 skipped += 1
                 continue
 
-            payload = _safe_json_payload(schedule.payload_template_json) or {}
+            payload = copy.deepcopy(_safe_json_payload(schedule.payload_template_json) or {})
             if "driver_national_code" not in payload:
                 payload["driver_national_code"] = driver.driver_national_code
 
@@ -283,15 +285,20 @@ class DriverScheduleService:
                     max_retries=3,
                     idempotency_key=f"schedule:{schedule.id}:{slot_signature}",
                 )
-            except Exception as exc:
+            except ValidationError as exc:
                 # A stored template that cannot materialize a job (e.g. created
                 # before mandatory-field enforcement) must skip the slot — never
                 # abort the whole run with an unhandled 500.
                 logger.error(
-                    "Skipping schedule %s: stored payload template cannot materialize a job: %s",
+                    "Skipping schedule %s: stored payload template cannot materialize a job: %s errors=%s",
                     schedule.id,
                     exc,
+                    exc.errors(),
+                    exc_info=True,
                 )
+                schedule.last_run_signature = slot_signature
+                schedule.updated_at = utc_now
+                session.add(schedule)
                 skipped += 1
                 continue
             try:

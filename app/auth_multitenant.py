@@ -6,6 +6,7 @@ Each client can only access their own drivers and waybill tasks.
 """
 
 import asyncio
+import binascii
 import logging
 import secrets
 import uuid
@@ -72,10 +73,15 @@ def _build_fernet() -> "Fernet":
     raw_key = utcms_config.DRIVER_ENCRYPTION_KEY.encode("utf-8")
     try:
         decoded = urlsafe_b64decode(raw_key)
-    except Exception:
+    except (binascii.Error, ValueError, TypeError):
         decoded = None
     if decoded is not None and len(decoded) == 32:
         return Fernet(raw_key.decode())
+    if decoded is not None:
+        logger.warning(
+            "fernet_key_wrong_length_using_pbkdf2",
+            extra={"extra_fields": {"decoded_len": len(decoded), "expected_len": 32}},
+        )
     # Expected branch in every deployment: the configured key is a passphrase,
     # not a raw 32-byte Fernet key, so derive deterministically via PBKDF2.
     # Logged at info WITHOUT a traceback — a traceback here is routine noise,

@@ -200,6 +200,18 @@ def _build_beat_schedule() -> dict:
                     "expires": 50,
                 },
             },
+            # Hub phone (SMS relay) liveness. Raising/auto-acknowledging the
+            # hub:disconnected alert is owned here rather than by the admin
+            # GET /hub-status endpoint, so an outage is detected unattended.
+            # Cadence tracks the Hub ping interval; `expires` prevents backlog.
+            "monitor-hub-liveness": {
+                "task": "monitor.hub_liveness",
+                "schedule": schedule(float(max(60, utcms_config.HUB_HEARTBEAT_INTERVAL_SECONDS))),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": max(50, utcms_config.HUB_HEARTBEAT_INTERVAL_SECONDS - 10),
+                },
+            },
             "shipping-auto-complete-due": {
                 "task": "shipping.auto_complete_due_trips",
                 "schedule": crontab(minute="*/2"),

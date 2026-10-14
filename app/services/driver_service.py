@@ -1,8 +1,7 @@
-"""Driver management service with tenant isolation."""
-
+import json
 import logging
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete
@@ -14,6 +13,7 @@ from app.auth_multitenant import (
     encrypt_driver_password,
     verify_tenant_ownership,
 )
+from app.core.phone_utils import is_valid_iranian_mobile, normalize_iranian_phone
 from app.models.admin import AdminDriverSchedule
 from app.models_multitenant import (
     Client,
@@ -113,7 +113,7 @@ class DriverService:
             )
 
         clean_nat_code = _normalize_digits_str(request.driver_national_code) or ""
-        clean_phone = _normalize_digits_str(request.phone)
+        clean_phone = normalize_iranian_phone(request.phone) if request.phone else None
 
         # Check if national code already exists for this client
         existing = await session.exec(
@@ -125,6 +125,12 @@ class DriverService:
                 detail="Driver with this national code already exists",
             )
 
+        init_status = (
+            request.status.strip().lower()
+            if request.status and request.status.strip().lower() in [s.value for s in DriverStatus]
+            else DriverStatus.ACTIVE.value
+        )
+
         # Create driver
         driver = Driver(
             client_id=client.id,
@@ -134,7 +140,8 @@ class DriverService:
             license_number=request.license_number.strip() if request.license_number else None,
             utcms_username=request.utcms_username.strip(),
             utcms_password_encrypted=encrypt_driver_password(request.utcms_password.strip()),
-            status=DriverStatus.ACTIVE.value,
+            status=init_status,
+            runtime_status=DriverStatus.READY.value if init_status == DriverStatus.ACTIVE.value else init_status,
         )
 
         session.add(driver)
@@ -326,7 +333,7 @@ class DriverService:
                 driver.driver_national_code = clean_nat
 
         if "phone" in update_data:
-            driver.phone = _normalize_digits_str(update_data["phone"]) if update_data["phone"] else None
+            driver.phone = normalize_iranian_phone(update_data["phone"]) if update_data["phone"] else None
 
         active_plate_str = None
         for field, value in update_data.items():
@@ -608,3 +615,101 @@ class DriverService:
             "failed_count": len(failed),
             "failed_drivers": failed,
         }
+
+    @staticmethod
+    async def check_and_auto_activate_driver(
+        driver_id: int,
+        session: AsyncSession,
+    ) -> bool:
+        """Automatically activate a pending driver once initial verification is complete.
+
+        Requirements for auto-activation:
+        1. Full name and valid normalized phone number
+        2. OTP verification confirmed (either in Redis or driver metadata)
+        3. Required permissions (receive_sms, location, or reported permissions)
+
+        Upon completion:
+        - Changes driver status to 'active'
+        - Emits an AdminAlert and broadcasts event to event_hub
+        """
+        driver = (await session.exec(select(Driver).where(Driver.id == driver_id))).first()
+        if not driver or driver.status != DriverStatus.PENDING.value:
+            return False
+
+        if not driver.full_name or not driver.phone or not is_valid_iranian_mobile(driver.phone):
+            return False
+
+        metadata = dict(driver.metadata_json or {})
+        otp_verified = bool(metadata.get("otp_verified") is True)
+
+        permissions_data: dict[str, Any] = {}
+        try:
+            from app.core.redis_client import redis_manager
+
+            redis = await redis_manager.get()
+            if redis:
+                raw_conn = await redis.get(f"rpa:forwarder:connected:{driver.phone}")
+                if raw_conn:
+                    parsed = json.loads(raw_conn)
+                    permissions_data = parsed.get("permissions", {})
+                if not otp_verified:
+                    raw_otp = await redis.get(f"rpa:otp:phone:{driver.phone}")
+                    if raw_otp:
+                        otp_verified = True
+        except Exception as exc:
+            logger.debug("Redis lookup during auto-activation check failed: %s", exc)
+
+        # Check permissions: at least receive_sms, location, or explicit metadata confirmation
+        has_required_permissions = bool(
+            permissions_data.get("receive_sms") is True
+            or permissions_data.get("location") is True
+            or metadata.get("permissions_granted") is True
+        )
+
+        if not otp_verified or not has_required_permissions:
+            return False
+
+        # Auto-activate driver
+        now = datetime.now(UTC).replace(tzinfo=None)
+        driver.status = DriverStatus.ACTIVE.value
+        driver.runtime_status = DriverStatus.READY.value
+        metadata["activated_at"] = now.isoformat()
+        metadata["auto_activated"] = True
+        driver.metadata_json = metadata
+        session.add(driver)
+        await session.commit()
+        await session.refresh(driver)
+
+        # Send alert and event to admin
+        try:
+            from app.orchestrator.alert_manager import admin_alert_service
+            from app.realtime.events import event_hub
+
+            msg = f"راننده جدید فعال شد: {driver.full_name} ({driver.phone})"
+            await admin_alert_service.create_alert(
+                session=session,
+                severity="info",
+                category="driver_activation",
+                message=msg,
+                dedupe_key=f"driver:activation:{driver.id}",
+                tenant_id=driver.client_id,
+                details={
+                    "driver_id": driver.id,
+                    "driver_name": driver.full_name,
+                    "driver_phone": driver.phone,
+                    "national_code": driver.driver_national_code,
+                },
+            )
+            await event_hub.publish(
+                {
+                    "type": "DRIVER_ACTIVATED",
+                    "driver_id": driver.id,
+                    "driver_name": driver.full_name,
+                    "driver_phone": driver.phone,
+                    "tenant_id": driver.client_id,
+                }
+            )
+        except Exception as exc:
+            logger.warning("Failed to emit admin alert for auto-activated driver %s: %s", driver.id, exc)
+
+        return True
