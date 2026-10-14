@@ -13,6 +13,10 @@ All notable changes to the UTCMS Automation System.
 - **Hub MSISDNs configurable**: hardcoded SIM numbers replaced by `utcms_config.HUB_NUMBERS` (env `HUB_NUMBERS`) in `otp_forwarder.py` heartbeat writer and `hub_liveness_service.py`; frontend fallbacks show «نامشخص» instead of baked-in numbers.
 - **Verification evidence (this session)**: backend `2388 passed, 7 skipped` (full suite); session files `49 passed`; `ruff`/`black` clean; `mypy app/ --ignore-missing-imports` 0 errors in 219 files; frontend `typecheck` + `eslint` 0 errors; Android unit `99 tests / 0 failures`; `assembleDriverDebug` + `assembleHubDebug` BUILD SUCCESSFUL; on-device E2E `ServerConfigE2ETest` 1/1 passed on `medium_phone` with live HEALTH_CHECK→`ready` round-trip against a test stub (first attempt failed on a stale corrupt Room DB in a pre-installed hub APK — environmental, cleared by reinstall — then green).
 
+### 2026-10-14 — SMS-gateway future-timestamp fallback parity
+
+- **`POST /api/v1/otp/sms-gateway` now retries `timestamp=None` on future-clock 422**: `receive_sms_gateway` catches `"SMS timestamp is in the future; check device clock"` from `accept_forwarded_otp` and retries with authoritative server `now`, mirroring the existing `/sms-forwarder` fallback (`app/api/routes/otp_forwarder.py:224-230`; forwarder parity at `:550-562`). Regression test `tests/test_sms_gateway_skew.py` pins a +90s fast device clock to HTTP 200 instead of a terminal 422.
+
 ### 2026-10-14 — Phone Normalization, Driver Auto-Activation, Hub Transparency & Carrier Routing
 
 - **Iranian Mobile Phone Normalization (Backend & Android Client)**:

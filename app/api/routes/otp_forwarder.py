@@ -219,7 +219,17 @@ async def receive_sms_gateway(request: Request, path_driver_phone: str | None = 
         return {"success": True, "status": "probe_acknowledged", **receipt}
 
     # Only accepted fresh OTPs may update setup. Duplicate delivery is not new activity.
-    result = await accept_forwarded_otp(code=code, phone=phone, sender=origin, text="", timestamp=timestamp)
+    try:
+        result = await accept_forwarded_otp(code=code, phone=phone, sender=origin, text="", timestamp=timestamp)
+    except HTTPException as exc:
+        if exc.detail == "SMS timestamp is in the future; check device clock":
+            logger.warning(
+                "sms_gateway_timestamp_skew_fallback_to_now",
+                extra={"extra_fields": {"phone": phone, "raw_timestamp": str(timestamp), "reason": exc.detail}},
+            )
+            result = await accept_forwarded_otp(code=code, phone=phone, sender=origin, text="", timestamp=None)
+        else:
+            raise
     if not result.get("is_duplicate"):
         try:
             await record_observation(await redis_manager.get(), phone, via="sms_gateway")

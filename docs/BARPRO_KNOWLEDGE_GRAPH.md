@@ -12,6 +12,14 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## برابری فالبک اسکیو ساعت گیت‌وی، مجوز READ_PHONE_STATE و ماسک لاگ هاب — 2026-10-14 (CODE-VERIFIED)
+
+> این بخش صرفاً یک snapshot با برچسب تاریخی از وضعیت کد در 2026-10-14 است و وضعیت زنده production را تضمین نمی‌کند.
+
+- CODE-VERIFIED (برابری فالبک اسکیو ساعت در `POST /api/v1/otp/sms-gateway` با `/sms-forwarder`): `receive_sms_gateway` در `app/api/routes/otp_forwarder.py:224-230` خطای `"SMS timestamp is in the future; check device clock"` از `accept_forwarded_otp` را گرفته و با `timestamp=None` (زمان معتبر سرور) retry می‌کند؛ منطبق با فالبک موجود `/sms-forwarder` در همان فایل (`:550-562`). TEST-VERIFIED: `tests/test_sms_gateway_skew.py:1` و `:67-80` (ساعت ‎+۹۰ ثانیه → HTTP 200 به‌جای 422 ترمینال).
+- CODE-VERIFIED (اعلام `READ_PHONE_STATE` و انتخاب سیم/تشخیص شماره): مانیفست `AndroidManifest.xml:19-22` در `SMS-Forwarder-Pro` مجوز را اعلام می‌کند (lazy، هنگام فعال‌سازی فالبک/رله)؛ `PermissionHelper.isReadPhoneStateGranted` در `PermissionHelper.kt:60` و آیتم اختیاری `read_phone_state` در `PermissionHelper.kt:146-154`؛ صفحه `PermissionManagerScreen` آن را به‌صورت generic از `getAllPermissionsStatus` می‌گیرد (`PermissionManagerScreen.kt:116-118`)؛ رزولوشن چندسیم در `SmsRelayHelper.kt:49-52` و تشخیص شماره از `line1Number` در `CarrierDetector.kt:81-90`.
+- CODE-VERIFIED (ماسک شماره‌های هاب در لاگ و عدم اعتبارسنجی هاست): هر دو خط رله/failover در `SmsForwardRepository.kt:603` و `:622` شماره را از `LogSanitizer.maskPhone` عبور می‌دهند (`LogSanitizer.kt:43-50`، خروجی `09***`)؛ `network_security_config.xml:7-13` تصریح می‌کند کد فقط path/token/flag را اعتبارسنجی می‌کند و هرگز host را نه، و فیلد بیلد `DEFAULT_ENDPOINT_URL` در سورس اصلی خوانده نمی‌شود (تنها تعریف در `app/build.gradle.kts:36`).
+
 ## ممیزی سختی اتصال هاب (afternoon) — 2026-10-14 (CODE-VERIFIED)
 
 - CODE-VERIFIED (رفع ۶ نقص در شفافیت هاب؛ همه گیت‌ها سبز):
