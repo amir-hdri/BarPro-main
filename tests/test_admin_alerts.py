@@ -70,6 +70,60 @@ async def test_create_alert_idempotency(async_db: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_create_alert_reopens_acknowledged_alert(async_db: AsyncSession):
+    service = AlertManagerService()
+
+    with (
+        patch("app.orchestrator.alert_manager.webhook_alert_manager.emit") as mock_emit,
+        patch("app.orchestrator.alert_manager.event_hub.publish", new_callable=AsyncMock) as mock_pub,
+    ):
+        alert = await service.create_alert(
+            session=async_db,
+            severity="high",
+            category="hub_connection",
+            message="Initial disconnect",
+            dedupe_key="recurring_key_456",
+        )
+        assert alert is not None
+        assert alert.is_acknowledged is False
+        mock_emit.assert_called_once()
+        mock_pub.assert_awaited_once()
+
+        # Operator acknowledges the alert
+        acked = await service.acknowledge_alert(session=async_db, alert_id=alert.id, admin_id=10)
+        assert acked is not None
+        assert acked.is_acknowledged is True
+        assert acked.acknowledged_by == 10
+        assert acked.acknowledged_at is not None
+
+        # Reset mocks
+        mock_emit.reset_mock()
+        mock_pub.reset_mock()
+
+        # Alert recurs with same dedupe_key
+        recurring_alert = await service.create_alert(
+            session=async_db,
+            severity="high",
+            category="hub_connection",
+            message="Hub disconnected again!",
+            dedupe_key="recurring_key_456",
+            details={"reconnect_cycle": 2},
+        )
+
+        assert recurring_alert is not None
+        assert recurring_alert.id == alert.id
+        assert recurring_alert.is_acknowledged is False
+        assert recurring_alert.acknowledged_at is None
+        assert recurring_alert.acknowledged_by is None
+        assert recurring_alert.message == "Hub disconnected again!"
+        assert recurring_alert.details == {"reconnect_cycle": 2}
+
+        # Webhook and websocket should have been re-emitted for recurring event
+        mock_emit.assert_called_once()
+        mock_pub.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_acknowledge_alert(async_db: AsyncSession):
     service = AlertManagerService()
 

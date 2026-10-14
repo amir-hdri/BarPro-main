@@ -48,6 +48,67 @@ class AlertManagerService:
         stmt = select(AdminAlert).where(AdminAlert.dedupe_key == dedupe_key)
         existing = await _one_or_none(session, stmt)
         if existing:
+            if existing.is_acknowledged:
+                logger.info(
+                    "Admin alert recurring; un-acknowledging existing alert",
+                    extra={"dedupe_key": dedupe_key, "alert_id": existing.id},
+                )
+                existing.is_acknowledged = False
+                existing.acknowledged_at = None
+                existing.acknowledged_by = None
+                existing.severity = severity.lower()
+                existing.category = category
+                existing.message = message
+                if details is not None:
+                    existing.details = details
+                try:
+                    session.add(existing)
+                    await session.commit()
+                    await session.refresh(existing)
+                except Exception as exc:
+                    await session.rollback()
+                    logger.error("Failed to un-acknowledge recurring admin alert: %s", exc)
+                    raise
+
+                if existing.severity in ("high", "critical"):
+                    try:
+                        webhook_alert_manager.emit(
+                            severity=existing.severity,
+                            title=f"[{category.upper()}] Admin Alert",
+                            payload={
+                                "alert_id": existing.id,
+                                "tenant_id": existing.tenant_id,
+                                "category": existing.category,
+                                "message": existing.message,
+                                "dedupe_key": existing.dedupe_key,
+                                "details": existing.details,
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to emit webhook alert: %s", e)
+
+                try:
+                    await event_hub.publish(
+                        {
+                            "event_type": "admin_alert_created",
+                            "alert_id": existing.id,
+                            "tenant_id": existing.tenant_id,
+                            "severity": existing.severity,
+                            "category": existing.category,
+                            "message": existing.message,
+                            "dedupe_key": existing.dedupe_key,
+                            "created_at": (
+                                existing.created_at.isoformat()
+                                if existing.created_at
+                                else datetime.now(UTC).isoformat()
+                            ),
+                        }
+                    )
+                except Exception as e:
+                    logger.warning("Failed to publish admin alert websocket event: %s", e)
+
+                return existing
+
             logger.info("Admin alert deduplicated", extra={"dedupe_key": dedupe_key})
             return existing
 
