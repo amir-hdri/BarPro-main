@@ -4,6 +4,29 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-15 — Live Waybill Issuance Verification, Celery Queue Isolation & Schedule Optimization
+
+- **Live Waybill Issuance Verification (UTCMS Mobile API)**:
+  - Verified live waybill issuance for **Job 6** (`job_114ca4e47a5543ac` -> Doc ID `237972607`, Tracking Code `1361785270`, UTCMS status «درحال حمل») and **Job 5** (`job_e2523cdd893345f0` -> Doc ID `237977746`, Tracking Code `1361790427`, UTCMS status «درحال حمل»).
+  - Both waybills successfully verified via the two-witness rule: (1) Tracking code received from UTCMS RPA mutation response, and (2) Confirmed against database `waybill_jobs.result_json`.
+  - PyTorch CNN math CAPTCHA solver solved live issuance challenges automatically in 2 seconds (`9+18 = 27` and `solution=12`).
+- **Celery Worker Starvation Resolution (`app/workers/celery_app.py`, `app/core/config.py`)**:
+  - Discovered that `barpro.clean_ip.probe` was routed to `CELERY_WAYBILL_TASKS_QUEUE` (`waybill_tasks`) running every 180s and taking ~140s to screen proxy candidates, blocking waybill execution on solo workers.
+  - Re-routed `clean-ip-pool-probe` to dedicated `"scheduled_tasks"` queue.
+  - Increased `CLEAN_IP_PROBE_INTERVAL_SECONDS` default from 180s to 1800s (30 minutes), ensuring `waybill_tasks` queue remains 100% responsive.
+- **Reconciliation Engine Self-Healing (`app/orchestrator/reconciliation_service.py`)**:
+  - Implemented self-healing driver resolution for waybill jobs missing `driver_id`: automatically parses `driver_national_code` from `payload_json` to fetch driver credentials and query UTCMS issued documents.
+  - Injected `proxy_url=get_worker_proxy_url()` for all mobile reconciliation queries.
+  - Added eventual consistency retry handling for tracking-received jobs with ambiguous outcomes.
+  - Verified with 14 unit tests in `tests/test_reconciliation_service.py` (100% pass).
+- **Driver Schedule Collision Guard & Optimization (`app/services/driver_schedule_service.py`, `scheduled_waybill_executor.py`)**:
+  - Added automatic fallback phone assignment preventing HTTP 422 errors when sender or receiver phone collides with the driver phone.
+  - Verified with 5 unit tests in `tests/test_scheduled_waybill_executor.py` (100% pass).
+  - Configured optimal staggered execution slots (`run_times_csv = '08:30,11:45,14:15'`) for active driver schedules, avoiding peak rate-limiting and off-peak OTP challenges.
+- **Virtual Android (Redroid) Host Parity (`compose/android.yml`)**:
+  - Configured Redroid guest container with `privileged: true` to support binderfs nodes and FUSE storage devices under Linux kernel 6.x.
+  - Verified live ADB connectivity (`127.0.0.1:5555`) with FakeTraveler mock location enabled (`appops set cl.coders.faketraveler android:mock_location allow`).
+
 ### 2026-10-14 (evening) — Recurring alert un-acknowledgement, Hub timeout adjustment & Android cold-start ANR resolution
 
 - **Recurring AdminAlert un-acknowledgement (`app/orchestrator/alert_manager.py`)**: `create_alert` now detects if an existing alert with the same `dedupe_key` was previously acknowledged (`is_acknowledged == True`). On recurring outages/events, it resets `is_acknowledged = False`, clears `acknowledged_at` and `acknowledged_by`, updates the message and payload, and re-emits high/critical webhooks and WebSocket notifications. Prevents silent deduplication of intermittent outages. Regression test `test_create_alert_reopens_acknowledged_alert` added to `tests/test_admin_alerts.py` (all 18 alert/hub/skew tests passed).
