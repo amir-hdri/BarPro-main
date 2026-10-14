@@ -4,6 +4,13 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-14 (evening) — Recurring alert un-acknowledgement, Hub timeout adjustment & Android cold-start ANR resolution
+
+- **Recurring AdminAlert un-acknowledgement (`app/orchestrator/alert_manager.py`)**: `create_alert` now detects if an existing alert with the same `dedupe_key` was previously acknowledged (`is_acknowledged == True`). On recurring outages/events, it resets `is_acknowledged = False`, clears `acknowledged_at` and `acknowledged_by`, updates the message and payload, and re-emits high/critical webhooks and WebSocket notifications. Prevents silent deduplication of intermittent outages. Regression test `test_create_alert_reopens_acknowledged_alert` added to `tests/test_admin_alerts.py` (all 18 alert/hub/skew tests passed).
+- **Hub liveness timeout raised to 1200s (`app/core/config.py`)**: `HUB_HEARTBEAT_STALE_SECONDS` default increased from 900s to 1200s (20 minutes). Android WorkManager enforces a minimum periodic execution interval of 15 minutes (`MIN_PERIODIC_INTERVAL_MILLIS = 900s`); the 1200s threshold provides a 5-minute safety margin against Doze mode deferrals and eliminates false flapping.
+- **Android cold-start ANR resolution (`SmsForwarderApp.kt`)**: Room database initialization (`AppDatabase.getDatabase`), PBKDF2 keystore salt generation (`SecureStorageManager.getOrCreateSalt`), and background worker scheduling (`CleanupWorker`, `MaintenanceWorker`, `SmsSyncWorker`) offloaded from the UI main thread in `Application.onCreate` to a background coroutine (`Dispatchers.IO + SupervisorJob()`). Converted `repository` to lazy initialization. Verified on `medium_phone` emulator: cold launch completed in ~2.8s without blocking System UI and zero ANR logs in `/data/anr/`.
+- **Production deployment & runtime verification**: Server `/opt/barpro` switched to `main` branch, pulled commit `6d4f640`, and restarted `barpro-backend` container with verified healthy status. Live verification confirmed `stale_after_seconds: 1200` and `status: connected` in runtime payload.
+
 ### 2026-10-14 (pm) — Hub liveness hardening audit (6 defects fixed, all green)
 
 - **Removed production OTP webhook token from `tests/test_hub_status_tracking.py`**: the committed test fixture carried the live `X-OTP-Webhook-Token` (CRITICAL credential leak, caught before commit — token never entered git history, verified via `git log -S`). Replaced with test-only `TEST_WEBHOOK_TOKEN`; sibling repo `SMS-Forwarder-Pro` scanned clean.

@@ -12,6 +12,14 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## بازگشایی خودکار آلرت‌های متناوب، تعدیل تایم‌اوت هاب به ۱۲۰۰ ثانیه و رفع ANR در کلاینت — 2026-10-14 (CODE-VERIFIED)
+
+> این بخش صرفاً یک snapshot با برچسب تاریخی از وضعیت کد در 2026-10-14 است و وضعیت زنده production را تضمین نمی‌کند.
+
+- CODE-VERIFIED (بازگشایی خودکار آلرت‌های تکرار شونده در `app/orchestrator/alert_manager.py`): متد `create_alert` پیش‌تر در صورت وجود رکورد با همان `dedupe_key` صرفاً رکورد را برمی‌گرداند؛ با تغییر جدید چنانچه `existing.is_acknowledged == True` باشد، وضعیت به `is_acknowledged = False` بازنشانی شده و فیلدهای `acknowledged_at` و `acknowledged_by` نال می‌شوند و پیام و جزئیات به‌روزرسانی شده و رویداد وب‌سوکت `admin_alert_created` و وب‌هوک مجدداً ارسال می‌شوند تا قطعی‌های متناوب پنهان نمانند. TEST-VERIFIED: تست `test_create_alert_reopens_acknowledged_alert` در `tests/test_admin_alerts.py`.
+- CODE-VERIFIED (تعدیل تایم‌اوت لایونس هاب به ۱۲۰۰ ثانیه در `app/core/config.py`): `HUB_HEARTBEAT_STALE_SECONDS` به مقدار پیش‌فرض ۱۲۰۰ ثانیه (۲۰ دقیقه) تغییر یافت تا با محدودیت ذاتی Periodic WorkManager اندروید (حداقل بازه ۱۵ دقیقه = ۹۰۰ ثانیه) سازگار شده و از هشدارهای کاذب قطع ارتباط جلوگیری شود. TEST-VERIFIED: تست‌های `tests/test_hub_status_tracking.py` و تأیید زنده روی سرور پروداکشن با `stale_after_seconds: 1200`.
+- CODE-VERIFIED (رفع ANR شروع سرد کلاینت در `SMS-Forwarder-Pro`): در `SmsForwarderApp.kt`، کلیه فراخوانی‌های مسدودکننده ترد اصلی شامل دیتابیس روم `AppDatabase.getDatabase`، سالت Keystore `SecureStorageManager.getOrCreateSalt` و زمان‌بندی ورکرها به یک Coroutine پس‌زمینه با `Dispatchers.IO + SupervisorJob()` منتقل شده و `repository` به صورت Lazy تعریف شد. TEST-VERIFIED: لانچ موفق بدون ANR روی ایمولاتور `medium_phone` (زمان ۲.۸ ثانیه و پوشه `/data/anr/` بدون لاگ جدید).
+
 ## برابری فالبک اسکیو ساعت گیت‌وی، مجوز READ_PHONE_STATE و ماسک لاگ هاب — 2026-10-14 (CODE-VERIFIED)
 
 > این بخش صرفاً یک snapshot با برچسب تاریخی از وضعیت کد در 2026-10-14 است و وضعیت زنده production را تضمین نمی‌کند.
