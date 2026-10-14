@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "cairn": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@eventually-consistent/cairn-server"
+      ],
+      "enabled": true
+    }
+  }
+}
