@@ -188,7 +188,7 @@ def _build_beat_schedule() -> dict:
                 "task": "barpro.clean_ip.probe",
                 "schedule": schedule(utcms_config.CLEAN_IP_PROBE_INTERVAL_SECONDS),
                 "options": {
-                    "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
+                    "queue": "scheduled_tasks",
                     "expires": max(10, utcms_config.CLEAN_IP_PROBE_INTERVAL_SECONDS - 5),
                 },
             },

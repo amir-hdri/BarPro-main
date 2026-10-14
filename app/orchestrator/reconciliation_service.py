@@ -36,6 +36,9 @@ _job_id_col = cast(InstrumentedAttribute[int | None], WaybillJob.id)
 _job_status_col = cast(InstrumentedAttribute[str], WaybillJob.status)
 _job_next_retry_at_col = cast(InstrumentedAttribute[datetime | None], WaybillJob.next_retry_at)
 _driver_id_col = cast(InstrumentedAttribute[int | None], Driver.id)
+_driver_client_id_col = cast(InstrumentedAttribute[int], Driver.client_id)
+_driver_national_code_col = cast(InstrumentedAttribute[str], Driver.driver_national_code)
+_driver_status_col = cast(InstrumentedAttribute[str], Driver.status)
 _runtime_driver_id_col = cast(InstrumentedAttribute[int], DriverRuntimeState.driver_id)
 
 
@@ -174,6 +177,54 @@ class ReconciliationService:
             if driver_obj:
                 utcms_username = driver_obj.utcms_username
 
+        # If driver_obj could not be resolved from job.driver_id, attempt to resolve from payload
+        if not driver_obj:
+            payload_data = cast(Any, job.payload_json)
+            if isinstance(payload_data, str):
+                try:
+                    payload_data = json.loads(payload_data)
+                except Exception:
+                    payload_data = {}
+            elif not isinstance(payload_data, dict):
+                payload_data = {}
+
+            driver_nat_code = (
+                payload_data.get("driver_national_code")
+                or (payload_data.get("vehicle") or {}).get("driver_national_code")
+                or payload_data.get("driverNationalCode")
+                or (payload_data.get("vehicle") or {}).get("driverNationalCode")
+                or (payload_data.get("metadata_json") or {}).get("vehicle", {}).get("driver_national_code")
+            )
+            if driver_nat_code:
+                norm_code = str(driver_nat_code).strip()
+                driver_stmt = select(Driver).where(
+                    _driver_client_id_col == job.client_id,
+                    _driver_national_code_col == norm_code,
+                )
+                driver_obj = (await session.execute(driver_stmt)).scalar_one_or_none()
+                if driver_obj:
+                    utcms_username = driver_obj.utcms_username
+                    if job.driver_id is None:
+                        job.driver_id = driver_obj.id
+                        logger.info("Self-healed job #%s driver_id -> %s from payload", job.id, driver_obj.id)
+
+        # Fallback to any active driver for client if driver_obj still not found
+        if not driver_obj and job.client_id:
+            fallback_driver_stmt = (
+                select(Driver)
+                .where(_driver_client_id_col == job.client_id, _driver_status_col == "active")
+                .order_by(_driver_id_col.asc())
+            )
+            fallback_driver = (await session.execute(fallback_driver_stmt)).scalars().first()
+            if fallback_driver:
+                logger.info(
+                    "Using fallback active driver %s for mobile document lookup on job #%s",
+                    fallback_driver.driver_national_code,
+                    job.id,
+                )
+                driver_obj = fallback_driver
+                utcms_username = fallback_driver.utcms_username
+
         # Extract reconciliation identity
         from app.core.submission_identity import extract_reconciliation_identity
 
@@ -192,36 +243,53 @@ class ReconciliationService:
             try:
                 from app.auth_multitenant import decrypt_driver_password
                 from app.automation.gps_shipping_manager import get_or_login_client
+                from app.automation.worker_proxy import get_worker_proxy_url
 
                 enc_pass = driver_obj.utcms_password_encrypted or getattr(driver_obj, "encrypted_password", None)
                 if enc_pass:
                     raw_password = decrypt_driver_password(enc_pass)
+                    proxy_url = get_worker_proxy_url()
                     client = await get_or_login_client(
                         national_code=driver_obj.utcms_username,
                         password=raw_password,
+                        proxy_url=proxy_url,
                         client_id=getattr(job, "client_id", None),
                     )
                     doc_id_to_check = job.document_id or res_json.get("document_id")
+                    doc_obj = None
                     if doc_id_to_check:
                         doc_resp = await client.get_document(str(doc_id_to_check))
                         doc_obj = doc_resp.get("obj") if isinstance(doc_resp.get("obj"), dict) else None
-                        if doc_obj and (
-                            str(doc_obj.get("id")) == str(doc_id_to_check)
-                            or str(doc_obj.get("docNo")) == str(tracking_code)
-                        ):
-                            res = ReconciliationResult(
-                                outcome=ScraperOutcome.REGISTERED,
-                                tracking_code=str(doc_obj.get("docNo") or tracking_code),
-                                document_id=str(doc_obj.get("id") or doc_id_to_check),
-                                status_text=str(doc_obj.get("statusName") or "ثبت شده"),
-                                issue_date=str(doc_obj.get("date") or doc_obj.get("dateFarsi") or ""),
-                                details={
-                                    "tracking_code": str(doc_obj.get("docNo") or tracking_code),
-                                    "document_id": str(doc_obj.get("id") or doc_id_to_check),
-                                    "status": doc_obj.get("statusName"),
-                                    "transport": "mobile",
-                                },
-                            )
+                    elif tracking_code:
+                        doc_resp = await client.get_issued_documents(doc_no=str(tracking_code))
+                        raw_obj = doc_resp.get("obj")
+                        if isinstance(raw_obj, list):
+                            for item in raw_obj:
+                                if isinstance(item, dict) and str(item.get("docNo")) == str(tracking_code):
+                                    doc_obj = item
+                                    doc_id_to_check = str(item.get("id"))
+                                    break
+                        elif isinstance(raw_obj, dict) and str(raw_obj.get("docNo")) == str(tracking_code):
+                            doc_obj = raw_obj
+                            doc_id_to_check = str(raw_obj.get("id"))
+
+                    if doc_obj and (
+                        (doc_id_to_check and str(doc_obj.get("id")) == str(doc_id_to_check))
+                        or str(doc_obj.get("docNo")) == str(tracking_code)
+                    ):
+                        res = ReconciliationResult(
+                            outcome=ScraperOutcome.REGISTERED,
+                            tracking_code=str(doc_obj.get("docNo") or tracking_code),
+                            document_id=str(doc_obj.get("id") or doc_id_to_check),
+                            status_text=str(doc_obj.get("statusName") or "ثبت شده"),
+                            issue_date=str(doc_obj.get("date") or doc_obj.get("dateFarsi") or ""),
+                            details={
+                                "tracking_code": str(doc_obj.get("docNo") or tracking_code),
+                                "document_id": str(doc_obj.get("id") or doc_id_to_check),
+                                "status": doc_obj.get("statusName"),
+                                "transport": "mobile",
+                            },
+                        )
             except Exception as mobile_recon_exc:
                 logger.warning("Mobile reconciliation API query failed for job #%s: %s", job_id, mobile_recon_exc)
 
@@ -455,31 +523,51 @@ class ReconciliationService:
                     )
 
             else:  # AMBIGUOUS
-                JobStateMachine.transition(
-                    session,
-                    job,
-                    JobStatus.NEEDS_REVIEW,
-                    error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
-                    last_error="Reconciliation result ambiguous; marked for manual review",
-                )
-                consecutive_unknowns = payload_meta.get("consecutive_unknowns", 0) + 1
-                payload_meta["consecutive_unknowns"] = consecutive_unknowns
-                if isinstance(cast(Any, job.payload_json), str):
-                    # See note above: str values are legitimately stored here.
-                    job.payload_json = cast(Any, json.dumps(payload_meta, ensure_ascii=False))
+                if is_tracking_received(job) and recon_attempts <= len(RECONCILIATION_SCHEDULE):
+                    delay = RECONCILIATION_SCHEDULE[recon_attempts - 1]
+                    next_retry = datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=delay)
+                    job.next_retry_at = next_retry
+                    if job.status == JobStatus.RECONCILING:
+                        JobStateMachine.transition(session, job, JobStatus.UNKNOWN)
+                    if isinstance(cast(Any, job.payload_json), str):
+                        job.payload_json = cast(Any, json.dumps(payload_meta, ensure_ascii=False))
+                    else:
+                        job.payload_json = payload_meta
+                    logger.info(
+                        "Job #%s tracking-received audit lookup ambiguous (attempt %s/%s). Retrying in %ss",
+                        job.id,
+                        recon_attempts,
+                        len(RECONCILIATION_SCHEDULE),
+                        delay,
+                    )
                 else:
-                    job.payload_json = payload_meta
+                    JobStateMachine.transition(
+                        session,
+                        job,
+                        JobStatus.NEEDS_REVIEW,
+                        error_category=ErrorCategory.SUBMISSION_UNCONFIRMED.value,
+                        last_error="Reconciliation result ambiguous; marked for manual review",
+                    )
+                    consecutive_unknowns = payload_meta.get("consecutive_unknowns", 0) + 1
+                    payload_meta["consecutive_unknowns"] = consecutive_unknowns
+                    if isinstance(cast(Any, job.payload_json), str):
+                        # See note above: str values are legitimately stored here.
+                        job.payload_json = cast(Any, json.dumps(payload_meta, ensure_ascii=False))
+                    else:
+                        job.payload_json = payload_meta
 
-                # Check if high severity alert should be raised (>= 3 attempts)
-                # job was loaded from the DB above, so its primary key is never None.
-                assert job.id is not None
-                await admin_alert_service.check_repeated_unknown_submission(
-                    session=session,
-                    job_id=job.id,
-                    consecutive_count=consecutive_unknowns,
-                    tenant_id=job.client_id,
-                )
-                logger.warning("Job #%s reconciled to NEEDS_REVIEW (Ambiguous count: %s)", job.id, consecutive_unknowns)
+                    # Check if high severity alert should be raised (>= 3 attempts)
+                    # job was loaded from the DB above, so its primary key is never None.
+                    assert job.id is not None
+                    await admin_alert_service.check_repeated_unknown_submission(
+                        session=session,
+                        job_id=job.id,
+                        consecutive_count=consecutive_unknowns,
+                        tenant_id=job.client_id,
+                    )
+                    logger.warning(
+                        "Job #%s reconciled to NEEDS_REVIEW (Ambiguous count: %s)", job.id, consecutive_unknowns
+                    )
 
             await session.commit()
             await session.refresh(job)

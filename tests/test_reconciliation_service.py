@@ -510,3 +510,153 @@ async def test_tracking_received_audit_sweep_never_declares_success_without_hist
     assert job.status != JobStatus.SUCCESS
     assert job.mutation_status != "confirmed"
     assert (job.result_json or {}).get("confirmation_status") == "tracking_received"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_self_heals_driver_id_from_payload(async_db: AsyncSession):
+    """When job.driver_id is None, it extracts the national code from payload and self-heals driver_id."""
+    job = WaybillJob(
+        job_id="test_job_self_heal",
+        idempotency_key="idemp_self_heal",
+        client_id=1,
+        driver_id=None,
+        payload_json={"vehicle": {"driver_national_code": "1234567890"}},
+        status=JobStatus.UNKNOWN,
+        mutation_status="dispatched",
+        result_json={"tracking_code": "UTC-HEAL-1", "document_id": "999", "transport": "mobile"},
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_client = AsyncMock()
+    mock_client.get_document = AsyncMock(
+        return_value={"obj": {"id": "999", "docNo": "UTC-HEAL-1", "statusName": "ثبت شده"}}
+    )
+
+    with (
+        patch("app.automation.gps_shipping_manager.get_or_login_client", new_callable=AsyncMock) as mock_login,
+        patch("app.auth_multitenant.decrypt_driver_password", return_value="plain_pass"),
+    ):
+        mock_login.return_value = mock_client
+        rec_service = ReconciliationService()
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id)
+
+    assert reconciled_job is not None
+    assert reconciled_job.status == JobStatus.SUCCESS
+    assert reconciled_job.driver_id == 1  # Self-healed to driver id 1
+    assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-HEAL-1"
+    assert reconciled_job.mutation_status == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_fallback_driver_when_national_code_not_found(async_db: AsyncSession):
+    """When driver national code in payload does not match, fallback active driver for client is used."""
+    job = WaybillJob(
+        job_id="test_job_fallback_driver",
+        idempotency_key="idemp_fallback_driver",
+        client_id=1,
+        driver_id=None,
+        payload_json={"vehicle": {"driver_national_code": "9999999999"}},  # Unknown driver
+        status=JobStatus.UNKNOWN,
+        mutation_status="dispatched",
+        result_json={"tracking_code": "UTC-FALLBACK-1", "document_id": "888", "transport": "mobile"},
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_client = AsyncMock()
+    mock_client.get_document = AsyncMock(
+        return_value={"obj": {"id": "888", "docNo": "UTC-FALLBACK-1", "statusName": "ثبت شده"}}
+    )
+
+    with (
+        patch("app.automation.gps_shipping_manager.get_or_login_client", new_callable=AsyncMock) as mock_login,
+        patch("app.auth_multitenant.decrypt_driver_password", return_value="plain_pass"),
+    ):
+        mock_login.return_value = mock_client
+        rec_service = ReconciliationService()
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id)
+
+    assert reconciled_job is not None
+    assert reconciled_job.status == JobStatus.SUCCESS
+    assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-FALLBACK-1"
+    assert reconciled_job.mutation_status == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_tracking_received_job_ambiguous_retries_eventual_consistency(async_db: AsyncSession):
+    """An acknowledged tracking_received job with ambiguous outcome must retry without immediate NEEDS_REVIEW."""
+    job = _tracking_received_job(
+        "job_ambig_retry",
+        "idem_ambig_retry",
+        "UTC-AMBIG-RETRY",
+        payload_json={"origin_city_id": 1, "reconciliation_attempts": 1},
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_bm = MagicMock()
+    mock_bm.create_context = AsyncMock(return_value=("session-ambig", AsyncMock()))
+    mock_bm.new_page = AsyncMock(return_value=AsyncMock())
+
+    mock_res = ReconciliationResult(outcome=ScraperOutcome.AMBIGUOUS)
+
+    with patch(
+        "app.orchestrator.reconciliation_service.reconciliation_scraper.query_waybill_status", new_callable=AsyncMock
+    ) as mock_query:
+        mock_query.return_value = mock_res
+        rec_service = ReconciliationService()
+        reconciled_job = await rec_service.reconcile_job(
+            session=async_db, job_id=job.id, browser_manager=mock_bm, audit_only=True
+        )
+
+    assert reconciled_job is not None
+    # Must remain UNKNOWN with next_retry_at scheduled, NOT demoted to NEEDS_REVIEW
+    assert reconciled_job.status == JobStatus.UNKNOWN
+    assert reconciled_job.next_retry_at is not None
+    assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-AMBIG-RETRY"
+    assert (reconciled_job.result_json or {}).get("confirmation_status") == "tracking_received"
+
+
+@pytest.mark.asyncio
+async def test_mobile_reconciliation_by_tracking_code_via_issued_documents(async_db: AsyncSession):
+    """When document_id is missing, mobile reconciliation queries get_issued_documents by tracking code."""
+    job = WaybillJob(
+        job_id="test_job_issued_docs",
+        idempotency_key="idemp_issued_docs",
+        client_id=1,
+        driver_id=1,
+        payload_json={"vehicle": {"driver_national_code": "1234567890"}},
+        status=JobStatus.UNKNOWN,
+        mutation_status="dispatched",
+        result_json={"tracking_code": "UTC-DOCS-SEARCH", "transport": "mobile"},  # No document_id
+    )
+    async_db.add(job)
+    await async_db.commit()
+    await async_db.refresh(job)
+
+    mock_client = AsyncMock()
+    mock_client.get_issued_documents = AsyncMock(
+        return_value={
+            "obj": [
+                {"id": "777", "docNo": "UTC-DOCS-SEARCH", "statusName": "ثبت شده"},
+            ]
+        }
+    )
+
+    with (
+        patch("app.automation.gps_shipping_manager.get_or_login_client", new_callable=AsyncMock) as mock_login,
+        patch("app.auth_multitenant.decrypt_driver_password", return_value="plain_pass"),
+    ):
+        mock_login.return_value = mock_client
+        rec_service = ReconciliationService()
+        reconciled_job = await rec_service.reconcile_job(session=async_db, job_id=job.id)
+
+    assert reconciled_job is not None
+    assert reconciled_job.status == JobStatus.SUCCESS
+    assert reconciled_job.document_id == "777"
+    assert (reconciled_job.result_json or {}).get("tracking_code") == "UTC-DOCS-SEARCH"
+    assert reconciled_job.mutation_status == "confirmed"

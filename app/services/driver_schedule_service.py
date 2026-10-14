@@ -254,19 +254,37 @@ class DriverScheduleService:
             if "driver_national_code" not in payload:
                 payload["driver_national_code"] = driver.driver_national_code
 
-            # Ensure party phones are populated for automated submission
+            # Ensure party phones are populated and do not collide with driver phone
             fallback_phone = getattr(client, "phone", None) or "09123150212"
             if isinstance(payload.get("sender"), dict):
-                if not payload["sender"].get("phone"):
-                    payload["sender"]["phone"] = payload.get("sender_phone") or fallback_phone
+                sender_phone_val = str(payload["sender"].get("phone") or "").strip()
+                if not sender_phone_val or sender_phone_val == driver.phone:
+                    alt_phone = (
+                        payload.get("sender_phone")
+                        if payload.get("sender_phone") and str(payload.get("sender_phone")).strip() != driver.phone
+                        else fallback_phone
+                    )
+                    payload["sender"]["phone"] = alt_phone
+                    payload["sender_phone"] = alt_phone
             else:
-                payload.setdefault("sender_phone", fallback_phone)
+                sender_phone_val = str(payload.get("sender_phone") or "").strip()
+                if not sender_phone_val or sender_phone_val == driver.phone:
+                    payload["sender_phone"] = fallback_phone
 
             if isinstance(payload.get("receiver"), dict):
-                if not payload["receiver"].get("phone"):
-                    payload["receiver"]["phone"] = payload.get("receiver_phone") or fallback_phone
+                receiver_phone_val = str(payload["receiver"].get("phone") or "").strip()
+                if not receiver_phone_val or receiver_phone_val == driver.phone:
+                    alt_phone = (
+                        payload.get("receiver_phone")
+                        if payload.get("receiver_phone") and str(payload.get("receiver_phone")).strip() != driver.phone
+                        else fallback_phone
+                    )
+                    payload["receiver"]["phone"] = alt_phone
+                    payload["receiver_phone"] = alt_phone
             else:
-                payload.setdefault("receiver_phone", fallback_phone)
+                receiver_phone_val = str(payload.get("receiver_phone") or "").strip()
+                if not receiver_phone_val or receiver_phone_val == driver.phone:
+                    payload["receiver_phone"] = fallback_phone
 
             # Ensure financial section has minimum valid rent/fare
             if isinstance(payload.get("financial"), dict):
