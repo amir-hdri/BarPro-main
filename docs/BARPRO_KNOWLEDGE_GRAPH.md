@@ -12,6 +12,63 @@
 >
 > این سند هیچ secret، password، DSN کامل یا proxy credential را نگهداری نمی‌کند.
 
+## ممیزی سختی اتصال هاب (afternoon) — 2026-10-14 (CODE-VERIFIED)
+
+- CODE-VERIFIED (رفع ۶ نقص در شفافیت هاب؛ همه گیت‌ها سبز):
+  - حذف توکن واقعی وبهوک OTP از `tests/test_hub_status_tracking.py` پیش از کامیت (توکن هرگز وارد تاریخچه git نشد)؛ مخزن خواهر `SMS-Forwarder-Pro` پاک است.
+  - رفع flapping آستانه (۳۰۰ ثانیه == پریود پینگ): `HUB_HEARTBEAT_STALE_SECONDS=900` (۳ برابر) با تست رگرسیون red-green.
+  - انتقال هشداردهی از GET ادمین به تسک beat به نام `monitor.hub_liveness` (هر ۵ دقیقه)؛ `GET /hub-status` فقط‌خواندنی شد.
+  - ردپای ممیزی auto-acknowledge (`auto_resolved_by`) بدون جعل تأیید انسانی.
+  - شماره‌های سیم هاب از env (`HUB_NUMBERS`) خوانده می‌شوند.
+- TEST-VERIFIED: بک‌اند `2388 passed, 7 skipped`؛ فایل‌های سشن `49 passed`؛ `mypy` صفر خطا (۲۱۹ فایل)؛ فرانت `typecheck`/`eslint` صفر؛ اندروید `99/0`؛ هر دو APK بیلد موفق؛ E2E روی دستگاه `medium_phone` با round-trip زنده `HEALTH_CHECK`→`ready` سبز شد (تلاش اول به‌علت DB خراب اپ نصب‌شده قبلی شکست خورد — محیطی، نه باگ کد).
+
+## نرمال‌سازی شماره همراه، فعال‌سازی خودکار راننده، شفافیت هاب و مسیریابی اپراتوری پیامک — 2026-10-14 (CODE-VERIFIED)
+
+- CODE-VERIFIED (نرمال‌سازی شماره‌های همراه ایران در بک‌اند و کلاینت اندروید):
+  - بک‌اند: ماژول `app/core/phone_utils.py` با توابع `normalize_iranian_phone`، `is_valid_iranian_mobile` و `detect_operator`. تبدیل خودکار ارقام فارسی/عربی (`۰۱۲۳۴۵۶۷۸۹` و `٠١٢٣٤٥٦٧٨٩`) به لاتین، پاکسازی فاصله‌ها، خط تیره و علائم، حذف پیش‌شماره‌های کشوری (`+98`، `0098`، `98`) و استانداردسازی به فرمت ۱۱ رقمی `09XXXXXXXXX`.
+  - یکپارچه‌سازی در لایه منطق و دیتابیس `DriverService` (`app/services/driver_service.py`) برای ایجاد راننده، به‌روزرسانی و جلوگیری از ثبت تکراری شماره، بدون دستکاری در UI.
+  - کلاینت اندروید: متد `SmsParser.normalizePhoneNumber` در `SMS-Forwarder-Pro` با منطق بک‌اند همگام شد.
+  - TEST-VERIFIED: آزمون‌های ۸گانه `tests/test_phone_normalization.py` و آزمون اندروید `SmsParserTest.kt` با موفقیت ۱۰۰٪ پاس شدند.
+- CODE-VERIFIED (فعال‌سازی خودکار راننده پس از ثبت‌نام اولیه بدون نیاز به تأیید دستی ادمین):
+  - وضعیت `DriverStatus.PENDING = "pending"` به مدل‌های دیتابیس اضافه شد.
+  - متد `DriverService.check_and_auto_activate_driver` پیاده‌سازی شد: به محض تکمیل ثبت‌نام راننده و تأیید OTP و دسترسی‌ها (مانند دریافت پیامک و موقعیت مکانی)، وضعیت راننده به صورت خودکار به `active` (و `ready`) ارتقا می‌یابد.
+  - همزمان هشدار `AdminAlert` با پیام «راننده جدید فعال شد» به همراه نام و شماره راننده ایجاد و رویداد در `event_hub` منتشر می‌شود.
+  - در صورت ناقص ماندن دسترسی‌ها یا کد، راننده در وضعیت `pending` باقی می‌ماند.
+  - مسیر وبهوک پیامک (`app/api/routes/otp_forwarder.py`) به بررسی و فعال‌سازی خودکار راننده در لحظه دریافت هارت‌بیت و پیامک مجهز شد.
+  - TEST-VERIFIED: آزمون‌های `tests/test_driver_auto_activation.py` (۲ تست) با موفقیت پاس شدند.
+- CODE-VERIFIED (شفافیت زنده وضعیت اتصال گوشی هاب برای ادمین):
+  - وبهوک سرور `app/api/routes/otp_forwarder.py` با دریافت هارت‌بیت از اپلیکیشن هاب (`app_role: "HUB"` یا هدر `X-App-Role: HUB` یا شماره‌های هاب)، وضعیت زنده اتصال را در کلید ردیس `rpa:forwarder:hub:connected` ثبت می‌کند.
+  - اندپوینت `GET /api/v1/admin/hub-status` در `app/api/routes/admin_alerts.py` وضعیت اتصال، ثانیه‌های سپری‌شده (`seconds_ago` و `seconds_since_last_heartbeat`)، زمان آخرین ضربان (`last_heartbeat_at` و `last_heartbeat_iso`)، پیام وضعیت (`message`) و خطوط هاب (`hub_lines`) را بازمی‌گرداند تا تطابق کامل با قراردادهای رابط کاربری فرانت‌اند (`apps/web/src/app/admin/dashboard/page.tsx` و `health/page.tsx`) برقرار باشد؛ در صورت قطعی اتصال (> ۳۰۰ ثانیه) به طور خودکار هشدار با اهمیت بالا (high severity) ثبت می‌شود و هنگام اتصال مجدد هاب، هشدارهای باز `hub:disconnected` به صورت خودکار تایید و بسته می‌شوند.
+  - کلاینت اندروید `SmsForwarderClient.kt` برای فلور Hub، هدر `X-App-Role: HUB` و شماره‌های سیم‌کارت هاب را ارسال می‌کند.
+  - پنل فرانت‌اند ادمین:
+    - در داشبورد اصلی ادمین (`apps/web/src/app/admin/dashboard/page.tsx`): بج زنده وضعیت اتصال هاب و هشدار برجسته قرمز هنگام قطع ارتباط نمایش داده می‌شود.
+    - در صفحه سلامت سیستم (`apps/web/src/app/admin/health/page.tsx`): کارت اختصاصی اطلاعات رله گوشی هاب شامل شناسه دستگاه، زمان ضربان و خطوط سیم‌کارت تعبیه شد.
+  - TEST-VERIFIED: آزمون‌های `tests/test_hub_status_tracking.py` (۳ تست) پاس شدند.
+- CODE-VERIFIED (مسیریابی پیامک به گوشی هاب بر اساس کاتالوگ جامع اپراتورها، MVNOها و الگوریتم Longest-Prefix Matching):
+    - همراه اول (MCI) — ۱۷ پیش‌شماره اصلی + 0997: `0910–0919`، `0990–0995` (شامل سیم‌کارت انارستان `0994` و اعتباری کشوری `0995`)، `0996`، `0997` -> سیم‌کارت همراه اول هاب (`09966567754`)
+    - ایرانسل (MTN Irancell) — ۱۴ پیش‌شماره اصلی: `0930`، `0933`، `0935–0939`، `0900–0905`، `0941` -> سیم‌کارت ایرانسل هاب (`09047119812`)
+    - رایتل (RighTel) — ۴ پیش‌شماره اصلی: `0920–0923` -> سیم‌کارت ایرانسل هاب (مطابق توافق تعرفه/رومینگ هاب)
+    - جمع کل ۳۵ پیش‌شماره اصلی منطبق بر منبع مرجع `persian-tools v4.0.4` و لیست اعتبارسنجی رگولاتوری CRA.
+    - اپراتورهای منطقه‌ای و اختصاصی:
+      - تالیا (Taliya): `0932` -> سیم‌کارت همراه اول هاب (شبکه میزبان همراه اول)
+      - کیش سل پارس / تله‌کیش (TKC): `0934`، `093476` -> سیم‌کارت همراه اول هاب (رومینگ همراه اول)
+      - اسپادان (MTCE): `0931` -> سیم‌کارت همراه اول هاب
+    - اپراتورهای مجازی (MVNO):
+      - شاتل موبایل (Shatel Mobile): `0998`، `09981`، `09982` -> سیم‌کارت ایرانسل هاب
+      - سامان‌تل (SamanTel): `0999`، `09999`، `09995` -> سیم‌کارت ایرانسل هاب
+      - لوتوس‌تل (LotusTel): `09990` -> سیم‌کارت همراه اول هاب (میزبان همراه اول)
+      - آپتل (Aptel): `09991`، `09993` -> سیم‌کارت همراه اول هاب (میزبان همراه اول)
+      - فناپ موبایل (`09992`)، آرین‌تل (`09998`)، اسمارت‌کام (`09988`)، همراه هوشمند آینده / توسن (`09989`) -> سیم‌کارت ایرانسل هاب
+  - الگوریتم Longest-Prefix Matching (LPM):
+    - تفکیک هوشمند تداخل پیش‌شماره‌های ۴ رقمی و ۵ رقمی در رنج `0999` و `0998` (جلوگیری از انحراف آپتل `09991`/`09993` و لوتوس‌تل `09990` به ایرانسل به دلیل پیش‌شماره کلی سامان‌تل `0999` با انتخاب طولانی‌ترین پیش‌شماره منطبق).
+  - پیاده‌سازی همگام در دو پلتفرم:
+    - اندروید: `CarrierRoutingTable.kt` و `CarrierDetector.kt` (`MobileCarrier` enum شامل MCI, IRANCELL, RIGHTEL, TALIYA, TKC, SPADAN, SHATEL, SAMANTEL, LOTUSTEL, APTEL, FANAP, ARIANTEL, SMARTCOMM, TOSAN) با متدهای `registerRule` و `addPrefixes` و `isKnownOperator`.
+    - بک‌اند: ماژول `app/core/phone_utils.py` با `OPERATOR_RULES`، `resolve_carrier_route`، `resolve_hub_target_carrier`، `detect_operator`، `is_known_operator_prefix` و `is_valid_iranian_mobile`.
+    - رفع باگ نرمال‌سازی `+98 09...` و `0098 09...` در بک‌اند و اندروید جهت جلوگیری از ایجاد ارقام اضافه `00912...`.
+    - رفع رگرسیون تداخل کوئری دیتابیس تلفن تکراری در `DriverService.create_driver` که منجر به شکست تست سهمیه پلاک `test_create_driver_plate_limit_reached` شده بود.
+  - فال‌بک پیش‌فرض به سیم‌کارت همراه اول هاب همراه با لاگ هشدار برای پیش‌شماره‌های ناشناخته.
+  - TEST-VERIFIED: آزمون‌های `tests/test_phone_normalization.py` (۱۴ تست جامع)، `CarrierRoutingTableTest.kt` (۱۰ تست واحد)، `CarrierDetectorTest.kt`، `SmsParserTest.kt` و `test_driver_multitenant.py` (۱۴ تست) با موفقیت ۱۰۰٪ پاس شدند.
+
 ## ثبت ویزارد، تاب‌آوری run-due و لاگ بی‌صدای Fernet — 2026-10-13 (CODE-VERIFIED)
 
 - CODE-VERIFIED (قرارداد flat ویزارد / رفع HTTP 422 گزارش‌شده با اسکرین‌شات): ویزارد `/new` در قدم ۶ آبجکت‌های تودرتوی `origin`/`destination` را بدون رشته‌های سطح‌بالا و بدون کلید `financial` می‌فرستاد و union backend (`WaybillPayload | WaybillNestedPayload` در `app/schemas/multitenant.py:768-776`) آن را با ۴۲۲ رد می‌کرد. فرانت‌энд اکنون رشته‌های شهر سطح‌بالا می‌فرستد (`apps/web/src/app/new/page.tsx`) و آبجکت‌های تکراری حذف شدند (داده غنی در `metadata_json` می‌ماند)؛ قرارداد flat، قرارداد صحیح فرم دستی است و هیچ تضعیف اسکیمای backend لازم نبود.

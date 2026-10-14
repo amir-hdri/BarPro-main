@@ -4,6 +4,64 @@ All notable changes to the UTCMS Automation System.
 
 ## [2.9.17] - unreleased
 
+### 2026-10-14 (pm) — Hub liveness hardening audit (6 defects fixed, all green)
+
+- **Removed production OTP webhook token from `tests/test_hub_status_tracking.py`**: the committed test fixture carried the live `X-OTP-Webhook-Token` (CRITICAL credential leak, caught before commit — token never entered git history, verified via `git log -S`). Replaced with test-only `TEST_WEBHOOK_TOKEN`; sibling repo `SMS-Forwarder-Pro` scanned clean.
+- **Fixed Hub heartbeat flapping (threshold == ping interval)**: `GET /hub-status` declared `disconnected` after 300s while the Hub app pings every 300s (`healthCheckIntervalMinutes` default 5), so every healthy cycle flapped and raised a high-severity alert. New `HUB_HEARTBEAT_INTERVAL_SECONDS` (300) / `HUB_HEARTBEAT_STALE_SECONDS` (900 = 3×) in `utcms_config` (env-overridable); regression test `test_healthy_heartbeat_at_full_interval_is_not_stale` red-green verified.
+- **Hub alerting moved off the admin GET onto beat**: the disconnect alert previously fired only while an administrator had the dashboard open. New `app/services/hub_liveness_service.py` (pure `evaluate_hub_liveness` + `sweep_hub_liveness`) with Celery beat task `monitor.hub_liveness` every 5 min (`app/workers/celery_app.py`, `app/workers/tasks.py`); `GET /hub-status` is now strictly read-only (no DB writes/commits on admin polls).
+- **Auto-acknowledge audit trail**: recovery ack records `details.auto_resolved_by="monitor.hub_liveness"` + timestamp and clears `acknowledged_by` so a system ack is never mistaken for a human one.
+- **Hub MSISDNs configurable**: hardcoded SIM numbers replaced by `utcms_config.HUB_NUMBERS` (env `HUB_NUMBERS`) in `otp_forwarder.py` heartbeat writer and `hub_liveness_service.py`; frontend fallbacks show «نامشخص» instead of baked-in numbers.
+- **Verification evidence (this session)**: backend `2388 passed, 7 skipped` (full suite); session files `49 passed`; `ruff`/`black` clean; `mypy app/ --ignore-missing-imports` 0 errors in 219 files; frontend `typecheck` + `eslint` 0 errors; Android unit `99 tests / 0 failures`; `assembleDriverDebug` + `assembleHubDebug` BUILD SUCCESSFUL; on-device E2E `ServerConfigE2ETest` 1/1 passed on `medium_phone` with live HEALTH_CHECK→`ready` round-trip against a test stub (first attempt failed on a stale corrupt Room DB in a pre-installed hub APK — environmental, cleared by reinstall — then green).
+
+### 2026-10-14 — Phone Normalization, Driver Auto-Activation, Hub Transparency & Carrier Routing
+
+- **Iranian Mobile Phone Normalization (Backend & Android Client)**:
+  - Added `normalize_iranian_phone`, `is_valid_iranian_mobile`, and `detect_operator` in `app/core/phone_utils.py`. Standardizes Persian/Arabic numerals, `+98`/`0098`/`98` country codes, spaces, and hyphens into canonical 11-digit `09XXXXXXXXX`.
+  - Integrated into `DriverService` (`app/services/driver_service.py`) for driver creation, update, and tenant deduplication.
+  - Enhanced Android client `SmsParser.normalizePhoneNumber` (`SMS-Forwarder-Pro/app/src/main/java/com/example/utils/SmsParser.kt`) to ensure bit-level compatibility across both apps without altering UI forms.
+  - Unit tests: `tests/test_phone_normalization.py` (8 passed), `SmsParserTest.kt` (passed).
+- **Automatic Driver Activation on Registration & Admin Notification**:
+  - Added `DriverStatus.PENDING = "pending"` in `app/models_multitenant.py`.
+  - Implemented `DriverService.check_and_auto_activate_driver` in `app/services/driver_service.py`: automatically promotes pending drivers to `active` once name, phone, OTP, and device permissions (`receive_sms`/`location`) are verified, without manual admin intervention.
+  - Generates `AdminAlert` (`category="driver_activation"`, message: «راننده جدید فعال شد...») and publishes event to `event_hub`. If permissions or OTP remain incomplete, status stays `pending`.
+  - Wired into `app/api/routes/otp_forwarder.py` on both health check and OTP reception.
+  - Unit tests: `tests/test_driver_auto_activation.py` (2 passed).
+- **Real-Time Hub Phone Connection Transparency & Admin Alerts**:
+  - Enhanced forwarder webhook (`app/api/routes/otp_forwarder.py`) to recognize Hub app (`app_role == "HUB"`, `X-App-Role == "HUB"`, or known Hub numbers) and update Redis heartbeat `rpa:forwarder:hub:connected` (5-minute TTL).
+  - Added `GET /api/v1/admin/hub-status` in `app/api/routes/admin_alerts.py`, returning live status, seconds elapsed, and automatically filing a high-severity `AdminAlert` when disconnected (> 300s).
+    - **Superseded pm 2026-10-14 (see audit entry above): threshold is now 900s (3× ping interval), alerting moved to the `monitor.hub_liveness` beat task, and the endpoint is read-only.**
+  - Updated Hub Android client `SmsForwarderClient.kt` to transmit `X-App-Role: HUB`, `app_role: "HUB"`, and configured Hub SIM numbers on health checks and relays.
+  - Updated Next.js Admin UI (`apps/web`):
+    - Main Dashboard (`apps/web/src/app/admin/dashboard/page.tsx`): displays live connection indicator pill and high-visibility red alert banner when disconnected.
+    - System Health Page (`apps/web/src/app/admin/health/page.tsx`): dedicated Hub Phone Relay card in Overview tab displaying device ID, SIM numbers, and relative heartbeat status.
+  - Unit tests: `tests/test_hub_status_tracking.py` (3 passed).
+- **Comprehensive Operator SMS Routing to Hub SIMs (LPM Matching & persian-tools Alignment)**:
+  - Researched, cataloged, and aligned all Iranian mobile operators and MVNOs into `CarrierRoutingTable.kt` (`SMS-Forwarder-Pro`) and `app/core/phone_utils.py` per authoritative `persian-tools v4.0.4` and regulatory CRA standards:
+    - **Hamrah-e Aval (MCI) — 17 primary prefixes + 0997**: `0910`–`0919`, `0990`–`0995` (incl. `0994` Anarestan & `0995` nationwide credit), `0996`, `0997` -> Hub MCI SIM (`09966567754`)
+    - **MTN Irancell — 14 primary prefixes**: `0930`, `0933`, `0935`–`0939`, `0900`–`0905`, `0941` -> Hub Irancell SIM (`09047119812`)
+    - **RighTel — 4 primary prefixes**: `0920`–`0923` -> Hub Irancell SIM (per system requirement)
+    - **Total 35 canonical primary prefixes** strictly verified against regulatory and open-source standards.
+    - **Regional & Specialized MNOs**:
+      - Talia: `0932` -> Hub MCI SIM (operates on MCI network)
+      - Kish Telecommunication (TKC / TeleKish): `0934`, `093476` -> Hub MCI SIM (roams on MCI network)
+      - Spadan (MTCE): `0931` -> Hub MCI SIM
+    - **MVNOs (Virtual Operators)**:
+      - Shatel Mobile: `0998`, `09981`, `09982` -> Hub Irancell SIM
+      - Saman Tel: `0999`, `09999`, `09995` -> Hub Irancell SIM
+      - Lotus Tel: `09990` -> Hub MCI SIM (operates on MCI host network)
+      - Aptel: `09991`, `09993` -> Hub MCI SIM (operates on MCI host network)
+      - Fanap Mobile: `09992` -> Hub Irancell SIM
+      - Arian Tel: `09998` -> Hub Irancell SIM
+      - Smartcomm: `09988` -> Hub Irancell SIM
+      - Tosan (همراه هوشمند آینده): `09989` -> Hub Irancell SIM
+    - **Longest-Prefix Match (LPM)**: 5-digit and 6-digit prefixes take strict precedence over 4-digit prefixes, preventing prefix shadowing.
+    - **Android Carrier Enums**: Added dedicated `MobileCarrier` enums (`SPADAN`, `FANAP`, `ARIANTEL`, `SMARTCOMM`, `HIWEB`, `TOSAN`) preventing collision in `addPrefixes` and route detection.
+    - **Phone Normalization Edge Cases**: Fixed `+98 09...` and `0098 09...` normalization in both backend and Android client (preventing leading zero duplication `00912...`).
+    - **Regression Fix in Driver Creation**: Removed unwanted duplicate phone DB queries from `DriverService.create_driver` that broke tenant quota test `test_create_driver_plate_limit_reached`.
+  - Aligned `GET /api/v1/admin/hub-status` keys (`seconds_ago`, `last_heartbeat_at`, `message`) with frontend and auto-resolved disconnect alerts upon hub reconnection.
+  - Unit tests: `tests/test_phone_normalization.py` (14 passed), `CarrierRoutingTableTest.kt` (10 passed), `CarrierDetectorTest.kt` (passed), `test_driver_multitenant.py` (14 passed).
+
+
 ### 2026-10-13 — Wizard Submit 422 + Schedule Run-Due 500 (user-reported, with screenshots)
 
 - **Fixed wizard submit 422 (`origin`/`destination` must be strings)**: the `/new` step-6 payload
