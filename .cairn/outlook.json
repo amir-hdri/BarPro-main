@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "ts": "2026-10-14T17:50:23.946Z",
+  "name": "BarPro-main",
+  "path": "/Users/amirheidari/GitHub/BarPro-main",
+  "head": "3823ea74183944d3e844bbefa0f08fe5b8c5ef54",
+  "phases": [
+    {
+      "number": 1,
+      "name": "server diagnostics and failure root cause audit",
+      "planned": true,
+      "verified": false,
+      "issueCount": 2
+    },
+    {
+      "number": 2,
+      "name": "waybill registration and mobile transport hardening",
+      "planned": true,
+      "verified": false,
+      "issueCount": 2
+    },
+    {
+      "number": 3,
+      "name": "virtual android shipping lifecycle automation",
+      "planned": true,
+      "verified": false,
+      "issueCount": 2
+    },
+    {
+      "number": 4,
+      "name": "worker resilience performance and verification",
+      "planned": true,
+      "verified": false,
+      "issueCount": 2
+    }
+  ],
+  "sessions": {
+    "trace": 0,
+    "probe": 0,
+    "draft": 0,
+    "thread": 0
+  }
+}

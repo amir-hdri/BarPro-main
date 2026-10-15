@@ -7,7 +7,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { AuthGuard } from '@/components/layout/AuthGuard';
 import { ErrorState } from '@/components/layout/States';
 import { RecordFilters } from '@/components/RecordFilters';
-import { EMPTY_RECORD_FILTERS, recordFilterParams, recordFiltersFromSearch, type RecordFilters as Filters } from '@/lib/record-filters';
+import { EMPTY_RECORD_FILTERS, recordFilterParams, recordFiltersFromSearch, tehranDateKey, type RecordFilters as Filters } from '@/lib/record-filters';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useSession } from '@/hooks/useSession';
 import { api } from '@/lib/api';
@@ -432,7 +432,9 @@ export default function HistoryPage() {
   const timelineController = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    setFilters(recordFiltersFromSearch(window.location.search));
+    const fromSearch = recordFiltersFromSearch(window.location.search);
+    const hasExplicitDate = !!fromSearch.day || !!fromSearch.dateFrom || !!fromSearch.dateTo;
+    setFilters(hasExplicitDate ? fromSearch : { ...fromSearch, day: tehranDateKey() });
     setActiveCategory(new URLSearchParams(window.location.search).get('category') === 'fuel' ? 'fuel' : 'waybills');
     setFiltersReady(true);
   }, []);

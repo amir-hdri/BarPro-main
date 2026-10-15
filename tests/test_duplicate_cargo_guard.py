@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -14,7 +15,12 @@ from app.services.waybill_job_service import WaybillJobService
 
 @pytest.fixture
 async def async_db():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        echo=False,
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
@@ -120,6 +126,44 @@ async def test_create_job_rejects_busy_in_transit_driver(async_db: AsyncSession,
     req = WaybillJobCreateRequest(
         driver_national_code=driver.driver_national_code,
         payload=make_payload(),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await WaybillJobService.create_job(client, req, async_db)
+
+    assert exc_info.value.status_code == 409
+    assert "فعال" in exc_info.value.detail or "در حال حمل" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_create_job_rejects_driver_with_issued_waybill_still_in_transit(async_db: AsyncSession, setup_client_and_driver):
+    client, driver, plate = setup_client_and_driver
+
+    # Existing waybill that was successfully issued, has document_id and tracking_code, but NOT completed
+    existing_job = WaybillJob(
+        job_id="job_issued_in_transit_1",
+        idempotency_key="idemp_issued_1",
+        client_id=client.id,
+        driver_id=driver.id,
+        status="success",
+        document_id="238000001",
+        result_json={"tracking_code": "1361000001", "document_id": "238000001"},
+        payload_json=make_payload().model_dump(),
+        created_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=3),
+    )
+    async_db.add(existing_job)
+    await async_db.commit()
+
+    # Different cargo payload so duplicate cargo check doesn't trigger
+    new_payload = make_payload()
+    new_payload.cargo_type = "آهن"
+    new_payload.cargo_value = "80000000"
+    if isinstance(new_payload.metadata_json, dict) and "cargo" in new_payload.metadata_json:
+        new_payload.metadata_json["cargo"]["type"] = "آهن"
+
+    req = WaybillJobCreateRequest(
+        driver_national_code=driver.driver_national_code,
+        payload=new_payload,
     )
 
     with pytest.raises(HTTPException) as exc_info:

@@ -250,8 +250,10 @@ class ClientService:
     ) -> ClientStatsResponse:
         """Get client dashboard statistics."""
         assert client.id is not None  # callers pass DB-loaded clients
-        today = datetime.now(UTC).replace(tzinfo=None).date()
-        today_start = datetime.combine(today, datetime.min.time())
+        from app.core.jalali import TEHRAN_UTC_OFFSET, tehran_day_bounds_utc
+
+        now_tehran = datetime.now(UTC) + TEHRAN_UTC_OFFSET
+        today_start, today_end = tehran_day_bounds_utc(now_tehran.year, now_tehran.month, now_tehran.day)
 
         # Count drivers using db aggregate
         total_drivers = (
@@ -283,10 +285,14 @@ class ClientService:
             for s in [TaskStatus.FAILED.value, TaskStatus.DEAD_LETTER.value, TaskStatus.NEEDS_REVIEW.value]
         )
 
-        # Today's stats
+        # Today's stats (strictly bounded to Tehran current calendar day)
         today_stmt = (
             select(WaybillJob.status, func.count(_job_id_col))
-            .where(WaybillJob.client_id == client.id, WaybillJob.created_at >= today_start)
+            .where(
+                WaybillJob.client_id == client.id,
+                WaybillJob.created_at >= today_start,
+                WaybillJob.created_at < today_end,
+            )
             .group_by(WaybillJob.status)
         )
         today_result = await session.exec(today_stmt)

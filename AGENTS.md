@@ -13,6 +13,13 @@
 
 <!-- original-agents:0001-0012:end -->
 
+## 🔴 Multi-Agent Sync Protocol v2.0 (الزامی برای تمام ایجنت‌ها)
+تمامی ابزارهای هوش مصنوعی (**Antigravity**، **OpenCode**، **Hermes**، **Claude Code**) در این پروژه ملزم به رعایت پروتکل هماهنگی هستند:
+1. **شروع نشست:** بررسی `.context/LOCK` و خواندن `.context/STATE.md`. اجرای: `python3 scripts/agent_sync.py start <نام_ایجنت>`.
+2. **پایان نشست:** آپدیت بخش‌های ۵‌گانه در `.context/STATE.md` و ثبت لاگ: `python3 scripts/agent_sync.py end <نام_ایجنت>`.
+3. **ثبت کامیت اتمیک:** کامیت همزمان سورس‌کد و `.context/STATE.md` (هوک گیت از کامیت بدون آپدیت وضعیت جلوگیری می‌کند).
+4. **اصل حفظ پیوستگی (Preserve & Justify):** بازنویسی سلیقه‌ای کدهای ایجنت قبلی ممنوع است.
+
 ## Scope, freshness and reading map
 
 - This guide and every file under `docs/agent-reference/` apply only inside BarPro.

@@ -61,6 +61,65 @@ class WaybillJobService:
     """Service for managing waybill jobs with tenant isolation."""
 
     @staticmethod
+    async def find_driver_active_job(
+        session: AsyncSession,
+        *,
+        driver_id: int,
+        client_id: int | None = None,
+    ) -> WaybillJob | None:
+        """Find any job that holds the driver in an active or in-transit state.
+
+        Enforces the '1 active waybill per driver' invariant:
+        1. Pre-issuance or in-flight jobs (pending, queued, claimed, running, in_progress, retrying,
+           waiting_auth, waiting_retry, waiting_submission_window, in_transit, reconciling).
+        2. Successfully issued jobs (status == SUCCESS with document_id) whose physical shipping
+           journey has NOT reached terminal delivery (completed_at / end_shipping not recorded).
+        """
+        active_in_flight = [
+            TaskStatus.PENDING.value,
+            TaskStatus.QUEUED.value,
+            TaskStatus.CLAIMED.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.RETRYING.value,
+            TaskStatus.WAITING_AUTH.value,
+            TaskStatus.WAITING_RETRY.value,
+            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
+            TaskStatus.OTP_BACKOFF.value,
+            "in_transit",
+            "reconciling",
+        ]
+
+        stmt = select(WaybillJob).where(
+            WaybillJob.driver_id == driver_id,
+            col(WaybillJob.status).in_([*active_in_flight, TaskStatus.SUCCESS.value]),
+        )
+        if client_id is not None:
+            stmt = stmt.where(WaybillJob.client_id == client_id)
+        stmt = stmt.order_by(col(WaybillJob.created_at).desc())
+
+        result = await session.exec(stmt)
+        candidates = result.all()
+
+        for j in candidates:
+            if j.status in active_in_flight:
+                return j
+            if j.status == TaskStatus.SUCCESS.value and j.document_id:
+                res_dict = j.result_json if isinstance(j.result_json, dict) else {}
+                if not res_dict.get("completed_at") and not res_dict.get("end_shipping"):
+                    try:
+                        from app.automation.gps_shipping_manager import load_shipping_state
+
+                        st = await load_shipping_state(j.job_id)
+                        if st and st.status == "delivered":
+                            continue
+                    except Exception:
+                        pass
+                    return j
+
+        return None
+
+    @staticmethod
     async def create_job(
         client: Client,
         request: WaybillJobCreateRequest,
@@ -192,31 +251,19 @@ class WaybillJobService:
         if pending_otp_job is not None:
             raise HTTPException(409, "راننده یک سند در انتظار OTP دارد؛ ابتدا همان سند باید تعیین تکلیف شود")
 
-        # P1-3: Active in-transit or busy driver guard
-        active_statuses = (
-            TaskStatus.PENDING.value,
-            TaskStatus.IN_PROGRESS.value,
-            TaskStatus.CLAIMED.value,
-            TaskStatus.RUNNING.value,
-            TaskStatus.RETRYING.value,
-            TaskStatus.WAITING_AUTH.value,
-            TaskStatus.WAITING_RETRY.value,
-            TaskStatus.WAITING_SUBMISSION_WINDOW.value,
-            "in_transit",
+        # P1-3: Active in-transit or busy driver guard (1 active waybill per driver invariant)
+        active_driver_job = await WaybillJobService.find_driver_active_job(
+            session, driver_id=driver.id, client_id=client.id
         )
-        active_driver_job = (
-            await session.exec(
-                select(WaybillJob).where(
-                    WaybillJob.client_id == client.id,
-                    WaybillJob.driver_id == driver.id,
-                    col(WaybillJob.status).in_(active_statuses),
-                )
-            )
-        ).first()
         if active_driver_job:
+            detail_state = (
+                "در حال حمل"
+                if active_driver_job.status == TaskStatus.SUCCESS.value
+                else f"با وضعیت {active_driver_job.status}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"راننده در حال حاضر دارای بارنامه فعال ({active_driver_job.job_id} با وضعیت {active_driver_job.status}) است و تا زمان پایان حمل امکان صدور بارنامه جدید ندارد.",
+                detail=f"راننده در حال حاضر دارای بارنامه فعال ({active_driver_job.job_id} {detail_state}) است و تا زمان پایان حمل امکان صدور بارنامه جدید ندارد.",
             )
 
         # P1-3: Duplicate cargo submission guard (24-hour window)

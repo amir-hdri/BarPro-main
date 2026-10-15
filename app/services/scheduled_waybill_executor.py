@@ -1009,6 +1009,22 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
             "reason": "duplicate_idempotency",
         }
 
+    from app.services.waybill_job_service import WaybillJobService
+
+    active_trip = await WaybillJobService.find_driver_active_job(session, driver_id=driver.id, client_id=schedule.client_id)
+    if active_trip:
+        logger.info(
+            "scheduled_waybill_skipped_driver_busy",
+            extra={"extra_fields": {"schedule_id": schedule.id, "driver_id": driver.id, "active_job_id": active_trip.job_id}},
+        )
+        return {
+            "jobs_created": 0,
+            "jobs_success": 0,
+            "jobs_failed": 0,
+            "skipped": True,
+            "reason": "driver_busy_with_active_waybill",
+        }
+
     # WARNING: this materializes a WaybillJob ORM row from a raw payload template
     # with no Pydantic guard — validate via WaybillJobCreateRequest first (see
     # driver_schedule_service run-due guard) or a bad template 500s the run.

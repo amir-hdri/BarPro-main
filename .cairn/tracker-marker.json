@@ -1,0 +1,68 @@
+{
+  "lastScan": "2026-10-14T17:47:30.792Z",
+  "issues": {
+    "93": {
+      "title": "Audit server logs to identify waybill registration defects and determine root causes",
+      "bodyHash": "e37cced291741d09",
+      "labels": [],
+      "assignee": "amir-hdri",
+      "state": "in_progress",
+      "updatedAt": "2026-10-14T17:49:37Z"
+    },
+    "94": {
+      "title": "Diagnose and remediate session drops, WAF rejections, and OTP reception defects",
+      "bodyHash": "eb780f118c10e246",
+      "labels": [],
+      "state": "open",
+      "updatedAt": "2026-10-14T17:49:46Z"
+    },
+    "95": {
+      "title": "Remediate UtcmsMobileClient defects and harden transport against transient drops",
+      "bodyHash": "5a49a02caa9e3546",
+      "labels": [],
+      "state": "open",
+      "updatedAt": "2026-10-14T17:50:07Z"
+    },
+    "96": {
+      "title": "Fix waybill_jobs state transitions and enforce strict Two-Witness Proof",
+      "bodyHash": "8ad6e651472c0304",
+      "labels": [],
+      "state": "open",
+      "updatedAt": "2026-10-14T17:50:12Z"
+    },
+    "97": {
+      "title": "Resolve defects in virtual Android shipping controller for reliable Start Shipping",
+      "bodyHash": "ab4e8ff0d3026933",
+      "labels": [],
+      "state": "open",
+      "updatedAt": "2026-10-14T17:50:17Z"
+    },
+    "98": {
+      "title": "Resolve Finish Shipping defects and automate GPS waypoint simulation",
+      "bodyHash": "daae7fe555d5e859",
+      "labels": [],
+      "state": "open",
+      "updatedAt": "2026-10-14T17:50:23Z"
+    },
+    "99": {
+      "title": "Optimize Celery task queues, worker retry policies, and automated health checks",
+      "bodyHash": "cff549ddd1e7dc6f",
+      "labels": [],
+      "state": "open",
+      "updatedAt": "2026-10-14T17:42:51Z"
+    },
+    "100": {
+      "title": "Verify end-to-end waybill registration and shipping lifecycle through automated tests",
+      "bodyHash": "5342204a28c49d85",
+      "labels": [],
+      "state": "open",
+      "updatedAt": "2026-10-14T17:42:59Z"
+    }
+  },
+  "phases": {
+    "1": "Phase 1: Server Diagnostics & Failure Root Cause Audit",
+    "2": "Phase 2: Waybill Registration & Mobile Transport Hardening",
+    "3": "Phase 3: Virtual Android Shipping Lifecycle Automation",
+    "4": "Phase 4: Worker Resilience, Performance & Verification"
+  }
+}
