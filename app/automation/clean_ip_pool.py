@@ -294,7 +294,7 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 def _safe_fetch(url: str, timeout: float = 6.0) -> str | None:
     """Safely fetch text from an online proxy list source with timeout."""
     if not _is_safe_source_url(url):
-        logger.warning("CleanIPPool: blocked unsafe source URL host")
+        logger.info("CleanIPPool: blocked unsafe source URL host: %s", urlparse(url).hostname or "unknown")
         return None
     try:
         req = urllib.request.Request(

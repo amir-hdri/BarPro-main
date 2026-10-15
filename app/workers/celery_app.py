@@ -99,21 +99,18 @@ def _build_beat_schedule() -> dict:
             }
         )
 
+    if utcms_config.RPA_KEEPALIVE_ENABLED:
+        schedule_dict["rpa-session-keepalive"] = {
+            "task": "rpa.session.keepalive",
+            "schedule": crontab(minute="*/30"),
+            "options": {
+                "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
+                "expires": 1500,
+            },
+        }
+
     schedule_dict.update(
         {
-            # rpa-session-keepalive does heavyweight browser re-auth for drivers. It
-            # must NOT run on the singleton rpa_scheduler control queue (whose
-            # dispatcher fires every 5s and must never sit behind a minutes-long
-            # browser task). It is routed to the ordinary waybill worker queue and
-            # expires (never accumulates in Redis when no consumer is up — X8).
-            "rpa-session-keepalive": {
-                "task": "rpa.session.keepalive",
-                "schedule": crontab(minute="*/30"),
-                "options": {
-                    "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
-                    "expires": 1500,
-                },
-            },
             "orchestrator-scheduler": {
                 "task": "orchestrator.scheduler.run",
                 "schedule": schedule(utcms_config.RPA_SCHEDULER_INTERVAL_SECONDS),
@@ -127,7 +124,7 @@ def _build_beat_schedule() -> dict:
                 "schedule": schedule(5.0),
                 "options": {
                     "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                    "expires": 4,
+                    "expires": 10,
                 },
             },
             "orchestrator-orphan-detector": {
@@ -233,7 +230,7 @@ def _build_beat_schedule() -> dict:
                 "schedule": schedule(5.0),
                 "options": {
                     "queue": utcms_config.RPA_SCHEDULER_QUEUE,
-                    "expires": 4,
+                    "expires": 10,
                 },
             },
         }

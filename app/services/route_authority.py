@@ -72,7 +72,11 @@ def _haversine_geometry(
     end = GeoPoint(dest_lat, dest_lng)
     geometry = RouteGeometry.straight_line_fallback(start, end, road_factor=1.35)
     road_km = road_estimate(origin_lat, origin_lng, dest_lat, dest_lng)
+    if road_km <= 0.0:
+        road_km = geometry.total_distance_km
     duration_min = estimate_time(road_km)
+    if duration_min <= 0.0:
+        duration_min = 10.0
     return geometry, round(road_km, 2), round(duration_min, 1)
 
 
@@ -240,7 +244,8 @@ async def resolve_route(
         source = FALLBACK_SOURCE
         # Spherical interpolation can introduce floating-point endpoint drift.
         geometry.points[0] = GeoPoint(origin_lat, origin_lng)
-        geometry.points[-1] = GeoPoint(dest_lat, dest_lng)
+        if haversine_km(origin_lat, origin_lng, dest_lat, dest_lng) >= 1e-5:
+            geometry.points[-1] = GeoPoint(dest_lat, dest_lng)
 
     assert geometry is not None and distance_km is not None
     duration_s = round(float(duration_min or 0.0) * 60.0, 1)

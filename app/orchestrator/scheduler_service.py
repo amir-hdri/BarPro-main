@@ -141,9 +141,20 @@ class SchedulerService:
                     # Driver eligibility: status active/ready.
                     if job.driver_id is None:
                         logger.warning(
-                            f"Scheduler: job {job.job_id} has driver_id=None; skipping scheduling. "
+                            f"Scheduler: job {job.job_id} has driver_id=None; transitioning to needs_review. "
                             "Job is orphaned and requires manual driver assignment or review."
                         )
+                        try:
+                            JobStateMachine.transition(
+                                session,
+                                job,
+                                TaskStatus.NEEDS_REVIEW.value,
+                                last_error="شناسه راننده نامشخص است (driver_id=None)؛ نیازمند تخصیص دستی راننده یا بازبینی.",
+                                error_category="missing_driver",
+                            )
+                            session.add(job)
+                        except Exception as tr_err:
+                            logger.error(f"Scheduler: failed to transition orphaned job {job.job_id}: {tr_err}")
                         skipped += 1
                         continue
 

@@ -181,6 +181,33 @@ class ClaimReaper:
                         st.updated_at = now
                         session.add(st)
 
+                # Sweep abandoned claimed DispatchIntents whose job already reached terminal status
+                stale_intent_stmt = (
+                    select(DispatchIntent)
+                    .where(_intent_status_col == "claimed")
+                    .where(DispatchIntent.updated_at < threshold)
+                    .with_for_update(skip_locked=True)
+                )
+                stale_intents = (await session.exec(stale_intent_stmt)).all()
+                for intent in stale_intents:
+                    job_row = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == intent.job_id))).first()
+                    if job_row and job_row.status in (
+                        TaskStatus.SUCCESS.value,
+                        TaskStatus.FAILED.value,
+                        TaskStatus.NEEDS_REVIEW.value,
+                        TaskStatus.CANCELLED.value,
+                        TaskStatus.DEAD_LETTER.value,
+                    ):
+                        logger.info(
+                            "claim_reaper_finalizing_intent_for_terminal_job intent_id=%s job_id=%s status=%s",
+                            intent.intent_id,
+                            intent.job_id,
+                            job_row.status,
+                        )
+                        intent.status = "completed" if job_row.status == TaskStatus.SUCCESS.value else "failed"
+                        intent.updated_at = now
+                        session.add(intent)
+
                 await session.commit()
                 if reclaimed_count > 0:
                     logger.warning(f"ClaimReaper reclaimed {reclaimed_count} stale CLAIMED jobs.")

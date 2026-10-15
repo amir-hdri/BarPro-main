@@ -333,6 +333,23 @@ class DriverScheduleService:
                     )
                 schedule.updated_at = utc_now
                 session.add(schedule)
+            except HTTPException as exc:
+                if exc.status_code == status.HTTP_409_CONFLICT:
+                    logger.info(
+                        "Schedule %s for driver %s skipped: active trip conflict (%s)",
+                        schedule.id,
+                        driver.id,
+                        exc.detail,
+                    )
+                else:
+                    logger.warning(
+                        "Failed to create job for schedule %s (driver %s): HTTP %s: %s",
+                        schedule.id,
+                        driver.id,
+                        exc.status_code,
+                        exc.detail,
+                    )
+                skipped += 1
             except Exception as exc:
                 logger.error(
                     "Failed to create job for schedule %s (driver %s): %s",

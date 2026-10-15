@@ -251,3 +251,28 @@ async def test_http_login_ignores_rate_limit(ledger_env, fake_redis, monkeypatch
         assert await fake_redis.get("utcms:login:failures:5720047670") is None
     finally:
         await login.close()
+
+
+@pytest.mark.asyncio
+async def test_login_interval_throttled(ledger_env):
+    await record_login_success("5720047670", purpose="waybill_submission")
+    # With check_throttle=True, immediate subsequent fresh login is rejected
+    allowed, reason = await check_login_allowed("5720047670", check_throttle=True)
+    assert allowed is False
+    assert reason is not None and "throttled" in reason.lower()
+
+    # Without check_throttle (e.g. failure cooldown check only), it is allowed
+    allowed_cooldown, _ = await check_login_allowed("5720047670", check_throttle=False)
+    assert allowed_cooldown is True
+
+
+@pytest.mark.asyncio
+async def test_login_hourly_quota_exceeded(ledger_env, monkeypatch):
+    monkeypatch.setattr(utcms_config, "LOGIN_MAX_HOURLY", 2)
+    monkeypatch.setattr(utcms_config, "LOGIN_MIN_INTERVAL_SECONDS", 0)
+    await record_login_success("5720047670", purpose="trip_1")
+    await record_login_success("5720047670", purpose="trip_2")
+    allowed, reason = await check_login_allowed("5720047670", check_throttle=True)
+    assert allowed is False
+    assert reason is not None and "hourly login quota" in reason.lower()
+

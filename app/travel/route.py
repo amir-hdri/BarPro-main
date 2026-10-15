@@ -167,6 +167,10 @@ class RouteGeometry:
         """
         if road_factor < 1.0:
             raise ValueError("road_factor must be >= 1.0")
+        if haversine_km(start.lat, start.lon, end.lat, end.lon) < 1e-5:
+            # Intra-site / zero-distance fallback: synthesize a tiny offset (approx ~100m)
+            # so geometry is valid and downstream interpolation works without zero-length crash.
+            end = GeoPoint(round(start.lat + 0.001, 6), round(start.lon + 0.001, 6))
         geometry = cls.from_points(
             densify([start, end], MAX_NODE_SPACING_KM),
             source=FALLBACK_SOURCE,

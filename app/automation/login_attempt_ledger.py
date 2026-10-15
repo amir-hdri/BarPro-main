@@ -29,12 +29,21 @@ logger = logging.getLogger(__name__)
 
 FAILURES_KEY = "utcms:login:failures:{identity}"
 COOLDOWN_KEY = "utcms:login:cooldown:{identity}"
+LAST_LOGIN_KEY = "utcms:login:last_login:{identity}"
+HOURLY_LOGINS_KEY = "utcms:login:hourly_count:{identity}"
 
 _DIGIT_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 
+def _mask_identity(identity: str) -> str:
+    s = str(identity or "").strip()
+    if len(s) <= 4:
+        return "****"
+    return f"{s[:3]}****{s[-3:]}"
+
+
 class AccountCooldownError(UTCMSException):
-    """A login was refused locally because the account is cooling down.
+    """A login was refused locally because the account is cooling down or throttled.
 
     Worded for the text-based taxonomy: contains ``login`` (→ AUTH_FAILURE)
     and ``cooldown`` (operator-visible reason); avoids ``captcha``,
@@ -44,8 +53,8 @@ class AccountCooldownError(UTCMSException):
 
     def __init__(self, identity: str, reason: str):
         super().__init__(
-            f"UTCMS login cooldown active for account {identity}: {reason}. "
-            "Skipping the login attempt to avoid an account lockout.",
+            f"UTCMS login cooldown/throttle active for account {_mask_identity(identity)}: {reason}. "
+            "Skipping the login attempt to avoid an account lockout or redundant logins.",
             retryable=True,
         )
         self.identity = identity
@@ -74,8 +83,19 @@ def _thresholds() -> tuple[int, int, int]:
     return window, threshold, cooldown
 
 
-async def check_login_allowed(identity: Any) -> tuple[bool, str | None]:
-    """Return (allowed, reason). Refused only while a cooldown key exists."""
+async def check_login_allowed(
+    identity: Any,
+    *,
+    purpose: str = "general",
+    check_throttle: bool = False,
+) -> tuple[bool, str | None]:
+    """Return (allowed, reason).
+
+    Refused if:
+    1. Account is cooling down after repeated failures (always checked).
+    2. Minimum interval between fresh logins has not elapsed (when check_throttle=True).
+    3. Hourly fresh login quota exceeded (when check_throttle=True).
+    """
     ident = normalize_identity(identity)
     if not ident:
         return False, "empty account identity"
@@ -85,6 +105,20 @@ async def check_login_allowed(identity: Any) -> tuple[bool, str | None]:
             return True, None
         if await redis.get(COOLDOWN_KEY.format(identity=ident)):
             return False, "login cooldown active (account protected after repeated failures)"
+        if check_throttle:
+            min_interval = int(getattr(utcms_config, "LOGIN_MIN_INTERVAL_SECONDS", 90))
+            if min_interval > 0 and await redis.get(LAST_LOGIN_KEY.format(identity=ident)):
+                return (
+                    False,
+                    f"login interval throttled (minimum {min_interval}s spacing required between fresh logins)",
+                )
+            max_hourly = int(getattr(utcms_config, "LOGIN_MAX_HOURLY", 6))
+            hourly = await redis.get(HOURLY_LOGINS_KEY.format(identity=ident))
+            if hourly and int(hourly) >= max_hourly:
+                return (
+                    False,
+                    f"hourly login quota exceeded (max {max_hourly} fresh logins per hour for account protection)",
+                )
     except Exception as exc:
         logger.debug("login_ledger_check_unavailable; allowing: %s", exc)
         return True, None
@@ -108,21 +142,34 @@ async def record_login_failure(identity: Any, kind: str = "auth") -> None:
             await redis.set(COOLDOWN_KEY.format(identity=ident), "1", ex=cooldown, nx=True)
             logger.warning(
                 "login_account_cooldown_activated",
-                extra={"extra_fields": {"identity": ident, "kind": kind, "failures": count, "cooldown": cooldown}},
+                extra={"extra_fields": {"identity": _mask_identity(ident), "kind": kind, "failures": count, "cooldown": cooldown}},
             )
     except Exception as exc:
         logger.debug("login_ledger_record_unavailable: %s", exc)
 
 
-async def record_login_success(identity: Any) -> None:
-    """Clear the ledger: a success proves the account is healthy."""
+async def record_login_success(identity: Any, *, purpose: str = "general") -> None:
+    """Clear failure ledger and record fresh login spacing and hourly quota."""
     ident = normalize_identity(identity)
     if not ident:
         return
+    min_interval = int(getattr(utcms_config, "LOGIN_MIN_INTERVAL_SECONDS", 90))
     try:
         redis = await _get_redis()
         if redis is None:
             return
         await redis.delete(FAILURES_KEY.format(identity=ident), COOLDOWN_KEY.format(identity=ident))
+        if min_interval > 0:
+            await redis.set(LAST_LOGIN_KEY.format(identity=ident), "1", ex=min_interval)
+        hourly_key = HOURLY_LOGINS_KEY.format(identity=ident)
+        count = await redis.incr(hourly_key)
+        if count == 1:
+            await redis.expire(hourly_key, 3600)
+        logger.info(
+            "driver_login_recorded identity=%s purpose=%s hourly_count=%d",
+            _mask_identity(ident),
+            purpose,
+            count,
+        )
     except Exception as exc:
         logger.debug("login_ledger_clear_unavailable: %s", exc)

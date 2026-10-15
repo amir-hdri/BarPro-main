@@ -1,46 +1,56 @@
 <!--schema:2.0.0-->
 <!--agent:Antigravity-->
-<!--timestamp:2026-10-15T19:32:00+03:30-->
+<!--timestamp:2026-10-15T20:05:00+03:30-->
 <!--cairn-phase:2-->
 
 # 🎯 هدف جاری
-پروژه پایداری چرخه حیات بارنامه (Waybill Lifecycle Stability) — فاز ۲ و ۳: اعمال گارد انحصاری تک‌بارنامه برای راننده، استقرار سرور، تفکیک نمایش روزانه داشبورد و تاریخچه، اتصال اپلیکیشن SMS Forwarder راننده محمدزاده، و آزمایش تجربی و اثبات علمی وضعیت خطای ۴۲۹ پایان حمل در سامانه کشوری UTCMS
+پروژه پایداری چرخه حیات بارنامه و بهینه‌سازی ورود و لاگ‌های سرور (Server Logs Optimization & Driver Login Throttling) — فاز ۲ و ۳: پیاده‌سازی سازوکار ورود هدفمند، کنترل‌شده و زمانبندی‌شده رانندگان به سامانه UTCMS، جلوگیری از لاگین‌های تکراری و بی‌هدف، برطرف‌سازی خطاهای زمانبندی و روتینگ در لاگ‌های سرور، و استقرار روی سرور مرکزی.
 
 ## ✅ کارهای انجام‌شده
-- پیاده‌سازی متد `find_driver_active_job` در `WaybillJobService` جهت بررسی همزمان اسناد در دست صدور و سفرهای فیزیکی ناتمام (in_transit بدون ثبت پایان حمل).
-- ارتقای `WaybillJobService.create_job` برای جلوگیری قطعی از ثبت بیش از ۱ بارنامه فعال برای یک راننده با خطای HTTP 409.
-- مجهزسازی `SchedulerService.run` و `scheduled_waybill_executor.py` به گارد فعال بودن سفر راننده.
-- نگارش تست رگرسیون TDD در `tests/test_duplicate_cargo_guard.py` و پاس شدن تمام تست‌ها با `pytest`.
-- بررسی و تأیید کامل لینتر `ruff` و `typecheck` فرانت‌اند بدون کوچک‌ترین خطایی.
-- اصلاح رفتار نمایش داشبورد و تاریخچه طبق درخواست کاربر (مختص هر روز و نه تجمیع همه):
-  - اصلاح `apps/web/src/app/page.tsx`: نمایش کارت‌های عملیاتی روز جاری (`today_jobs`، `today_success`، `today_failed`) به جای تجمیع کل تاریخچه.
-  - اصلاح `apps/web/src/app/history/page.tsx`: مقداردهی پیش‌فرض فیلتر روز بر مبنای `tehranDateKey()` برای نمایش تفکیک‌شده روزانه.
-  - اصلاح `app/services/client_service.py`: محاسبه دقیق مرزهای روزانه بر اساس افق زمانی و تقویم تهران (`tehran_day_bounds_utc`).
-- استقرار فایل‌های تغییریافته روی سرور مرکزی (`87.107.160.251`) و راه‌اندازی مجدد کانتینرها.
-- پاکسازی سند معلق قدیمی تستی (`job_25f5520af4174b08`) در پایگاه‌داده به وضعیت `failed`.
-- اتصال و راستی‌آزمایی آنلاین اپلیکیشن SMS Forwarder راننده حمیدرضا محمدزاده روی پورت ۸۰ سرور با کد ۲۰۰.
-- **بررسی تجربی پس از کول‌داون ۴۵ دقیقه‌ای:**
-  - فراخوانی کنترل‌شده `RegisterEndOfShipping` پس از ۴۵ دقیقه سکوت مطلق اجرا شد؛ سامانه UTCMS مجدداً خطای ۴۲۹ را بازگرداند.
-  - متدهای `UserLoginV2`، `GetDocumentByID`، `GetCarryingDocId` و `GetIssuedDocuments` با کد ۲۰۰ با موفقیت اجرا شدند.
-  - اثبات شد که خطای ۴۲۹ ناشی از **سقف مجاز روزانه راننده (Daily Limit)** با ثبت بیش از ۶ بارنامه در تاریخ جاری و وجود ۳ سند همزمان است، نه مسدودیت موقت آدرس IP.
+- **طراحی و پیاده‌سازی سیستم ورود هدفمند رانندگان (Targeted & Scheduled Driver Login Architecture):**
+  - افزودن پارامتر الزامی هدفمندی (`purpose`) در تمام درخواست‌های ورود راننده (`waybill_submission`, `shipping_start`, `shipping_finish`, `shipping_waypoint`, `reconciliation_audit`).
+  - ارتقای `app/automation/login_attempt_ledger.py`: اعمال سهمیه‌بندی ساعتی (حداکثر ۶ لاگین کامل در ساعت برای هر راننده - `LOGIN_MAX_HOURLY = 6`) و ایجاد فاصله زمانی اجباری حداقل ۹۰ ثانیه بین دو لاگین کامل (`LOGIN_MIN_INTERVAL_SECONDS = 90`).
+  - جلوگیری از لاگین‌های بی‌هدف و تکراری: غیرفعال‌سازی تسک پس‌زمینه سنگین `rpa-session-keepalive` در زمانبندی کرون Celery Beat (که قبلاً هر ۳۰ دقیقه برای همه رانندگان به صورت خودکار و کورکورانه مرورگر باز می‌کرد).
+  - استفاده بهینه و حداکثری از Session Vault ردیس: اولویت مطلق با توکن زنده Bearer، تمدید سبک و تک‌درخواستی از طریق `refresh_token` (بدون حل کپچا و بدون پسورد)، و قفل توزیع‌شده ردیس برای جلوگیری از لاگین همزمان.
+- **برطرف‌سازی خطاهای شناسایی‌شده در ممیزی لاگ‌های زنده سرور:**
+  - رفع کرش روتینگ در `app/travel/route.py` و `app/services/route_authority.py`: ساخت آفست مصنوعی محلی (~۱۰۰ متر) برای مختصات یکسان مبدأ و مقصد در `straight_line_fallback` و جلوگیری قطعی از بروز خطای `ValueError: route geometry needs at least two distinct points`.
+  - رفع نویز لاگ در `app/services/driver_schedule_service.py`: مدیریت صریح استثنای `HTTPException(409)` مربوط به تعارض سفر فعال راننده و ثبت آن در سطح لاگ `INFO` به جای `ERROR` با traceback.
+  - اصلاح ارور `scheduler_service.py`: هدایت خودکار جاب‌های بدون راننده (`driver_id is None`) به وضعیت `needs_review` با `TaskStatus.NEEDS_REVIEW.value`.
+  - بهینه‌سازی زمانبندی Celery Beat: افزایش زمان انقضای تسک‌های `orchestrator-dispatcher` و `otp-stream-sweep` از ۴ ثانیه به ۱۰ ثانیه برای جلوگیری از انقضای ناخواسته ناشی از jitter صف.
+  - اصلاح لاگ DNS Sinkhole در `app/automation/clean_ip_pool.py` به سطح INFO همراه با ثبت نام هاست.
+  - جاروب و نهایی‌سازی `DispatchIntent`های رها شده در `app/orchestrator/claim_reaper.py`.
+- **پاکسازی رکوردهای سرگردان در پایگاه‌داده سرور مرکزی:**
+  - به‌روزرسانی جاب سرگردان `job_34fc35310ca24756` به وضعیت `needs_review`.
+  - به‌روزرسانی اینتنت رها شده `ca6527e7-d847-474e-962a-a5352358a4f1` به `completed`.
+- **تست، اعتبارسنجی و استقرار:**
+  - نگارش تست‌های اعتبارسنجی جدید برای فاصله‌گذاری و سقف ساعتی در `tests/test_login_attempt_ledger.py`.
+  - اجرای کامل ۶۴ تست در سوئیت‌های `test_route_authority.py`، `test_travel_route.py`، `test_login_attempt_ledger.py` و `test_gps_session_vault.py` با خروجی ۱۰۰٪ موفق.
+  - اجرای کامل ۲۹ تست در سوئیت‌های زمانبندی `test_beat_schedule_wiring.py`، `test_rpa_dispatch_scheduler.py`، `test_scheduler_policy.py` و ... با خروجی ۱۰۰٪ موفق.
+  - پاس شدن بدون اخطار ابزار `ruff check`.
+  - استقرار فایل‌ها روی سرور مرکزی (`87.107.160.251`) و راه‌اندازی مجدد ۴ کانتینر (`barpro-backend`، `barpro-scheduler`، `barpro-worker-1`، `barpro-beat`).
+  - پایش لاگ‌های زنده سرور: تأیید کارکرد روان تمام تسک‌ها در بازه کمتر از ۲۰ میلی‌ثانیه بدون هیچ‌گونه خطا یا هشدار تکراری.
 
 ## 📁 فایل‌های تغییریافته
-- `app/services/waybill_job_service.py`
+- `app/core/config.py`
+- `app/automation/login_attempt_ledger.py`
+- `app/automation/gps_shipping_manager.py`
+- `app/automation/clean_ip_pool.py`
+- `app/orchestrator/claim_reaper.py`
 - `app/orchestrator/scheduler_service.py`
-- `app/services/scheduled_waybill_executor.py`
-- `app/services/client_service.py`
-- `apps/web/src/app/page.tsx`
-- `apps/web/src/app/history/page.tsx`
-- `tests/test_duplicate_cargo_guard.py`
+- `app/services/route_authority.py`
+- `app/services/driver_schedule_service.py`
+- `app/travel/route.py`
+- `app/workers/celery_app.py`
+- `tests/test_login_attempt_ledger.py`
 - `.context/STATE.md`
 
 ## 🎯 تسک دقیق بعدی
-انتظار تا تغییر تاریخ تقویمی در سرور UTCMS (نیمه‌شب ساعت ۰۰:۰۰ به وقت تهران) جهت ریست شدن سقف مجاز روزانه راننده و آزادسازی فراخوانی پایان حمل؛ یا بررسی بستن دستی سفر در اپ رسمی باربرگ شهری توسط راننده.
+ادامه مانیتورینگ سلامت سرویس‌ها و هماهنگی جهت تست ثبت بارنامه بعدی راننده محمدزاده طبق زمانبندی تنظیم‌شده.
 
 ## 🧠 تصمیمات فنی و چرایی
-- استقرار گارد تک‌بارنامه در ۳ لایه مجزا به منظور جلوگیری از هرگونه نشت یا فرار اسناد موازی برای راننده.
-- عدم ارسال مکرر ریکوئست تهاجمی به متدهای mutation پرتال در زمان فعال بودن ۴۲۹ جهت ممانعت از تمدید دوره جریمه.
-- تفکیک کامل آمار روزانه کاربران در داشبورد و تاریخچه جهت ایجاد شفافیت عملیاتی برای اپراتورها.
+- مسدودسازی ورود بی‌هدف رانندگان در سطح هسته و حذف تسک کور keepalive برای حفظ سلامت اکانت رانندگان در WAF سامانه‌ کشوری.
+- ارجحیت توکن‌های کش‌شده و رفرش‌توکن بر لاگین کامل، که ضمن کاهش مصرف کپچا و کاهش هزینه منابع سرور، مانع از قفل شدن اکانت‌ها می‌شود.
+- هندلینگ نرم خطای ۴۰۹ در زمانبندی رانندگان، که از ثبت تریس‌بک‌های گیج‌کننده و غلط‌انداز در لاگ‌های پروداکشن جلوگیری می‌کند.
 
 ## ⚠️ نکات حساس و موانع
-- سقف تعداد بارنامه‌های صادره و ثبت پایان حمل برای هر راننده در سامانه کشوری UTCMS محدود است و با رسیدن به سقف روزانه، تا نیمه‌شب با خطای ۴۲۹ مسدود می‌ماند.
+- هرگونه درخواست لاگین مجدد با `force_reauth=True` در صورتی که توکن معتبر و زنده در ردیس باشد، به توکن موجود fallback داده می‌شود تا راننده دچار throttle نشود.

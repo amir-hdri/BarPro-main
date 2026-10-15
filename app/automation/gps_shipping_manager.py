@@ -837,12 +837,13 @@ async def get_or_login_client(
     *,
     force_reauth: bool = False,
     client_id: int | str | None = None,
+    purpose: str = "general_rpa",
 ) -> Any:
     """Get an authenticated UtcmsMobileClient, reusing cached token to avoid 429.
 
     1. Check Redis for cached token → use if valid.
     2. Check Redis for refresh token → call refresh if available.
-    3. Only fall back to login() if nothing is cached.
+    3. Only fall back to login() if nothing is cached and throttling allows.
 
     ``client_id`` scopes every vault key (token, refresh, auth lock) to the
     tenant; two tenants sharing a driver national code never share a session.
@@ -860,11 +861,15 @@ async def get_or_login_client(
         try:
             if force_reauth:
                 await invalidate_cached_session(national_code, client_id=client_id)
-
-            cached = await get_cached_token(national_code, client_id=client_id)
-            if cached:
-                logger.info("session_vault_hit national_code=%s", _mask_national_code(national_code))
-                return UtcmsMobileClient(token=cached, proxy_url=proxy_url)
+            else:
+                cached = await get_cached_token(national_code, client_id=client_id)
+                if cached:
+                    logger.info(
+                        "session_vault_hit national_code=%s purpose=%s",
+                        _mask_national_code(national_code),
+                        purpose,
+                    )
+                    return UtcmsMobileClient(token=cached, proxy_url=proxy_url)
 
             refresh = await get_cached_refresh_token(national_code, client_id=client_id)
             if refresh and refresh.strip():
@@ -874,7 +879,11 @@ async def get_or_login_client(
                     await cache_token(national_code, auth.token, client_id=client_id)
                     if auth.refresh_token:
                         await cache_refresh_token(national_code, auth.refresh_token, client_id=client_id)
-                    logger.info("session_vault_refreshed national_code=%s", _mask_national_code(national_code))
+                    logger.info(
+                        "session_vault_refreshed national_code=%s purpose=%s",
+                        _mask_national_code(national_code),
+                        purpose,
+                    )
                     return client
                 except Exception as exc:
                     logger.warning("session_vault_refresh_failed: %s, falling back to login", exc)
@@ -890,10 +899,21 @@ async def get_or_login_client(
                 record_login_success,
             )
 
-            # P0-1: refuse locally while the account cools down — a fresh login
-            # attempt against a distressed account risks a UTCMS-side lockout.
-            allowed, cooldown_reason = await check_login_allowed(national_code)
+            # P0-1: refuse locally while the account cools down or is throttled
+            allowed, cooldown_reason = await check_login_allowed(
+                national_code, purpose=purpose, check_throttle=not force_reauth
+            )
             if not allowed:
+                # If fresh login is throttled but an unexpired cached token exists, reuse it gracefully!
+                cached_fallback = await get_cached_token(national_code, client_id=client_id)
+                if cached_fallback:
+                    logger.info(
+                        "session_vault_throttle_fallback national_code=%s purpose=%s reason=%s",
+                        _mask_national_code(national_code),
+                        purpose,
+                        cooldown_reason,
+                    )
+                    return UtcmsMobileClient(token=cached_fallback, proxy_url=proxy_url)
                 raise AccountCooldownError(national_code, cooldown_reason or "cooldown active")
 
             client = UtcmsMobileClient(proxy_url=proxy_url)
@@ -905,11 +925,15 @@ async def get_or_login_client(
                 if getattr(exc, "result_code", None) is not None:
                     await record_login_failure(national_code, kind="mobile")
                 raise
-            await record_login_success(national_code)
+            await record_login_success(national_code, purpose=purpose)
             await cache_token(national_code, auth.token, client_id=client_id)
             if auth.refresh_token:
                 await cache_refresh_token(national_code, auth.refresh_token, client_id=client_id)
-            logger.info("session_vault_login national_code=%s", _mask_national_code(national_code))
+            logger.info(
+                "session_vault_login national_code=%s purpose=%s",
+                _mask_national_code(national_code),
+                purpose,
+            )
             return client
         finally:
             if redis is not None and lock_token is not None:
