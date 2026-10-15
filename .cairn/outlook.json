@@ -1,15 +1,15 @@
 {
   "version": 1,
-  "ts": "2026-10-14T17:50:23.946Z",
+  "ts": "2026-10-15T16:49:52.899Z",
   "name": "BarPro-main",
   "path": "/Users/amirheidari/GitHub/BarPro-main",
-  "head": "3823ea74183944d3e844bbefa0f08fe5b8c5ef54",
+  "head": "2405ed67fb388abe87ce51662e4d07d836b8b7c0",
   "phases": [
     {
       "number": 1,
       "name": "server diagnostics and failure root cause audit",
       "planned": true,
-      "verified": false,
+      "verified": true,
       "issueCount": 2
     },
     {
@@ -39,5 +39,12 @@
     "probe": 0,
     "draft": 0,
     "thread": 0
+  },
+  "tracker": {
+    "open": 5,
+    "inProgress": 1,
+    "blocked": 0,
+    "nextVerb": "cairn work 2",
+    "asOf": "2026-10-15"
   }
 }

@@ -1,10 +1,10 @@
 <!--schema:2.0.0-->
 <!--agent:Antigravity-->
-<!--timestamp:2026-10-15T20:05:00+03:30-->
+<!--timestamp:2026-10-15T20:21:00+03:30-->
 <!--cairn-phase:2-->
 
 # 🎯 هدف جاری
-پروژه پایداری چرخه حیات بارنامه و بهینه‌سازی ورود و لاگ‌های سرور (Server Logs Optimization & Driver Login Throttling) — فاز ۲ و ۳: پیاده‌سازی سازوکار ورود هدفمند، کنترل‌شده و زمانبندی‌شده رانندگان به سامانه UTCMS، جلوگیری از لاگین‌های تکراری و بی‌هدف، برطرف‌سازی خطاهای زمانبندی و روتینگ در لاگ‌های سرور، و استقرار روی سرور مرکزی.
+پروژه پایداری چرخه حیات بارنامه و بهینه‌سازی ورود و لاگ‌های سرور (Server Logs Optimization & Driver Login Throttling) — اتمام و تأیید قطعی فاز ۱ در کرن (Phase 1 Verified)، همگام‌سازی وضعیت ایشیوها در گیت‌هاب ترکر (Issues #93 و #94 بسته شدند؛ #95، #96، #98، #99 در وضعیت in_progress با کامنت‌های مستند)، و ورود به فاز ۲.
 
 ## ✅ کارهای انجام‌شده
 - **طراحی و پیاده‌سازی سیستم ورود هدفمند رانندگان (Targeted & Scheduled Driver Login Architecture):**
@@ -29,28 +29,27 @@
   - پاس شدن بدون اخطار ابزار `ruff check`.
   - استقرار فایل‌ها روی سرور مرکزی (`87.107.160.251`) و راه‌اندازی مجدد ۴ کانتینر (`barpro-backend`، `barpro-scheduler`، `barpro-worker-1`، `barpro-beat`).
   - پایش لاگ‌های زنده سرور: تأیید کارکرد روان تمام تسک‌ها در بازه کمتر از ۲۰ میلی‌ثانیه بدون هیچ‌گونه خطا یا هشدار تکراری.
+- **تأیید فاز ۱ در کرن و همگام‌سازی ترکر گیت‌هاب (Cairn Phase 1 Verification & Tracker Sync):**
+  - ثبت خطوط لجر همراه شواهد تایپ‌شده برای ایشیوهای ۹۳ و ۹۴ از طریق ابزار `ledger_append`.
+  - ایجاد مستند اعتبارسنجی رسمی `.cairn/plans/phases/01-server-diagnostics-and-failure-root-cause-audit/VERIFICATION.md` با وضعیت `VERIFIED`.
+  - به‌روزرسانی وضعیت فاز ۱ در `.cairn/plans/roadmap.md` به `verified`.
+  - تأیید انطباق کرن با `plan_drift` (صفر دریفت؛ همه ۸ ایشیو در وضعیت ok).
+  - به‌روزرسانی ایشیوهای فازهای ۲ تا ۴ در ترکر گیت‌هاب: ایشیوهای #95، #96، #98 و #99 به وضعیت `in_progress` ارتقا یافتند و کامنت‌های پیشرفت فنی به همراه شواهد کامیت ثبت گردید.
 
 ## 📁 فایل‌های تغییریافته
-- `app/core/config.py`
-- `app/automation/login_attempt_ledger.py`
-- `app/automation/gps_shipping_manager.py`
-- `app/automation/clean_ip_pool.py`
-- `app/orchestrator/claim_reaper.py`
-- `app/orchestrator/scheduler_service.py`
-- `app/services/route_authority.py`
-- `app/services/driver_schedule_service.py`
-- `app/travel/route.py`
-- `app/workers/celery_app.py`
-- `tests/test_login_attempt_ledger.py`
+- `.cairn/plans/phases/01-server-diagnostics-and-failure-root-cause-audit/LEDGER.md`
+- `.cairn/plans/phases/01-server-diagnostics-and-failure-root-cause-audit/VERIFICATION.md`
+- `.cairn/plans/roadmap.md`
+- `.cairn/outlook.json`
+- `.cairn/tracker-marker.json`
 - `.context/STATE.md`
 
 ## 🎯 تسک دقیق بعدی
-ادامه مانیتورینگ سلامت سرویس‌ها و هماهنگی جهت تست ثبت بارنامه بعدی راننده محمدزاده طبق زمانبندی تنظیم‌شده.
+پیشبرد فاز ۲ (`cairn work 2`): ادامه تست چرخه حیات بارنامه برای راننده محمدزاده، بررسی نهایی وضعیت فورواردر پیامک، و اعتبارسنجی تراکنش‌های صدور با پروتکل Two-Witness Proof.
 
 ## 🧠 تصمیمات فنی و چرایی
-- مسدودسازی ورود بی‌هدف رانندگان در سطح هسته و حذف تسک کور keepalive برای حفظ سلامت اکانت رانندگان در WAF سامانه‌ کشوری.
-- ارجحیت توکن‌های کش‌شده و رفرش‌توکن بر لاگین کامل، که ضمن کاهش مصرف کپچا و کاهش هزینه منابع سرور، مانع از قفل شدن اکانت‌ها می‌شود.
-- هندلینگ نرم خطای ۴۰۹ در زمانبندی رانندگان، که از ثبت تریس‌بک‌های گیج‌کننده و غلط‌انداز در لاگ‌های پروداکشن جلوگیری می‌کند.
+- فاز ۱ رسماً با شواهد تایپ‌شده لاگ‌های زنده سرور و تست‌های خودکار بسته شد تا ترکر و گیت کاملاً منطبق باشند.
+- ارتقای ایشیوهای #96، #98، #99 به `in_progress` شکاف ترکر را برطرف کرد و تضمین نمود کارهای استقراریافته در کامیت `2405ed6` در وضعیت ایشیوها منعکس شده‌اند.
 
 ## ⚠️ نکات حساس و موانع
-- هرگونه درخواست لاگین مجدد با `force_reauth=True` در صورتی که توکن معتبر و زنده در ردیس باشد، به توکن موجود fallback داده می‌شود تا راننده دچار throttle نشود.
+- متغیر `ALLOW_LIVE_SUBMIT` کماکان `false` نگه داشته شده است تا ثبت زنده بارنامه صرفاً تحت نظارت اپراتور انجام شود.

@@ -6,29 +6,31 @@
       "bodyHash": "e37cced291741d09",
       "labels": [],
       "assignee": "amir-hdri",
-      "state": "in_progress",
-      "updatedAt": "2026-10-14T17:49:37Z"
+      "state": "closed",
+      "updatedAt": "2026-10-15T16:43:57Z"
     },
     "94": {
       "title": "Diagnose and remediate session drops, WAF rejections, and OTP reception defects",
       "bodyHash": "eb780f118c10e246",
       "labels": [],
-      "state": "open",
-      "updatedAt": "2026-10-14T17:49:46Z"
+      "state": "closed",
+      "updatedAt": "2026-10-15T16:44:10Z"
     },
     "95": {
       "title": "Remediate UtcmsMobileClient defects and harden transport against transient drops",
       "bodyHash": "5a49a02caa9e3546",
       "labels": [],
-      "state": "open",
-      "updatedAt": "2026-10-14T17:50:07Z"
+      "assignee": "amir-hdri",
+      "state": "in_progress",
+      "updatedAt": "2026-10-15T16:44:28Z"
     },
     "96": {
       "title": "Fix waybill_jobs state transitions and enforce strict Two-Witness Proof",
       "bodyHash": "8ad6e651472c0304",
       "labels": [],
-      "state": "open",
-      "updatedAt": "2026-10-14T17:50:12Z"
+      "assignee": "amir-hdri",
+      "state": "in_progress",
+      "updatedAt": "2026-10-15T16:49:05Z"
     },
     "97": {
       "title": "Resolve defects in virtual Android shipping controller for reliable Start Shipping",
@@ -41,15 +43,17 @@
       "title": "Resolve Finish Shipping defects and automate GPS waypoint simulation",
       "bodyHash": "daae7fe555d5e859",
       "labels": [],
-      "state": "open",
-      "updatedAt": "2026-10-14T17:50:23Z"
+      "assignee": "amir-hdri",
+      "state": "in_progress",
+      "updatedAt": "2026-10-15T16:49:36Z"
     },
     "99": {
       "title": "Optimize Celery task queues, worker retry policies, and automated health checks",
       "bodyHash": "cff549ddd1e7dc6f",
       "labels": [],
-      "state": "open",
-      "updatedAt": "2026-10-14T17:42:51Z"
+      "assignee": "amir-hdri",
+      "state": "in_progress",
+      "updatedAt": "2026-10-15T16:49:52Z"
     },
     "100": {
       "title": "Verify end-to-end waybill registration and shipping lifecycle through automated tests",

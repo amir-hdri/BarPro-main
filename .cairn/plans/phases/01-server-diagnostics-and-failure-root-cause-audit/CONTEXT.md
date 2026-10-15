@@ -2,14 +2,21 @@
 
 ## Locked decisions
 
-<!-- decisions made for this phase; on conflict these WIN over tracker issue text -->
+1. Direct Mobile API Transport (`UtcmsMobileClient`) is the sole live issuance mechanism; Playwright form filling is retired.
+2. Two-Witness proof is mandatory for any confirmed waybill registration claim.
+3. Iranian Egress IP is required for all UTCMS operations.
+4. Purposeful and scheduled driver login architecture to prevent account lockout.
 
 ## Approaches considered
 
-<!-- the phase's central fork, as two-plus candidates:
-       ### A — <name>   (a line of trade-offs: what it buys, what it costs)
-       ### B — <name>
-       chosen: <letter> — because <one line>
-     plan writes this BEFORE PLAN.md; plan_check flags a planned, non-quick
-     phase without it. Left as a comment on purpose: an unfilled skeleton
-     must not satisfy the gate. -->
+### A — Live container log audit and root-cause remediation
+Inspect real-time container logs on the central server (`barpro-scheduler`, `barpro-worker-1`, `barpro-beat`, `barpro-backend`), pinpoint exact error messages and crash stacks, resolve them at source and database, and verify container health.
+What it buys: Exact root cause identification, eliminates active crashes/warnings, real-time proof.
+What it costs: Requires direct SSH server access and container log inspection.
+
+### B — Static code review and synthetic probes without container audit
+Review code repositories locally without live container log correlation.
+What it buys: Faster, no server execution required.
+What it costs: Misses production-specific crashes such as orphan job loops, sinkhole IPs, and queue task drops.
+
+chosen: A — because live logs reveal real-time production issues (orphaned scheduler jobs, geometry crashes, proxy sinkholes, celery expires).
