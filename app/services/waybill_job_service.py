@@ -66,6 +66,7 @@ class WaybillJobService:
         *,
         driver_id: int,
         client_id: int | None = None,
+        exclude_job_id: int | None = None,
     ) -> WaybillJob | None:
         """Find any job that holds the driver in an active or in-transit state.
 
@@ -74,6 +75,10 @@ class WaybillJobService:
            waiting_auth, waiting_retry, waiting_submission_window, in_transit, reconciling).
         2. Successfully issued jobs (status == SUCCESS with document_id) whose physical shipping
            journey has NOT reached terminal delivery (completed_at / end_shipping not recorded).
+
+        ``exclude_job_id`` MUST be the id of the job under evaluation: without
+        it, a merely-queued newest job matches itself (recency-ordered scan)
+        and the invariant silently passes exactly the job it should hold back.
         """
         active_in_flight = [
             TaskStatus.PENDING.value,
@@ -102,6 +107,8 @@ class WaybillJobService:
         candidates = result.all()
 
         for j in candidates:
+            if exclude_job_id is not None and j.id == exclude_job_id:
+                continue
             if j.status in active_in_flight:
                 return j
             if j.status == TaskStatus.SUCCESS.value and j.document_id:

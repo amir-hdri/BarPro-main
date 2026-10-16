@@ -175,9 +175,12 @@ class SchedulerService:
 
                     # Driver 1-active-trip invariant: do not dispatch if driver has an ongoing trip
                     active_trip = await WaybillJobService.find_driver_active_job(
-                        session, driver_id=job.driver_id, client_id=job.client_id
+                        session,
+                        driver_id=job.driver_id,
+                        client_id=job.client_id,
+                        exclude_job_id=job.id,
                     )
-                    if active_trip is not None and active_trip.id != job.id:
+                    if active_trip is not None:
                         logger.info(
                             "driver_active_shipping_trip_skipped",
                             extra={"extra_fields": {"driver_id": job.driver_id, "active_job_id": active_trip.job_id}},
