@@ -229,8 +229,16 @@ def test_is_retryable_rejects_deterministic_portal_business_codes() -> None:
         "error": "UTCMS InsertDocument business rejection: مبلغ کرایه خالی است. (code: 4025)",
         "error_category": "mobile_api_error",
     }
+    rejection_4045 = {
+        "error": (
+            "UTCMS InsertDocument business rejection: مبدا یا مقصد انتخابی باید در محل "
+            "استان پروانه فعالیت ناوگان یا استان های همجوار باشد. (code: 4045)"
+        ),
+        "error_category": "mobile_api_error",
+    }
     assert not _is_retryable(rejection_4028)
     assert not _is_retryable(rejection_4025)
+    assert not _is_retryable(rejection_4045)
     # Control: transient failures stay retryable (behavior unchanged).
     assert _is_retryable({"error_category": "captcha_failed", "status": "failed"})
 
