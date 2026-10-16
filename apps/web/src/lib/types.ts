@@ -84,6 +84,7 @@ export interface Driver {
   license_number?: string | null;
   utcms_username: string;
   status: string;
+  auto_submit_enabled: boolean;
   runtime_status?: string | null;
   last_auth_at?: string | null;
   last_session_expires_at?: string | null;
@@ -122,6 +123,7 @@ export interface DriverUpdateRequest {
   plate_number?: string;
   vehicle_type?: string;
   status?: string;
+  auto_submit_enabled?: boolean;
 }
 
 export interface Plate {

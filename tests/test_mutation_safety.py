@@ -213,6 +213,28 @@ def test_is_retryable_rejects_ambiguous_and_unconfirmed_mutations() -> None:
     assert _is_retryable({"error_category": "network_error", "status": "failed"})
 
 
+def test_is_retryable_rejects_deterministic_portal_business_codes() -> None:
+    # Live-observed 2026-10-16 (job 13): code 4028 (origin outside the
+    # driver's permitted scope) can never succeed on retry — each attempt
+    # burns a login (throttled 6/hour) plus a CAPTCHA solve. Same for the
+    # documented 4025 (empty fare). Fail fast instead of retrying.
+    rejection_4028 = {
+        "error": (
+            "UTCMS InsertDocument business rejection: کاربر گرامی، صدور سند حمل "
+            "صرفا در محدوده شهر/شهرستان مبدا امکان پذیر است. (code: 4028)"
+        ),
+        "error_category": "mobile_api_error",
+    }
+    rejection_4025 = {
+        "error": "UTCMS InsertDocument business rejection: مبلغ کرایه خالی است. (code: 4025)",
+        "error_category": "mobile_api_error",
+    }
+    assert not _is_retryable(rejection_4028)
+    assert not _is_retryable(rejection_4025)
+    # Control: transient failures stay retryable (behavior unchanged).
+    assert _is_retryable({"error_category": "captcha_failed", "status": "failed"})
+
+
 @pytest.mark.asyncio
 async def test_timeout_after_submit_transitions_to_unknown_without_retry() -> None:
     from app.automation.waybill_enhanced import EnhancedWaybillManager

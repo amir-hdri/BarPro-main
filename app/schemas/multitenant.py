@@ -235,6 +235,7 @@ class DriverUpdateRequest(BaseModel):
     plate_number: str | None = Field(None, max_length=50)
     vehicle_type: str | None = Field(None, max_length=50)
     status: str | None = Field(None, max_length=20)
+    auto_submit_enabled: bool | None = Field(None)
     default_payload: dict[str, Any] | None = Field(None)
 
     @field_validator("driver_national_code", "utcms_password", "phone", "license_number", "plate_number", mode="before")
@@ -263,6 +264,7 @@ class DriverResponse(BaseModel):
     license_number: str | None
     utcms_username: str
     status: str
+    auto_submit_enabled: bool = True
     runtime_status: str | None = None
     last_auth_at: datetime | None = None
     last_session_expires_at: datetime | None = None

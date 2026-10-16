@@ -108,6 +108,7 @@ export default function DriversPage() {
     is_active: true,
   });
   const [editDriver, setEditDriver] = useState<{ id: number; payload: DriverUpdateRequest } | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [forwarderDriver, setForwarderDriver] = useState<Driver | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
@@ -248,6 +249,19 @@ export default function DriversPage() {
     toast.success('اطلاعات راننده بروزرسانی شد');
     setEditDriver(null);
     await Promise.all([refetchDrivers(), loadPlatesAndSchedules()]);
+  }
+
+  async function handleAutoSubmitToggle(driver: Driver) {
+    const next = !(driver.auto_submit_enabled ?? true);
+    setTogglingId(driver.id);
+    const response = await api.put<Driver>(`/api/v1/drivers/${driver.id}`, { auto_submit_enabled: next });
+    setTogglingId(null);
+    if (!response.success) {
+      toast.error(response.error || 'تغییر وضعیت ثبت خودکار ناموفق بود');
+      return;
+    }
+    toast.success(next ? 'ثبت خودکار برای این راننده فعال شد' : 'ثبت خودکار برای این راننده متوقف شد');
+    await refetchDrivers();
   }
 
   async function handleDriverDelete(driverId: number) {
@@ -616,6 +630,29 @@ export default function DriversPage() {
                         </div>
                       )}
 
+                      <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                        <div>
+                          <p className="text-xs font-black text-slate-200">ثبت خودکار بارنامه</p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">
+                            {(driver.auto_submit_enabled ?? true)
+                              ? 'صدور خودکار (زمان‌بند و بچ) فعال است'
+                              : 'متوقف شده — فقط وضعیت فعلی حفظ می‌شود'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={driver.auto_submit_enabled ?? true}
+                          aria-label="ثبت خودکار بارنامه"
+                          disabled={togglingId === driver.id}
+                          onClick={() => handleAutoSubmitToggle(driver)}
+                          className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${(driver.auto_submit_enabled ?? true) ? 'bg-cyan-500' : 'bg-slate-700'}`}
+                        >
+                          <span
+                            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${(driver.auto_submit_enabled ?? true) ? 'right-1' : 'left-1'}`}
+                          />
+                        </button>
+                      </div>
                       <div className="mt-6 grid gap-3 sm:grid-cols-2">
                         <Link href={`/history?driver_id=${driver.id}&day=${tehranDateKey()}`} className="touch-target flex items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-xs font-bold text-cyan-300">بارنامه‌های امروز</Link>
                         <Link href={`/fuel?driver_id=${driver.id}`} className="touch-target flex items-center justify-center rounded-xl border border-white/10 px-4 py-3 text-xs font-bold text-slate-200">سوابق استعلام سوخت</Link>
@@ -645,6 +682,7 @@ export default function DriversPage() {
                                 plate_number: driver.active_plate || '',
                                 vehicle_type: activePlateObj?.vehicle_type || 'کامیون',
                                 status: driver.status,
+                                auto_submit_enabled: driver.auto_submit_enabled ?? true,
                               },
                             });
                           }}

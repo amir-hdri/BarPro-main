@@ -184,6 +184,11 @@ class Driver(SQLModel, table=True):
 
     # Status & metadata
     status: str = Field(default=DriverStatus.ACTIVE.value, max_length=50, index=True)
+    # Autonomous live-submission switch (per-driver). Default True preserves
+    # existing behavior; when False the scheduler and the scheduled executor
+    # create no new submit intents/jobs for this driver. Driver stays active
+    # for GPS/shipping/fuel; in-flight jobs drain naturally.
+    auto_submit_enabled: bool = Field(default=True)
     metadata_json: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     runtime_status: str = Field(default=DriverStatus.ACTIVE.value, max_length=50, index=True)
     last_auth_at: datetime | None = Field(

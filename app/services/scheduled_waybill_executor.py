@@ -1009,13 +1009,36 @@ async def _evaluate_single_schedule(session: AsyncSession, schedule: DriverSched
             "reason": "duplicate_idempotency",
         }
 
+    # Per-driver autonomous-submission switch (mirrors the scheduler
+    # guard): OFF means no new jobs from schedules. Defaults True.
+    if not getattr(driver, "auto_submit_enabled", True):
+        logger.info(
+            "scheduled_waybill_skipped_auto_submit_disabled",
+            extra={"extra_fields": {"schedule_id": schedule.id, "driver_id": driver.id}},
+        )
+        return {
+            "jobs_created": 0,
+            "jobs_success": 0,
+            "jobs_failed": 0,
+            "skipped": True,
+            "reason": "driver_auto_submit_disabled",
+        }
+
     from app.services.waybill_job_service import WaybillJobService
 
-    active_trip = await WaybillJobService.find_driver_active_job(session, driver_id=driver.id, client_id=schedule.client_id)
+    active_trip = await WaybillJobService.find_driver_active_job(
+        session, driver_id=driver.id, client_id=schedule.client_id
+    )
     if active_trip:
         logger.info(
             "scheduled_waybill_skipped_driver_busy",
-            extra={"extra_fields": {"schedule_id": schedule.id, "driver_id": driver.id, "active_job_id": active_trip.job_id}},
+            extra={
+                "extra_fields": {
+                    "schedule_id": schedule.id,
+                    "driver_id": driver.id,
+                    "active_job_id": active_trip.job_id,
+                }
+            },
         )
         return {
             "jobs_created": 0,

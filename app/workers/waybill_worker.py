@@ -2087,6 +2087,14 @@ def _is_retryable(result: dict[str, Any]) -> bool:
     """Determine if a failed job should be retried."""
     if result.get("mutation_status") == "ambiguous" or result.get("mutation_attempted") is True:
         return False
+    # Deterministic UTCMS business rejections (live-observed 2026-10-16):
+    # 4028 = origin outside the driver's permitted scope, 4025 = empty fare.
+    # No retry can ever succeed; each attempt burns a login (6/hour throttle)
+    # plus a CAPTCHA solve. Fail fast instead. The `(code: NNNN)` shape is the
+    # centralized business-rejection format, so substring match is exact.
+    error_text = str(result.get("error", ""))
+    if "(code: 4028)" in error_text or "(code: 4025)" in error_text:
+        return False
     error_category = str(result.get("error_category", "")).strip().lower()
     if error_category in (
         "submission_unconfirmed",

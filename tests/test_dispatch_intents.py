@@ -433,6 +433,74 @@ async def test_scheduler_skips_tracking_acknowledged_job():
 
 
 @pytest.mark.asyncio
+async def test_scheduler_skips_driver_with_auto_submit_disabled():
+    """A driver with auto_submit_enabled=False gets no submit intents.
+
+    Live requirement 2026-10-16 (issue #102): per-driver autonomous
+    submission pause. Driver stays active (GPS/shipping untouched); only
+    new intent creation stops. Migration default is True so existing
+    drivers behave exactly as before.
+    """
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False, future=True)
+    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+    async with async_session() as session:
+        session.add(
+            Client(
+                id=1,
+                client_code="tenant-toggle",
+                name="Tenant Toggle",
+                email="toggle@example.com",
+                hashed_password="hash",
+                username="tenant_toggle",
+                full_name="Tenant Toggle Admin",
+            )
+        )
+        session.add(
+            Driver(
+                id=1,
+                client_id=1,
+                driver_national_code="1234567890",
+                full_name="Driver Toggle",
+                phone="09123456789",
+                utcms_username="drv",
+                utcms_password_encrypted="pwd",
+                auto_submit_enabled=False,
+            )
+        )
+        session.add(DriverRuntimeState(client_id=1, driver_id=1, state="active", active_execution_id=None))
+        session.add(
+            WaybillJob(
+                job_id="job-toggle-1",
+                idempotency_key="idem-toggle-1",
+                client_id=1,
+                driver_id=1,
+                status=TaskStatus.PENDING.value,
+                payload_json={},
+                priority=5,
+                attempt_count=0,
+            )
+        )
+        await session.commit()
+
+    scheduler = SchedulerService()
+    with patch("app.orchestrator.scheduler_service.async_session_factory", new=async_session):
+        scheduled = await scheduler.run()
+        assert scheduled == 0
+
+    async with async_session() as session:
+        job_db = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-toggle-1"))).first()
+        assert job_db.status == TaskStatus.PENDING.value  # untouched
+        intent_db = (await session.exec(select(DispatchIntent).where(DispatchIntent.job_id == "job-toggle-1"))).first()
+        assert intent_db is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_reconciliation_audit_intent_dispatched_not_expired_as_unknown_operation():
     """A pending reconciliation_audit intent for a tracking-received job must be
     claimed and routed to the audit worker task — NOT expired as

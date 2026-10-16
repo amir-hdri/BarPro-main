@@ -166,6 +166,18 @@ class SchedulerService:
                         skipped += 1
                         continue
 
+                    # Per-driver autonomous-submission switch: OFF pauses new
+                    # intent creation (in-flight jobs drain naturally;
+                    # GPS/shipping/fuel untouched). Defaults True so existing
+                    # drivers behave exactly as before.
+                    if not getattr(driver, "auto_submit_enabled", True):
+                        logger.info(
+                            "driver_auto_submit_disabled_skipped",
+                            extra={"extra_fields": {"driver_id": job.driver_id}},
+                        )
+                        skipped += 1
+                        continue
+
                     from app.services.otp_challenge_guard import find_unresolved_driver_otp_job
                     from app.services.waybill_job_service import WaybillJobService
 
