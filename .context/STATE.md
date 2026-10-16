@@ -1,6 +1,6 @@
 <!--schema:2.0.0-->
 <!--agent:OpenCode-->
-<!--timestamp:2026-10-16T17:15:00+03:30-->
+<!--timestamp:2026-10-16T17:02:58+03:30-->
 <!--cairn-phase:2-->
 
 # 🎯 هدف جاری
@@ -36,6 +36,10 @@
   - دریفت `ARCHITECTURE.md` (صف `clean_ip.probe`: `rpa_scheduler` → `scheduled_tasks`) اصلاح شد.
   - `better-sqlite3` با `npm rebuild` تعمیر و `cairn_mem_stats` سالم شد (۰ کارت).
 - **تطبیق cairn:** کانتکست فاز ۲/ایشو ۹۵؛ یافته‌ها روی ایشو ۹۵ کامنت شد.
+- **تضمین لایه ۱ تزریق دستورالعمل (این نشست، CODE-VERIFIED):**
+  - راستی‌آزمایی هر ۴ هارنس با مشاهده فایل/کانفیگ: `AGENTS.md` (ریشه، حاوی پروتکل sync) و `CLAUDE.md` (`@AGENTS.md` import) کامیت‌شده‌اند؛ `~/.config/opencode/opencode.json` فیلد instructions ندارد (بارگذاری AGENTS.md رفتار داخلی OpenCode است — در همین نشست در حافظه‌ام بود)؛ مرجع Hermes می‌گوید فایل دستورالعمل همان `AGENTS.md` پروژه است؛ `~/.hermes/SOUL.md` فقط شخصیت عمومی است و طبق قانون اسکوپ خود AGENTS.md نباید قوانین BarPro را globally کپی کرد.
+  - شکاف واقعی پیدا شد: `.gemini/settings.json` (این ماشین، gitignore‌شده در `.gitignore:133`) دو context file اعلام می‌کند (`GEMINI.md` اول) ولی `GEMINI.md` در هیچ‌جا وجود نداشت — تأیید با `ls` و `git ls-files`.
+  - رفع: `GEMINI.md` در ریشه ساخته شد دقیقاً هم‌ارز الگوی `CLAUDE.md` (`@AGENTS.md` + کامنت آداپتر)؛ `.gemini/` عمداً force-add نشد (ignore تصمیم آگاهانه ریپو است) و `SOUL.md` دست نخورد (منع اسکوپ).
 - **راستی‌آزمایی:** `pytest` روی ۴ فایل مرتبط → 94/94 سبز؛ `ruff`/`black` تمیز؛ `mypy` تمیز؛ `npm run typecheck` و `npm run lint` فرانت تمیز؛ شبیه‌سازی end-to-end (شکل دقیق خروجی فرم جدید + GPS واقعی الگو ۵) هر دو گیت live و mobile را با `[]` پاس کرد.
 
 ## 📁 فایل‌های تغییریافته
@@ -46,6 +50,7 @@
 - `apps/web/src/schemas/waybillSchema.ts` (export کمک‌تابع چک‌سام، ۱ کلمه)
 - `app/services/waybill_job_service.py` (۱ خط: `cast(int, driver.id)`)
 - `ARCHITECTURE.md` (اصلاح ۱ خط دریفت صف)
+- `GEMINI.md` (جدید: آداپتر هم‌ارز `CLAUDE.md` برای تضمین لایه ۱)
 
 ## 🎯 تسک دقیق بعدی
 1. کامیت اتمیک این نشست (سورس + STATE.md).
