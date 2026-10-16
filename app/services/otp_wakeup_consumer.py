@@ -58,7 +58,9 @@ def trigger_job_completion_on_otp_received(
             from app.core.config import utcms_config
             from app.workers.tasks import sweep_otp_stream
 
-            sweep_otp_stream.apply_async(queue=utcms_config.RPA_SCHEDULER_QUEUE, expires=4, retry=False)
+            sweep_otp_stream.apply_async(
+                queue=utcms_config.RPA_SCHEDULER_QUEUE, expires=4, retry=False, ignore_result=True
+            )
         except Exception:
             logger.warning("otp_stream_wakeup_deferred_to_beat", exc_info=True)
 

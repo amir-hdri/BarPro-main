@@ -2091,7 +2091,7 @@ async def _execute_job(
 # The `(code: NNNN)` shape is the centralized business-rejection format, so
 # substring match is exact. Deliberately NOT included: 4003 (wrong captcha —
 # explicitly retried by the caller loops) and transport/session errors.
-NON_RETRYABLE_PORTAL_CODES = ("4025", "4028", "4045")
+NON_RETRYABLE_PORTAL_CODES = ("3000", "4025", "4028", "4045")
 
 
 def _is_retryable(result: dict[str, Any]) -> bool:
@@ -2099,7 +2099,12 @@ def _is_retryable(result: dict[str, Any]) -> bool:
     if result.get("mutation_status") == "ambiguous" or result.get("mutation_attempted") is True:
         return False
     error_text = str(result.get("error", ""))
-    if any(f"(code: {code})" in error_text for code in NON_RETRYABLE_PORTAL_CODES):
+    if any(
+        f"(code: {code})" in error_text or f"result_code={code}" in error_text or f"code {code}" in error_text
+        for code in NON_RETRYABLE_PORTAL_CODES
+    ):
+        return False
+    if "مسدود می باشد" in error_text or "علت مسدودی" in error_text or "حساب کاربری شما مسدود" in error_text:
         return False
     error_category = str(result.get("error_category", "")).strip().lower()
     if error_category in (

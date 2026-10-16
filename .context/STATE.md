@@ -1,27 +1,46 @@
 <!--schema:2.0.0-->
 <!--agent:Antigravity-->
-<!--timestamp:2026-10-16T23:42:00+03:30-->
-<!--cairn-phase:3-->
+<!--timestamp:2026-10-17T02:14:00+03:30-->
+<!--cairn-phase:4-->
 
 # 🎯 هدف جاری
-راستی‌آزمایی رسمی فاز 3 در Cairn تکمیل شد (ایشوهای 97 و 98 بسته شدند، 0 دریفت). گام بعدی: بررسی سرویس فورواردر پیامک/OTP و برنامه‌ریزی و ثبت بارنامه‌های راننده محمدزاده با مانیتورینگ همزمان.
+مقاوم‌سازی کامل پایپ‌لاین OTP و ورکر در فاز 4 (پروژه Cairn): رفع ۸ نقص حیاتی شناسایی‌شده در حادثه جاب 14 و 16 راننده محمدزاده، راستی‌آزمایی با تست‌های رگرسیون اختصاصی، دیپلوی زنده روی سرور مرکزی، و آماده‌سازی برای ثبت مجدد پس از خروج خودکار راننده از لیست مسدودی (ساعت 10:00 صبح به وقت تهران).
 
 ## ✅ کارهای انجام‌شده
-- **رفع نقص‌های کنترلر پایان حمل و پاکسازی موک FakeTraveler (ایشو 98):**
-  - فراخوانی `_stop_location_mock_best_effort()` پس از ثبت موفق تحویل کالا (`delivered`) در اندپوینت `POST /api/v1/shipping/finish` و ورکر دوره‌ای `auto_complete_shipping` پیاده‌سازی شد تا موقعیت‌های موک در ردروید سرور باقی نماند و بین جاب‌ها تداخل ایجاد نکند.
-  - راستی‌آزمایی شبیه‌سازی نقاط میانی (نقاط انحرافی عمود بر مسیر برای رعایت قانون 4012 و فاصله حداقل 2 کیلومتر) و ارتقای فاصله هدف بر اساس کدهای بازگشتی UTCMS تایید شد.
-  - تست‌های رگرسیون جدید برای توقف موک در تحویل به `tests/test_automated_shipping_lifecycle.py` و `tests/test_faketraveler_waybill_coords.py` اضافه شدند.
-  - اجرای سوئیت تست‌های اعلام‌شده در پلن: ۵۶ تست در ۱۵.۷ ثانیه با ۱۰۰٪ موفقیت پاس شدند.
-- **رفع نقص‌های کنترلر شروع حمل و تطبیق وضعیت نامشخص (ایشو 97):** پارامتر `require_target_package` به `BridgeConfig` و کنترلر اندروید اضافه شد تا امولاتورهای دارای FakeTraveler (مانند ردروید سرور مرکزی) بدون نیاز به نصب اجباری اپلیکیشن بومی، مختصات موک را اعمال و وریفای کنند؛ اندپوینت تطبیق `POST /api/v1/shipping/reconcile/{job_id}` برای استعلام وضعیت حمل از `GetShippingDocuments` پیاده‌سازی شد تا وضعیت‌های `unknown` به `in_transit` یا `ready` تبدیل شوند؛ تمامی تست‌های مرتبط (۸۱ تست کنترلر و قرارداد شروع، ۳۱ تست رانتایم GPS) با ۱۰۰٪ موفقیت پاس شدند.
-- **تکمیل و راستی‌آزمایی رسمی فاز 4 در Cairn (2026-10-16):** ثبت شواهد تایپ‌شده برای ایشوهای 99 و 100 در `LEDGER.md` فاز 4؛ تولید سند `VERIFICATION.md`؛ به‌روزرسانی ردیف فاز 4 در `roadmap.md` به وضعیت `verified`؛ بررسی وضعیت دریفت با `plan_drift` (صفر دریفت).
+- **رفع نقص‌های پایپ‌لاین OTP و دور زدن چالش در بات (`waybill_bot_multitenant.py`):**
+  - متدهای `get_document` و `GetDocTrackingCode` مقید به شرط `not otp_required` و عدم وجود وضعیت‌های پیش‌نویس (`"پیش‌نویس"`، `"در انتظار تایید"`) شدند تا کد رهگیری موقت پیش‌نویس باعث اعلام موفقیت زودهنگام و پرش از روی مرحله ورود OTP نشود.
+  - شرط موفقیت نهایی در خط 841 به `if tracking_code and not otp_required:` ارتقا یافت.
+- **اصلاح تاکسونومی خطا و جلوگیری از لوپ‌های تکرار روی اکانت مسدود (`error_taxonomy.py` و `waybill_worker.py`):**
+  - خطای مسدودی سامانه کشوری با کد 3000 و عبارات مسدودی به دسته‌بندی `ErrorCategory.AUTH_FAILURE` پیوست.
+  - کلمات بیش‌ازحد فراگیر `"api"` و `"service"` در `cat_hint` به موارد دقیق `api_timeout` و `api_unreachable` محدود شدند تا خطای مسدودی موبایل به اشتباه `TARGET_SITE_TIMEOUT` تلقی نشود.
+  - کد 3000 و عبارات `"مسدود می باشد"` و `"علت مسدودی"` به متد `_is_retryable()` در ورکر افزوده شد تا از تلاش‌های بیهوده دو دقیقه‌ای روی اکانت‌های معلق جلوگیری کرده و وضعیت را بلافاصله به `NEEDS_REVIEW` هدایت کند.
+- **فیلتر وضعیت‌های نامعتبر در اسکرپر تطبیق (`utcms_reconciliation_scraper.py`):**
+  - ردیف‌های دارای وضعیت‌های `"ابطال"`, `"لغو"`, `"پیش نویس"`, `"پیش‌نویس"`, `"منقضی"`, `"در انتظار"` در جدول AJAX و فال‌بک DOM مردود اعلام شده و خروجی `ScraperOutcome.NOT_FOUND` برمی‌گردانند تا بارنامه‌های باطل‌شده یا پیش‌نویس هرگز به عنوان ثبت قطعی تلقی نشوند.
+- **ایمن‌سازی وضعیت هاب پیامک و سلامت فورواردر (`otp_forwarder.py` و `otp_delivery.py`):**
+  - بازنویسی وضعیت `HUB_STATE_KEY` منحصراً به شماره‌های پیکربندی‌شده در `utcms_config.HUB_NUMBERS` محدود شد تا فورواردرهای معمولی امکان تغییر نقش هاب را نداشته باشند.
+  - اسکریپت اتمیک Lua (`STORE_FORWARDED_OTP`) روی هر دریافت پیامک، کلید تلمتری `rpa:forwarder:connected:{phone}` را به‌صورت اتمیک با `last_seen` و `last_sms_at` به‌روزرسانی می‌کند.
+  - فلگ `ignore_result=True` به تسک دوره‌ای سلری `sweep_otp_stream` افزوده شد تا خطاهای اتصال به result backend در محیط‌های تست و اجرا برطرف شود.
+- **توسعه سوئیت تست‌های رگرسیون (`tests/test_cairn_worker4_hardening.py`):**
+  - ۶ تست رگرسیون اختصاصی برای تمام رفتارهای فوق پیاده‌سازی و با موفقیت پاس شدند.
+  - کل سوئیت تست‌های مرتبط (۱۵۶ تست) با ۱۰۰٪ موفقیت در ۱۰.۶۶ ثانیه پاس شدند.
+- **دیپلوی زنده و راستی‌آزمایی در محیط Production (`barpro-central` / `87.107.160.251`):**
+  - تمامی ۸ فایل اصلاح‌شده به دایرکتوری `/opt/barpro` سرور مرکزی انتقال یافتند.
+  - هر ۴ سرویس هسته (`barpro-backend`، `barpro-worker-1`، `barpro-scheduler`، `barpro-beat`) ری‌استارت شدند و لاگ‌های تمیز بالا آمدن بدون خطا تایید شد.
+  - اجرای زنده پایتون در کانتینرهای سرور نشان داد که کد 3000 مستقیماً به `AUTH_FAILURE` نگاشت شده و `_is_retryable` مقدار `False` برمی‌گرداند.
 
 ## 📁 فایل‌های تغییریافته
 - `.context/STATE.md`
-- `app/api/routes/shipping_gps.py`
-- `app/automation/gps_shipping_manager.py`
-- `tests/test_automated_shipping_lifecycle.py`
-- `tests/test_faketraveler_waybill_coords.py`
-- `.cairn/plans/phases/03-virtual-android-shipping-lifecycle-automation/LEDGER.md`
+- `.cairn/plans/phases/04-worker-resilience-performance-and-verification/PLAN.md`
+- `.cairn/plans/phases/04-worker-resilience-performance-and-verification/LEDGER.md`
+- `app/api/routes/otp_forwarder.py`
+- `app/automation/waybill_bot_multitenant.py`
+- `app/core/error_taxonomy.py`
+- `app/orchestrator/utcms_reconciliation_scraper.py`
+- `app/services/otp_delivery.py`
+- `app/services/otp_wakeup_consumer.py`
+- `app/workers/tasks.py`
+- `app/workers/waybill_worker.py`
+- `tests/test_cairn_worker4_hardening.py`
 
 ## 🎯 تسک دقیق بعدی
 بستن رسمی ایشو 98 در گیت‌هاب ترکر، ثبت در لجر فاز 3، و راستی‌آزمایی و بستن رسمی فاز 3 با `/cairn-verify 3`. سپس بررسی سرویس فورواردر پیامک/OTP و برنامه‌ریزی و ثبت بارنامه‌های راننده محمدزاده با مانیتورینگ همزمان.

@@ -300,13 +300,16 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
                     # Record Hub phone heartbeat if role is HUB or matches known Hub numbers.
                     # Hub MSISDNs come from utcms_config.HUB_NUMBERS (env HUB_NUMBERS) so the
                     # deployment's SIMs are not baked into the source.
+                    configured_hubs = set(utcms_config.HUB_NUMBERS)
                     hub_numbers_list = json_data.get("hub_numbers") or list(utcms_config.HUB_NUMBERS)
-                    is_hub = (
-                        request.headers.get("x-app-role", "").upper() == "HUB"
-                        or str(json_data.get("app_role", "")).upper() == "HUB"
-                        or str(json_data.get("role", "")).upper() == "HUB"
-                        or (norm_phone in set(utcms_config.HUB_NUMBERS))
-                    )
+                    if configured_hubs:
+                        is_hub = norm_phone in configured_hubs
+                    else:
+                        is_hub = (
+                            request.headers.get("x-app-role", "").upper() == "HUB"
+                            or str(json_data.get("app_role", "")).upper() == "HUB"
+                            or str(json_data.get("role", "")).upper() == "HUB"
+                        )
                     if is_hub:
                         hub_state = {
                             "app_role": "HUB",

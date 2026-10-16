@@ -670,7 +670,7 @@ class WaybillAutomationBot:
                 result["tracking_code"] = tracking_code
 
             # Immediate verification: if document_id exists, check if already active on UTCMS with tracking code
-            if document_id and not tracking_code:
+            if document_id and not tracking_code and not otp_required:
                 try:
                     doc_check = await client.get_document(str(document_id))
                     chk_tracking = client.extract_tracking_code(doc_check)
@@ -679,7 +679,12 @@ class WaybillAutomationBot:
                     _obj_check_raw = doc_check.get("obj")
                     obj_check: dict[Any, Any] = _obj_check_raw if isinstance(_obj_check_raw, dict) else {}
                     chk_status = str(obj_check.get("statusName") or "").strip()
-                    if chk_tracking:
+                    if chk_tracking and chk_status not in (
+                        "پیش‌نویس",
+                        "پیش نویس",
+                        "در انتظار تایید",
+                        "در انتظار تأیید",
+                    ):
                         logger.info(
                             "Document %s confirmed on UTCMS (docNo=%s, status=%s)",
                             document_id,
@@ -692,7 +697,7 @@ class WaybillAutomationBot:
                 except Exception as chk_exc:
                     logger.debug("Immediate get_document check failed: %s", chk_exc)
 
-            if document_id and not tracking_code:
+            if document_id and not tracking_code and not otp_required:
                 for track_attempt in range(1, 4):
                     try:
                         track_res = await client.get_tracking_code(str(document_id))
@@ -838,7 +843,7 @@ class WaybillAutomationBot:
                     start_res,
                 )
 
-            if tracking_code:
+            if tracking_code and not otp_required:
                 result["status"] = TaskStatus.SUCCESS.value
                 result["mutation_status"] = "dispatched"
                 result["result"] = build_tracking_received_result(

@@ -366,11 +366,31 @@ class UTCMSReconciliationScraper:
                                         or row.get("Id")
                                         or ""
                                     ).strip()
+                                    status_val = str(
+                                        row.get("status") or row.get("statusName") or row.get("StatusName") or "ثبت شده"
+                                    ).strip()
+                                    if any(
+                                        invalid_st in status_val
+                                        for invalid_st in ("ابطال", "لغو", "پیش نویس", "پیش‌نویس", "منقضی", "در انتظار")
+                                    ):
+                                        logger.warning(
+                                            "reconciliation_matched_invalid_status",
+                                            extra={"extra_fields": {"row": row, "status": status_val}},
+                                        )
+                                        return ReconciliationResult(
+                                            outcome=ScraperOutcome.NOT_FOUND,
+                                            status_text=status_val,
+                                            details={
+                                                "source": "GetHistoryFirstList",
+                                                "reason": "status_unconfirmed",
+                                                "matched_row": row,
+                                            },
+                                        )
                                     return ReconciliationResult(
                                         outcome=ScraperOutcome.REGISTERED,
                                         tracking_code=found_code if found_code else tracking_code,
                                         issue_date=row.get("dateFarsi") or row.get("DateFarsi") or row.get("date"),
-                                        status_text=row.get("status", "ثبت شده"),
+                                        status_text=status_val,
                                         details={"source": "GetHistoryFirstList", "matched_row": row},
                                     )
                         elif (
@@ -413,6 +433,15 @@ class UTCMSReconciliationScraper:
                 text = await row_elem.inner_text()
 
                 if tracking_code and tracking_code in text:
+                    if any(
+                        invalid_st in text
+                        for invalid_st in ("ابطال", "لغو", "پیش نویس", "پیش‌نویس", "منقضی", "در انتظار")
+                    ):
+                        return ReconciliationResult(
+                            outcome=ScraperOutcome.NOT_FOUND,
+                            status_text=text[:100],
+                            details={"reason": "status_unconfirmed_dom", "row_text": text[:200], "row_index": i},
+                        )
                     return ReconciliationResult(
                         outcome=ScraperOutcome.REGISTERED,
                         tracking_code=tracking_code,

@@ -48,6 +48,16 @@ redis.call('XADD', 'rpa:otp:stream', '*', 'payload', encoded)
 redis.call('SET', KEYS[1], encoded, 'EX', ARGV[2])
 redis.call('SET', KEYS[2], '1', 'EX', ARGV[4])
 redis.call('PUBLISH', ARGV[5], encoded)
+local conn_raw = redis.call('GET', 'rpa:forwarder:connected:' .. payload.phone)
+local conn_state = {}
+if conn_raw then
+    local ok_c, parsed_c = pcall(cjson.decode, conn_raw)
+    if ok_c and type(parsed_c) == 'table' then conn_state = parsed_c end
+end
+conn_state.last_seen = tonumber(payload.received_at)
+conn_state.last_sms_at = tonumber(payload.received_at)
+if not conn_state.phone then conn_state.phone = payload.phone end
+redis.call('SET', 'rpa:forwarder:connected:' .. payload.phone, cjson.encode(conn_state))
 return 1
 """
 

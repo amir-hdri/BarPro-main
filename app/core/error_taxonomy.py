@@ -109,15 +109,22 @@ def classify_error_string(
     if "captcha" in text or "captcha" in cat_hint or st_hint in {"captchafailed", "captcha_failed"}:
         return ErrorCategory.CAPTCHA_EXHAUSTION
 
-    # AUTH / LOGIN
+    # AUTH / LOGIN / SUSPENSION
     if (
         "login" in text
         or "auth" in text
         or "credential" in text
+        or "مسدود" in text
+        or "مسدودی" in text
+        or "blocked" in text
+        or "suspended" in text
+        or "3000" in text
         or "login_failed" in cat_hint
         or "invalid_driver" in cat_hint
         or "driver_key_mismatch" in cat_hint
-        or st_hint == "loginfailed"
+        or "account_suspended" in cat_hint
+        or "driver_blocked" in cat_hint
+        or st_hint in {"loginfailed", "suspended", "blocked"}
     ):
         return ErrorCategory.AUTH_FAILURE
 
@@ -155,8 +162,9 @@ def classify_error_string(
         or "408" in text
         or "system_error" in cat_hint
         or "destination_error" in cat_hint
-        or "service" in cat_hint
-        or "api" in cat_hint
+        or "service_unreachable" in cat_hint
+        or "api_timeout" in cat_hint
+        or "api_unreachable" in cat_hint
         or is_egress_failure(text)
     ):
         return ErrorCategory.TARGET_SITE_TIMEOUT
