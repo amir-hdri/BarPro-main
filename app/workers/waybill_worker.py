@@ -2113,6 +2113,8 @@ def _is_retryable(result: dict[str, Any]) -> bool:
         "duplicate_submission",
         "payload_validation_failed",
         "user_data_error",
+        "account_suspended",
+        "driver_blocked",
     ):
         return False
     status_hint = str(result.get("status", "")).strip().lower().replace("_", "").replace("-", "")

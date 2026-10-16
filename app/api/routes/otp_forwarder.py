@@ -300,8 +300,16 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
                     # Record Hub phone heartbeat if role is HUB or matches known Hub numbers.
                     # Hub MSISDNs come from utcms_config.HUB_NUMBERS (env HUB_NUMBERS) so the
                     # deployment's SIMs are not baked into the source.
-                    configured_hubs = set(utcms_config.HUB_NUMBERS)
-                    hub_numbers_list = json_data.get("hub_numbers") or list(utcms_config.HUB_NUMBERS)
+                    configured_hubs = {
+                        normalize_phone_for_otp_key(n)
+                        for n in utcms_config.HUB_NUMBERS
+                        if normalize_phone_for_otp_key(n)
+                    }
+                    hub_numbers_list = [
+                        normalize_phone_for_otp_key(n)
+                        for n in (json_data.get("hub_numbers") or utcms_config.HUB_NUMBERS)
+                        if normalize_phone_for_otp_key(n)
+                    ]
                     if configured_hubs:
                         is_hub = norm_phone in configured_hubs
                     else:

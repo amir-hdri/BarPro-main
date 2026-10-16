@@ -679,11 +679,9 @@ class WaybillAutomationBot:
                     _obj_check_raw = doc_check.get("obj")
                     obj_check: dict[Any, Any] = _obj_check_raw if isinstance(_obj_check_raw, dict) else {}
                     chk_status = str(obj_check.get("statusName") or "").strip()
-                    if chk_tracking and chk_status not in (
-                        "پیش‌نویس",
-                        "پیش نویس",
-                        "در انتظار تایید",
-                        "در انتظار تأیید",
+                    if chk_tracking and not any(
+                        invalid_st in chk_status
+                        for invalid_st in ("ابطال", "لغو", "پیش نویس", "پیش‌نویس", "منقضی", "در انتظار")
                     ):
                         logger.info(
                             "Document %s confirmed on UTCMS (docNo=%s, status=%s)",
