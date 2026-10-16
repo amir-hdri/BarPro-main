@@ -97,8 +97,13 @@ def test_build_job_payload_shape():
     # origin/destination are now the WaybillMapRequest-style nested dicts the worker expects.
     assert payload["origin"]["address"] == "origin-1"
     assert payload["origin"]["province"] == ""
-    assert payload["origin"]["coordinates"] is None
+    # Route GPS must flow into the payload (regression: used to be hardcoded None,
+    # which doomed every batch job on the live mobile transport).
+    assert payload["origin"]["coordinates"] == {"lat": 33.0, "lng": 51.0}
+    assert payload["origin"]["lat"] == 33.0
+    assert payload["origin"]["lng"] == 51.0
     assert payload["destination"]["address"] == "dest-1"
+    assert payload["destination"]["coordinates"] == {"lat": 34.0, "lng": 52.0}
     assert payload["route_source"] == "user_text"
     assert payload["location_mode"] == "user_text"
     # No base payload → no sender/receiver/cargo injected.
@@ -217,3 +222,110 @@ def test_incomplete_base_payload_fails_worker_validation():
     payload = build_job_payload(_complete_route(), bad_base)
     errors = validate_enhanced_waybill_payload(build_enhanced_waybill_payload(payload))
     assert errors  # non-empty → would be rejected with 422 at batch creation
+
+
+def test_build_job_payload_preserves_base_postal_codes():
+    """Base-only keys (postal codes) must survive the route merge.
+
+    Route templates carry no postal columns, so dropping base keys here used
+    to strip origin/destination postal codes from every batch job.
+    """
+    route = _complete_route()
+    base = dict(_valid_base())
+    base["origin"] = {"postal_code": "1234567890"}
+    base["destination"] = {"postal_code": "0987654321"}
+    payload = build_job_payload(route, base)
+    assert payload["origin"]["postal_code"] == "1234567890"
+    assert payload["destination"]["postal_code"] == "0987654321"
+    # Route address still wins.
+    assert payload["origin"]["address"] == "خیابان آزادی"
+    # Route GPS still wins over any base coordinates.
+    assert payload["origin"]["coordinates"] == {"lat": 32.65, "lng": 51.66}
+
+
+def test_build_job_payload_falls_back_to_base_coordinates():
+    """A route without GPS keeps base coordinates instead of inventing any."""
+    route = _complete_route()
+    route.origin_lat = None
+    route.origin_lng = None
+    base = dict(_valid_base())
+    base["origin"] = {"lat": 30.0, "lng": 50.0}
+    payload = build_job_payload(route, base)
+    assert payload["origin"]["coordinates"] == {"lat": 30.0, "lng": 50.0}
+
+    route2 = _complete_route()
+    route2.origin_lat = None
+    route2.origin_lng = None
+    payload2 = build_job_payload(route2, _valid_base())
+    assert payload2["origin"]["coordinates"] is None
+
+
+def test_complete_batch_payload_passes_mobile_gate():
+    """A fully-specified batch payload must clear the live mobile validator."""
+    from app.automation.mobile_payload_adapter import validate_mobile_source_payload
+    from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+
+    base = {
+        "sender": {
+            "name": "علی رضایی",
+            "phone": "09120000001",
+            "national_code": "1234567891",
+            "postal_code": "1234567890",
+        },
+        "receiver": {
+            "name": "محمد احمدی",
+            "phone": "09120000002",
+            "national_code": "0987654321",
+            "postal_code": "0987654321",
+        },
+        "cargo": {
+            "type": "سیمان",
+            "packaging": "کیسه",
+            "weight": 100,
+            "value": 1000000,
+            "items": [{"product_id": 10956, "pack_type_id": 18074, "count": 10, "weight": 100}],
+        },
+        "vehicle": {"driver_national_code": "1234567891", "plate": "۱۲۳ع۴۵۶"},
+        "financial": {"cost": 5000000},
+        "origin": {"postal_code": "1111111111"},
+        "destination": {"postal_code": "2222222222"},
+    }
+    payload = build_job_payload(_complete_route(), base)
+    assert validate_mobile_source_payload(build_enhanced_waybill_payload(payload)) == []
+
+
+def test_batch1_shaped_payload_fails_mobile_gate():
+    """The exact batch-1 failure shape must be caught: no party codes, no fare,
+    no location postals, no GPS — the four jobs 9-12 failure signature."""
+    from app.automation.mobile_payload_adapter import validate_mobile_source_payload
+    from app.automation.multitenant_payload_adapter import build_enhanced_waybill_payload
+
+    bare_route = _route(1)
+    bare_route.origin_lat = None
+    bare_route.origin_lng = None
+    bare_route.dest_lat = None
+    bare_route.dest_lng = None
+    base = {
+        "sender": {"name": "علی رضایی", "phone": "09120000000"},
+        "receiver": {"name": "محمد احمدی"},
+        "cargo": {"type": "سیمان", "weight": 100},
+    }
+    payload = build_job_payload(bare_route, base)
+    errors = validate_mobile_source_payload(build_enhanced_waybill_payload(payload))
+    assert errors  # non-empty → create_batch now rejects with 422 instead of NEEDS_REVIEW
+    joined = "، ".join(errors)
+    # Exact jobs 9-12 worker-error signature (fare is backfilled by the adapter,
+    # so the gate signature is the 10 party/location fields).
+    for expected in (
+        "کد ملی فرستنده",
+        "کدپستی فرستنده",
+        "کد ملی گیرنده",
+        "کدپستی گیرنده",
+        "کدپستی مبدا",
+        "عرض جغرافیایی مبدا",
+        "طول جغرافیایی مبدا",
+        "کدپستی مقصد",
+        "عرض جغرافیایی مقصد",
+        "طول جغرافیایی مقصد",
+    ):
+        assert expected in joined

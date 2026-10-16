@@ -23,6 +23,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.automation.mobile_payload_adapter import validate_mobile_source_payload
 from app.automation.multitenant_payload_adapter import (
     build_enhanced_waybill_payload,
     validate_live_waybill_payload,
@@ -76,34 +77,99 @@ def select_route_index(step: int, num_routes: int, repeat_mode: str) -> int:
     return step % num_routes
 
 
+def _route_coordinates(lat: Any, lng: Any) -> dict[str, float] | None:
+    """Return a ``{"lat": …, "lng": …}`` mapping when the route carries usable GPS.
+
+    Returns ``None`` for missing, non-numeric, out-of-range, or (0, 0) values so
+    callers never invent a location the route template does not actually have.
+    """
+    try:
+        lat_f = float(lat) if lat is not None else None
+        lng_f = float(lng) if lng is not None else None
+    except (TypeError, ValueError):
+        return None
+    if lat_f is None or lng_f is None:
+        return None
+    if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lng_f <= 180.0):
+        return None
+    if lat_f == 0.0 and lng_f == 0.0:
+        return None
+    return {"lat": lat_f, "lng": lng_f}
+
+
+def _merge_route_location(
+    base_location: Any,
+    *,
+    province: str | None,
+    city: str | None,
+    address: str | None,
+    lat: Any,
+    lng: Any,
+) -> dict[str, Any]:
+    """Merge a route endpoint over the base location without dropping base keys.
+
+    Postal codes live only in the base payload (route templates carry no postal
+    columns), so a blind overwrite would silently discard them and doom the job
+    on the live mobile transport. Route GPS wins when present; otherwise any
+    base coordinates are preserved.
+    """
+    merged: dict[str, Any] = dict(base_location) if isinstance(base_location, dict) else {}
+    coords = _route_coordinates(lat, lng)
+    if coords is None:
+        raw_coords = merged.get("coordinates")
+        coords = dict(raw_coords) if isinstance(raw_coords, dict) else None
+        if coords is None:
+            base_lat = merged.get("lat", merged.get("latitude"))
+            base_lng = merged.get("lng", merged.get("lon", merged.get("longitude")))
+            coords = _route_coordinates(base_lat, base_lng)
+    merged.update(
+        {
+            "province": province or "",
+            "city": city or "",
+            "address": address or "",
+            "location_mode": "user_text",
+            "route_source": "user_text",
+        }
+    )
+    if coords is not None:
+        merged["lat"] = coords["lat"]
+        merged["lng"] = coords["lng"]
+        merged["coordinates"] = coords
+    else:
+        merged["coordinates"] = None
+    return merged
+
+
 def build_job_payload(route: WaybillRouteTemplate, base_payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Produce a ``WaybillMapRequest``-compatible payload.
 
     ``base_payload`` carries the constant waybill parts (sender/receiver/cargo/vehicle/
-    financial). The route's origin/destination override those keys. This matches the
+    financial). The route's origin/destination override the location keys while
+    preserving base-only keys (postal codes, coordinate fallback). This matches the
     structure consumed by ``build_enhanced_waybill_payload`` in the worker.
     """
-    payload: dict[str, Any] = dict(base_payload or {})
+    base: dict[str, Any] = dict(base_payload or {})
+    payload: dict[str, Any] = dict(base)
     payload.update(
         {
             "route_source": "user_text",
             "location_mode": "user_text",
-            "origin": {
-                "province": route.origin_province or "",
-                "city": route.origin_city or "",
-                "address": route.origin_address or "",
-                "coordinates": None,
-                "location_mode": "user_text",
-                "route_source": "user_text",
-            },
-            "destination": {
-                "province": route.dest_province or "",
-                "city": route.dest_city or "",
-                "address": route.dest_address or "",
-                "coordinates": None,
-                "location_mode": "user_text",
-                "route_source": "user_text",
-            },
+            "origin": _merge_route_location(
+                base.get("origin"),
+                province=route.origin_province,
+                city=route.origin_city,
+                address=route.origin_address,
+                lat=route.origin_lat,
+                lng=route.origin_lng,
+            ),
+            "destination": _merge_route_location(
+                base.get("destination"),
+                province=route.dest_province,
+                city=route.dest_city,
+                address=route.dest_address,
+                lat=route.dest_lat,
+                lng=route.dest_lng,
+            ),
         }
     )
     return payload
@@ -318,18 +384,26 @@ class BatchService:
 
         # Validate the merged payload against the live worker contract so every
         # job passes preflight validation (no silent NEEDS_REVIEW at runtime).
+        # The mobile transport is the only live issuance path, so its stricter
+        # gate (party national/postal codes, location postal codes + GPS,
+        # explicit fare) runs here too — mirroring single-job creation.
         for route in routes:
             route_payload = build_job_payload(route, base_payload)
+            enhanced_payload = build_enhanced_waybill_payload(route_payload)
             base_errors = validate_live_waybill_payload(
-                build_enhanced_waybill_payload(route_payload),
+                enhanced_payload,
                 expected_driver_national_code=driver.driver_national_code,
                 expected_plate=plate.plate_number,
                 expected_driver_mobile=driver.phone,
             )
-            if base_errors:
+            payload_errors = list(base_errors)
+            for mobile_error in validate_mobile_source_payload(enhanced_payload):
+                if mobile_error not in payload_errors:
+                    payload_errors.append(mobile_error)
+            if payload_errors:
                 raise HTTPException(
                     status_code=422,
-                    detail=f"بارنامهٔ مسیر «{route.name}» ناقص است: " + "، ".join(base_errors),
+                    detail=f"بارنامهٔ مسیر «{route.name}» ناقص است: " + "، ".join(payload_errors),
                 )
 
         batch = WaybillBatch(
