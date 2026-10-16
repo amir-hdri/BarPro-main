@@ -40,6 +40,8 @@
 - `.cairn/plans/phases/04-worker-resilience-performance-and-verification/LEDGER.md`
 - `.cairn/plans/phases/04-worker-resilience-performance-and-verification/VERIFICATION.md`
 - `.cairn/plans/roadmap.md`
+- `.cairn/outlook.json`
+- `docs/CHANGELOG.md`
 - `app/api/routes/otp_forwarder.py`
 - `app/automation/waybill_bot_multitenant.py`
 - `app/core/error_taxonomy.py`
@@ -51,7 +53,7 @@
 - `tests/test_cairn_worker4_hardening.py`
 
 ## 🎯 تسک دقیق بعدی
-اتمام رسمی فرایند Verify در Cairn، ثبت اسنپ‌شات outlook_emit، و آمادگی کامل برای دستور `/cairn-ship`. همچنین در ساعت 10:00 صبح به وقت تهران (انقضای مسدودی راننده محمدزاده در UTCMS)، نظارت بر اجرای جاب‌های Batch 5.
+اجرای دستور `/cairn-ship`، تایید پوش تغییرات به مخزن گیت‌هاب (origin/main)، اجرای `continuity_clear` و خاتمه سشن. سپس در ساعت 10:00 صبح به وقت تهران نظارت بر جاب‌های Batch 5 راننده محمدزاده.
 
 1. کامیت اتمیک این نشست (سورس + STATE.md).
 2. اقدام اپراتور (خودکار انجام نشد — جهش production): کنسل جاب‌های 9–12 از مسیر حسابرسی‌شده `DELETE /api/v1/waybill-jobs/{job_id}` (soft-cancel + آزادسازی slot راننده + حفظ audit trail؛ هرگز SQL دستی)، سپس ساخت بچ جدید با فرم اصلاح‌شده (کدهای واقعی طرفین + کدپستی‌ها + کرایه واقعی؛ GPS خودکار از الگو می‌آید).

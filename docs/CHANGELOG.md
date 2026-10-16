@@ -2,6 +2,31 @@
 
 All notable changes to the UTCMS Automation System.
 
+## [2.9.18] - 2026-10-17 — Waybill Lifecycle Stability & Worker Resilience (Cairn Phases 1-4)
+
+### Phase 4: Worker Resilience, Performance & Verification
+- **Fail-Fast Business Rejections & Per-Driver Toggle**: Enforced immediate terminal `needs_review` state on deterministic UTCMS rejection codes (4028 origin scope, 4025 empty fare, 4045 fleet license province), preventing token starvation and unnecessary retries. Deployed per-driver auto-submission toggle full-stack (migration 043, API schemas, and frontend switch).
+- **Worker Queue Resilience & Scheduler FIFO Unblocking**: Fixed scheduler deadlock in `find_driver_active_job` by excluding pending sibling jobs, enabling clean FIFO progression for multi-job batches. Verified live waybill submission with Two-Witness proof (Document ID `238997938`, Tracking Code `1362896488`).
+- **End-to-End Registration & Two-Witness Verification**: Automated two-witness proof reconciliation verifying live portal registration against UTCMS history.
+- **Post-Incident Worker & OTP Pipeline Hardening**:
+  - Reclassified UTCMS driver suspension (Code 3000) as `AUTH_FAILURE` in error taxonomy and non-retryable in `waybill_worker.py`, eliminating rapid retry loops.
+  - Guarded document query and tracking retrieval in `waybill_bot_multitenant.py` against premature draft tracking numbers prior to OTP verification.
+  - Scraper reconciliation now rejects unconfirmed, draft, or cancelled rows in table and DOM parsers.
+  - Hub MSISDN normalization and atomic Redis telemetry updates via Lua script for SMS forwarder connectivity.
+  - Set `ignore_result=True` on Celery `sweep_otp_stream` tasks.
+
+### Phase 3: Virtual Android Shipping Lifecycle Automation
+- **Start Shipping Controller & FakeTraveler Mock Integration**: Resolved Start Shipping controller defects, supported standalone FakeTraveler operation, and added automated shipping status reconciliation.
+- **Finish Shipping & Mock Teardown**: Resolved Finish Shipping transition defects, automated GPS waypoint simulation, and ensured automatic teardown and deactivation of FakeTraveler mock location upon shipment delivery.
+
+### Phase 2: Waybill Registration & Mobile Transport Hardening
+- **Batch Hardening & Audited State Transitions**: Deployed batch data integrity hardening to live servers, verified preflight gates, and executed audited job cancellations with driver slot release.
+- **State Machine Guarding**: Verified live state transitions, preventing duplicate or unverified submissions.
+
+### Phase 1: Server Diagnostics & Failure Root Cause Audit
+- **Container Log Audit & Defect Identification**: Systematically audited backend, worker, scheduler, Redis, and proxy logs to determine root causes for registration and OTP failures.
+- **Session & WAF Hardening**: Diagnosed and remediated session drops, WAF rejections, and OTP reception timing defects.
+
 ## [2.9.17] - unreleased
 
 ### 2026-10-15 — Live Waybill Issuance Verification, Celery Queue Isolation & Schedule Optimization
