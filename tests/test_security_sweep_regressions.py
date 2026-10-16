@@ -220,5 +220,5 @@ def test_mask_national_code(raw, expected: str) -> None:
 
 def test_national_code_log_sites_use_masker() -> None:
     src = _read("app/automation/gps_shipping_manager.py")
-    assert src.count("_mask_national_code(national_code)") == 4
+    assert src.count("_mask_national_code(national_code)") == 5
     assert 'national_code=%s", national_code)' not in src

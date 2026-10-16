@@ -18,7 +18,7 @@ from app.workers.waybill_worker import _finalize_execution
 async def async_session(tmp_path):
     db_file = tmp_path / "test.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_file}", echo=False, future=True)
-    session_factory = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)  # type: ignore[call-overload]
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
     yield session_factory
@@ -145,6 +145,13 @@ async def test_driver_fifo_serialization(async_session):
 
     with patch("app.workers.waybill_worker.async_session_factory", new=async_session):
         await _finalize_execution("exec-1", intent_id1, "completed", {"status": "success"})
+
+    async with async_session() as session:
+        j1 = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == "job-1"))).first()
+        j1.status = TaskStatus.SUCCESS.value
+        j1.result_json = {"completed_at": datetime.now(UTC).isoformat()}
+        session.add(j1)
+        await session.commit()
 
     # Verify slot is freed
     async with async_session() as session:

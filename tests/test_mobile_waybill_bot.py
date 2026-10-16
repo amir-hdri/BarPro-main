@@ -3,6 +3,7 @@
 import hashlib
 import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -624,6 +625,7 @@ async def test_waybill_worker_executes_mobile_without_browser(async_db):
         updated_job = (await check_session.exec(select(WaybillJob).where(WaybillJob.job_id == job.job_id))).first()
         assert updated_job is not None
         assert updated_job.document_id == "doc-worker-1"
+        assert updated_job.result_json is not None
         assert updated_job.result_json["tracking_code"] == "TRK-WORKER-777"
         assert updated_job.result_json["document_id"] == "doc-worker-1"
 
@@ -681,7 +683,7 @@ def test_weight_normalization_and_fleet_matching():
             }
         ],
     }
-    vehicle = {"plate": "55ع322ایران36", "type": "تریلی کشنده"}
+    vehicle: dict[str, Any] = {"plate": "55ع322ایران36", "type": "تریلی کشنده"}
     matched = WaybillAutomationBot._find_matching_fleet_truck(fleet_response, vehicle, {})
     assert matched is not None
     assert matched["type"] == "باری"

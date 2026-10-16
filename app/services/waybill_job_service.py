@@ -67,6 +67,7 @@ class WaybillJobService:
         driver_id: int,
         client_id: int | None = None,
         exclude_job_id: int | None = None,
+        include_pending: bool = True,
     ) -> WaybillJob | None:
         """Find any job that holds the driver in an active or in-transit state.
 
@@ -81,7 +82,6 @@ class WaybillJobService:
         and the invariant silently passes exactly the job it should hold back.
         """
         active_in_flight = [
-            TaskStatus.PENDING.value,
             TaskStatus.QUEUED.value,
             TaskStatus.CLAIMED.value,
             TaskStatus.RUNNING.value,
@@ -94,6 +94,8 @@ class WaybillJobService:
             "in_transit",
             "reconciling",
         ]
+        if include_pending:
+            active_in_flight.insert(0, TaskStatus.PENDING.value)
 
         stmt = select(WaybillJob).where(
             WaybillJob.driver_id == driver_id,

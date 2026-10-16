@@ -21,16 +21,16 @@
       "bodyHash": "5a49a02caa9e3546",
       "labels": [],
       "assignee": "amir-hdri",
-      "state": "in_progress",
-      "updatedAt": "2026-10-15T16:44:28Z"
+      "state": "closed",
+      "updatedAt": "2026-10-16T14:15:35Z"
     },
     "96": {
       "title": "Fix waybill_jobs state transitions and enforce strict Two-Witness Proof",
       "bodyHash": "8ad6e651472c0304",
       "labels": [],
       "assignee": "amir-hdri",
-      "state": "in_progress",
-      "updatedAt": "2026-10-15T16:49:05Z"
+      "state": "closed",
+      "updatedAt": "2026-10-16T14:16:00Z"
     },
     "97": {
       "title": "Resolve defects in virtual Android shipping controller for reliable Start Shipping",
@@ -52,15 +52,41 @@
       "bodyHash": "cff549ddd1e7dc6f",
       "labels": [],
       "assignee": "amir-hdri",
-      "state": "in_progress",
-      "updatedAt": "2026-10-15T16:49:52Z"
+      "state": "closed",
+      "updatedAt": "2026-10-16T18:19:22Z"
     },
     "100": {
       "title": "Verify end-to-end waybill registration and shipping lifecycle through automated tests",
       "bodyHash": "5342204a28c49d85",
       "labels": [],
-      "state": "open",
-      "updatedAt": "2026-10-14T17:42:59Z"
+      "state": "closed",
+      "updatedAt": "2026-10-16T18:19:29Z"
+    },
+    "101": {
+      "title": "Waybills marked SUCCESS by the bot but never registered in the UTCMS portal (no tracking code) — suspected Two-Witness Proof bypass: success declared without tracking code in RPA response + DB",
+      "bodyHash": "e3b0c44298fc1c14",
+      "labels": [
+        "cairn:bug"
+      ],
+      "state": "closed",
+      "updatedAt": "2026-10-16T15:23:41Z"
+    },
+    "102": {
+      "title": "Fail-fast deterministic portal rejections; per-driver auto-registration toggle (full-stack)",
+      "bodyHash": "2b4701ceacc3589d",
+      "labels": [],
+      "assignee": "amir-hdri",
+      "state": "closed",
+      "updatedAt": "2026-10-16T15:55:30Z"
+    },
+    "103": {
+      "title": "Phase 4 verification FAILED: issues 99 (in_progress, broad queue/OOM/heartbeat scope remains) and 100 (open, untouched) are not closed, and LEDGER.md carries no evidence/waived lines for either — only 102 is closed with evidence. Phase cannot be marked verified until 99/100 land with ledger evidence.",
+      "bodyHash": "e3b0c44298fc1c14",
+      "labels": [
+        "cairn:bug"
+      ],
+      "state": "closed",
+      "updatedAt": "2026-10-16T18:19:14Z"
     }
   },
   "phases": {

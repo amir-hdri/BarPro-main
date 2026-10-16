@@ -191,6 +191,7 @@ class SchedulerService:
                         driver_id=job.driver_id,
                         client_id=job.client_id,
                         exclude_job_id=job.id,
+                        include_pending=False,
                     )
                     if active_trip is not None:
                         logger.info(

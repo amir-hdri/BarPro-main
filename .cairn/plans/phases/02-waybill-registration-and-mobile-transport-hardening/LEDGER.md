@@ -1,0 +1,6 @@
+# Phase 2: waybill registration and mobile transport hardening — Ledger
+
+<!-- append-only; one line per verified task; server appends, never rewrites -->
+
+- [x] 95 — Deployed batch hardening (ae52dab+a881715) to live server, verified gates healthy, cancelled dead jobs 9-12 via audited API — commits c5d5427..c5d5427 — evidence live deploy verification on barpro-central: readyz + container gate introspection + 4x audited cancels; local pytest multiroute/mobile-contract/batch/mobile-bot => readyz=200 all checks ok; gate_live=True in running backend; 4x HTTP 204 cancels (jobs 9-12 cancelled/archived); pytest 94/94 passed; ruff/black/mypy + npm typecheck/lint clean — actuals wall=1291m:observed_claim claimed=none est=none worklog=not_requested — 95 closed 2026-10-16
+- [x] 96 — Verified state-machine transitions live via audited cancel of jobs 9-12; guards deployed and holding — commits c5d5427..c5d5427 — evidence live state-machine proof on barpro-central: 4x DELETE waybill-jobs + post-cancel state queries (jobs/intents/driver_runtime_states/worker logs); local pytest + unit suite => 4x HTTP 204; jobs 9-12 cancelled/archived; intents settled; driver-4 ready; worker clean; pytest 94/94; unit 250/250 — actuals wall=1287m:observed_claim claimed=none est=none worklog=not_requested — 96 closed 2026-10-16

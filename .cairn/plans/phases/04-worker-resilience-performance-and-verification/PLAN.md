@@ -1,5 +1,5 @@
 ---
-issues: [99, 100]
+issues: [99, 100, 102]
 ---
 # Phase 4: worker-resilience-performance-and-verification — Plan
 
