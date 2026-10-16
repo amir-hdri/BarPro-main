@@ -54,6 +54,7 @@ class BridgeConfig:
     android_binary: str = "android"
     command_timeout: float = 10.0
     observation_timeout: float = 60.0
+    require_target_package: bool = True
 
     def __post_init__(self) -> None:
         for value in (self.command_timeout, self.observation_timeout):
@@ -84,6 +85,7 @@ class BridgeConfig:
             android_binary=env.get("ANDROID_BRIDGE_ANDROID_BINARY", "android"),
             command_timeout=float(env.get("ANDROID_BRIDGE_COMMAND_TIMEOUT_SECONDS", "10")),
             observation_timeout=float(env.get("ANDROID_BRIDGE_OBSERVATION_TIMEOUT_SECONDS", "60")),
+            require_target_package=env.get("ANDROID_BRIDGE_REQUIRE_TARGET_PACKAGE", "true").lower() == "true",
         )
 
 

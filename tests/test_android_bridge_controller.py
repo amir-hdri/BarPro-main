@@ -1066,3 +1066,13 @@ async def test_apply_location_fails_closed_when_device_lock_unavailable(
 
     runner.assert_not_awaited()
     release.assert_not_awaited()
+
+
+async def test_apply_location_succeeds_when_target_package_missing_if_not_required() -> None:
+    """When require_target_package=False, missing TARGET_PACKAGE does not block location mocking."""
+    runner = make_mock_runner({("shell", "pm", "path", TARGET_PACKAGE): "\n"})
+    controller = mock_apply_button(
+        AndroidShippingController(config(require_target_package=False), runner=runner, apply_attempts=1),
+        text="Apply",
+    )
+    await controller.apply_location(35.7, 51.4)

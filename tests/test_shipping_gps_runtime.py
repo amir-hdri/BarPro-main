@@ -6,6 +6,7 @@ They do not claim to prove UTCMS's live business contract.
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -53,6 +54,7 @@ def shipping_runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     transport.finish_shipping_with_gps = AsyncMock(return_value={"resultCode": 200})
     transport.register_end_of_shipping = AsyncMock(return_value={"resultCode": 200})
     transport.register_start_of_shipping = AsyncMock(return_value={"resultCode": 200})
+    transport.get_shipping_documents = AsyncMock(return_value={"obj": []})
     login = AsyncMock(return_value=transport)
     save = AsyncMock()
     monkeypatch.setattr(routes.utcms_config, "ALLOW_LIVE_SUBMIT", True)
@@ -401,7 +403,7 @@ async def test_finish_rejection_detail_does_not_leak_the_utcms_envelope(
     }
     with pytest.raises(HTTPException) as error:
         await routes.finish_shipping(finish_request(), user_context={})
-    detail = error.value.detail
+    detail: dict[str, Any] = cast(dict[str, Any], error.value.detail)
     assert error.value.status_code == 409
     assert set(detail) == {"status", "resultCode", "message", "backoff_until"}
     assert detail["status"] == "waiting_elapsed_time"
@@ -481,7 +483,8 @@ async def test_finish_rejects_business_error_without_history_mutation(
         await routes.finish_shipping(finish_request(), user_context={})
     assert error.value.status_code == 409
     assert runtime.state.status == "in_transit"
-    assert error.value.detail["status"] == "rejected"
+    detail_dict: dict[str, Any] = cast(dict[str, Any], error.value.detail)
+    assert detail_dict["status"] == "rejected"
 
 
 async def test_shipping_lock_rejects_duplicate_mutation(
@@ -496,3 +499,43 @@ async def test_shipping_lock_rejects_duplicate_mutation(
         await routes.start_shipping(start_request(), user_context={})
     assert error.value.status_code == 409
     shipping_runtime.login.assert_not_awaited()
+
+
+async def test_reconcile_shipping_noop_when_status_not_unknown(
+    shipping_runtime: SimpleNamespace,
+) -> None:
+    """A trip in deterministic status (in_transit, delivered, ready) needs no reconciliation."""
+    shipping_runtime.state.status = "in_transit"
+    res = await routes.reconcile_shipping_job("test-job", user_context={})
+    assert res["reconciled"] is False
+    assert res["status"] == "in_transit"
+    shipping_runtime.login.assert_not_awaited()
+
+
+async def test_reconcile_shipping_unknown_resolves_to_in_transit_when_active_upstream(
+    shipping_runtime: SimpleNamespace,
+) -> None:
+    """When UTCMS GetShippingDocuments reports the document in active shipping, status becomes in_transit."""
+    shipping_runtime.state.status = "unknown"
+    shipping_runtime.state.gps_list = []
+    shipping_runtime.transport.get_shipping_documents.return_value = {"obj": [{"docNo": "test-document", "id": 12345}]}
+    res = await routes.reconcile_shipping_job("test-job", user_context={})
+    assert res["reconciled"] is True
+    assert res["status"] == "in_transit"
+    assert shipping_runtime.state.status == "in_transit"
+    assert len(shipping_runtime.state.gps_list) == 1
+    assert shipping_runtime.state.gps_list[0]["Type"] == 2
+    shipping_runtime.save.assert_awaited()
+
+
+async def test_reconcile_shipping_unknown_resolves_to_ready_when_not_active_upstream(
+    shipping_runtime: SimpleNamespace,
+) -> None:
+    """When document is absent from UTCMS GetShippingDocuments, status resets to ready to allow safe retry."""
+    shipping_runtime.state.status = "unknown"
+    shipping_runtime.transport.get_shipping_documents.return_value = {"obj": []}
+    res = await routes.reconcile_shipping_job("test-job", user_context={})
+    assert res["reconciled"] is True
+    assert res["status"] == "ready"
+    assert shipping_runtime.state.status == "ready"
+    shipping_runtime.save.assert_awaited()

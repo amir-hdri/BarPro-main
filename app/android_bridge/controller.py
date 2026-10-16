@@ -65,6 +65,7 @@ class AndroidShippingController:
         apply_verify_timeout: float = 5.0,
         apply_poll_interval: float = 0.5,
         readback_tolerance: float | None = None,
+        require_target_package: bool | None = None,
     ) -> None:
         if bridge is not None:
             self.bridge = bridge
@@ -110,6 +111,10 @@ class AndroidShippingController:
         # `apply_verify_timeout` after it, so its age never exceeds the sum —
         # and anything older is rejected by BOTH checks for the same reason.
         self.readback_max_age = self.apply_verify_timeout + self.readback_tolerance
+        if require_target_package is not None:
+            self.require_target_package = bool(require_target_package)
+        else:
+            self.require_target_package = getattr(self.config, "require_target_package", True)
 
     def _require_enabled(self) -> None:
         if not self.config.enabled:
@@ -253,7 +258,10 @@ class AndroidShippingController:
         from app.travel.android_observer import AdbLocationObserver
 
         await self.verify_device_ready()
-        for package in (LOCATION_PACKAGE, TARGET_PACKAGE):
+        packages = [LOCATION_PACKAGE]
+        if self.require_target_package:
+            packages.append(TARGET_PACKAGE)
+        for package in packages:
             if not (await self._adb("shell", "pm", "path", package)).startswith("package:"):
                 raise BridgeError("required_android_package_missing")
         observer = AdbLocationObserver(

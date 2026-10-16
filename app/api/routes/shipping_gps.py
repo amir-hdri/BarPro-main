@@ -465,7 +465,10 @@ async def start_shipping(
     # shipping_acknowledged(start=True) resolves to in_transit rather than
     # creating a second start.
     if existing and existing.status not in {"ready", "starting"}:
-        raise HTTPException(status_code=409, detail=f"حمل قبلاً در وضعیت {existing.status} ثبت شده است")
+        raise HTTPException(
+            status_code=409,
+            detail=f"حمل قبلاً در وضعیت {existing.status} ثبت شده است; در صورت نیاز از مسیر تطبیق (/reconcile) وضعیت را بررسی کنید",
+        )
     try:
         state = await init_shipping(req.job_id, req.doc_no, payload, persist=False)
     except ValueError as exc:
@@ -984,3 +987,72 @@ async def get_shipping_status(
         "gps_provider": state.gps_provider,
         "provenance": state.provenance,
     }
+
+
+@router.post("/reconcile/{job_id}", dependencies=[Depends(require_sensitive_auth)])
+async def reconcile_shipping_job(
+    job_id: str, user_context: dict[str, Any] = Depends(get_current_user_or_admin)  # noqa: B008
+):
+    """تطبیق وضعیت حمل نامشخص (unknown) با حقیقت پورتال کشوری UTCMS."""
+    _, driver = await _get_job_and_driver(job_id, user_context)
+    state = await _load_state_or_503(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="اطلاعات حمل یافت نشد")
+    if state.status != "unknown":
+        return {
+            "job_id": job_id,
+            "status": state.status,
+            "reconciled": False,
+            "message": f"وضعیت حمل در حالت {state.status} قطعی است و نیازی به تطبیق ندارد",
+        }
+
+    proxy_url = get_worker_proxy_url()
+    client = await _login_driver_client(driver, proxy_url, user_context=user_context)
+    try:
+        shipping_docs = await client.get_shipping_documents(doc_no=state.doc_no)
+        items = shipping_docs.get("obj") or []
+        is_active = any(
+            str(item.get("docNo", "")).strip() == str(state.doc_no).strip()
+            or (state.doc_id and str(item.get("id", "")).strip() == str(state.doc_id).strip())
+            for item in items
+        )
+    except Exception as exc:
+        logger.error("shipping_reconciliation_query_failed job=%s exc=%s", job_id, exc)
+        raise HTTPException(status_code=502, detail=f"استعلام وضعیت حمل از پورتال ناموفق بود: {exc}") from exc
+
+    if is_active:
+        state.status = "in_transit"
+        observed_at = utc_shipping_timestamp(datetime.now(UTC))
+        if not state.gps_list:
+            state.gps_list.append(
+                {
+                    "Type": 2,
+                    "Longitude": state.origin_lng,
+                    "Latitude": state.origin_lat,
+                    "Altitude": 1000,
+                    "Speed": 0,
+                    "Date": observed_at,
+                    "DateTime": observed_at,
+                    "ObservedAt": observed_at,
+                    "Provider": state.gps_provider or "operator_anchor",
+                    "Provenance": "reconciled_from_utcms",
+                }
+            )
+        await save_shipping_state(state)
+        return {
+            "job_id": job_id,
+            "status": "in_transit",
+            "reconciled": True,
+            "outcome": "active_in_shipping_documents",
+            "message": "حمل در پورتال کشوری فعال تشخیص داده شد و به وضعیت در حال حمل ارتقا یافت",
+        }
+    else:
+        state.status = "ready"
+        await save_shipping_state(state)
+        return {
+            "job_id": job_id,
+            "status": "ready",
+            "reconciled": True,
+            "outcome": "not_in_shipping_documents",
+            "message": "حمل در پورتال کشوری ثبت نشده بود؛ وضعیت برای ثبت مجدد ریست شد",
+        }
