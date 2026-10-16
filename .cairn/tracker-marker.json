@@ -37,16 +37,16 @@
       "bodyHash": "ab4e8ff0d3026933",
       "labels": [],
       "assignee": "amir-hdri",
-      "state": "in_progress",
-      "updatedAt": "2026-10-16T18:35:51Z"
+      "state": "closed",
+      "updatedAt": "2026-10-16T18:48:04Z"
     },
     "98": {
       "title": "Resolve Finish Shipping defects and automate GPS waypoint simulation",
       "bodyHash": "daae7fe555d5e859",
       "labels": [],
       "assignee": "amir-hdri",
-      "state": "in_progress",
-      "updatedAt": "2026-10-15T16:49:36Z"
+      "state": "closed",
+      "updatedAt": "2026-10-16T20:09:58Z"
     },
     "99": {
       "title": "Optimize Celery task queues, worker retry policies, and automated health checks",
