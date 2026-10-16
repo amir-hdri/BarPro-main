@@ -1,15 +1,15 @@
 # Phase 4: worker-resilience-performance-and-verification — Verification
 
-**Date:** 2026-10-16  
+**Date:** 2026-10-17  
 **Status:** VERIFIED  
-**Commit Range:** `0a4ed94..cb4659a`  
+**Commit Range:** `0a4ed94..a6a1854`  
 **Issues Covered:** #99, #100, #102 (all closed on tracker with evidence)
 
 ---
 
 ## 1. Goal-Backward Verification
 
-The objective of Phase 4 was to optimize Celery task queues, ensure worker resilience, eliminate scheduler deadlock on pending sibling jobs, enforce fail-fast handling for deterministic portal rejections, provide per-driver auto-registration toggles, and verify the entire lifecycle end-to-end via automated tests and live portal registration with Two-Witness Proof.
+The objective of Phase 4 was to optimize Celery task queues, ensure worker resilience, eliminate scheduler deadlock on pending sibling jobs, enforce fail-fast handling for deterministic portal rejections, provide per-driver auto-registration toggles, harden the OTP delivery and confirmation pipeline, and verify the entire lifecycle end-to-end via automated tests and live portal registration with Two-Witness Proof.
 
 ### Goal Evaluation Against Promises:
 
@@ -41,19 +41,33 @@ The objective of Phase 4 was to optimize Celery task queues, ensure worker resil
    - Per-driver autonomous submission toggle deployed via Alembic migration 043 with API endpoints and frontend controls.
    - Verified live on `barpro-central` with migration 043 applied and toggle verified via API readback.
 
+4. **Post-Mortem Worker & Portal Hardening (Operational Hardening):**
+   - **Observed Defect:** Driver account suspension (Code 3000) was previously retried on 2-minute loops, wasting CAPTCHA tokens and driver quota. In addition, draft tracking numbers pre-allocated by UTCMS before OTP verification could prematurely cause `SUCCESS` if OTP verification timed out, and unconfirmed scraper rows could falsely report registration.
+   - **Remediation Implemented & Deployed:**
+     - `app/core/error_taxonomy.py`: Classified code 3000 and suspension strings (`"مسدود"`, `"مسدودی"`, `"account_suspended"`, `"driver_blocked"`) as `ErrorCategory.AUTH_FAILURE`.
+     - `app/workers/waybill_worker.py`: Added `"3000"` to `NON_RETRYABLE_PORTAL_CODES` and blocked retries in `_is_retryable()`, transitioning suspended drivers immediately to `NEEDS_REVIEW`.
+     - `app/automation/waybill_bot_multitenant.py`: Guarded `get_document` and `GetDocTrackingCode` with `not otp_required`; rejected unconfirmed statuses (`"ابطال"`, `"لغو"`, `"پیش نویس"`, `"پیش‌نویس"`, `"منقضی"`, `"در انتظار"`); and gated final tracking assignment on `if tracking_code and not otp_required:`.
+     - `app/orchestrator/utcms_reconciliation_scraper.py`: Rejects unconfirmed / cancelled / draft rows in both AJAX table parsing and DOM fallback, returning `ScraperOutcome.NOT_FOUND`.
+     - `app/api/routes/otp_forwarder.py` & `app/services/otp_delivery.py`: Normalized hub numbers with `normalize_phone_for_otp_key`, updated Redis state atomically via Lua script (`last_seen`, `last_sms_at`), and added `ignore_result=True` to Celery `sweep_otp_stream` tasks.
+   - **Evidence Command:**
+     `pytest tests/test_cairn_worker4_hardening.py; live: docker exec barpro-worker-1 python -c "_is_retryable..."`
+     - Result: `6 passed in 0.10s; classify_error_string => AUTH_FAILURE; _is_retryable => False`.
+
 ---
 
 ## 2. Test Suite Execution & Code Health
 
-- **Suite 1 (Driver FIFO):** `pytest tests/test_driver_fifo.py` (1 passed in 10.2s)
-- **Suite 2 (Security & Regressions):** `pytest tests/test_security_sweep_regressions.py` (20 passed in 50.8s)
-- **Linter Check 1 (Ruff):** `ruff check app/ tests/` (All checks passed, 0 errors)
-- **Linter Check 2 (Black):** `black --check app/ tests/` (All 5 modified files clean)
-- **Linter Check 3 (Mypy):** `mypy --ignore-missing-imports` (Success: no issues found in 5 source files)
-- **Drift:** `plan_drift` clean (0 flagged items once phase is verified)
-- **Declared Verification:** `plan_check(phase: 4)` returned 0 findings
+- **Suite 1 (Worker 4 Hardening):** `pytest tests/test_cairn_worker4_hardening.py` (6 passed in 0.10s)
+- **Suite 2 (Driver FIFO):** `pytest tests/test_driver_fifo.py` (1 passed in 10.2s)
+- **Suite 3 (Security & Regressions):** `pytest tests/test_security_sweep_regressions.py` (20 passed in 50.8s)
+- **Suite 4 (Full Regression Bundle):** `pytest tests/test_error_taxonomy.py tests/test_otp_forwarder.py tests/test_otp_delivery_contract.py tests/test_utcms_otp_detection.py tests/test_utcms_reconciliation.py tests/test_cairn_worker4_hardening.py tests/test_driver_fifo.py` (157 passed in 68.6s)
+- **Linter Check 1 (Ruff):** `ruff check` on all modified files (All checks passed, 0 errors)
+- **Linter Check 2 (Black):** `black --check` on all modified files (All 7 files clean)
+- **Drift:** `plan_drift` clean (0 flagged items, all issues [93..102] verified)
+- **Declared Verification:** `plan_check(phase: 4)` returned 0 findings (scanned: 1)
 - **Issues Covered:** `issue_list(phase: 4)` returns #99, #100, #102 — all `category: closed`
-- **Close Evidence:** `LEDGER.md` contains typed evidence entries for issues 99, 100, and 102
+- **Close Evidence:** `LEDGER.md` contains typed evidence entries for all issues
+- **Live Production Health:** All 4 Docker containers (`barpro-central`, `barpro-worker-1`, `barpro-worker-2`, `barpro-scheduler`) active and healthy with synced code.
 
 ---
 
@@ -61,10 +75,11 @@ The objective of Phase 4 was to optimize Celery task queues, ensure worker resil
 
 - Live waybill registration executed with `ALLOW_LIVE_SUBMIT=true` on production server `barpro-central` (`87.107.160.251`).
 - Waybill Document ID `238997938` confirmed via portal history inquiry with tracking code `1362896488`.
+- Driver Mohammadzadeh (ID 4) temporary UTCMS suspension (Code 3000) expires at 1405/07/25 09:57:05 (~10:00 AM Tehran time). Future Batch 5 jobs (Jobs 16 & 17) are safely queued for 10:00 AM and 10:40 AM Tehran time.
 - Trace `trace-570ce87d` opened to investigate verify failure was closed after full resolution and evidence logging.
 
 ---
 
 ## 4. Verdict
 
-**PASS** — Phase 4 goals fully satisfied, verified with live production evidence, automated test suites, clean linters, and full Two-Witness Proof confirmation.
+**PASS** — Phase 4 goals fully satisfied, verified with live production evidence, automated regression test suites, clean linters, and full Two-Witness Proof confirmation.
