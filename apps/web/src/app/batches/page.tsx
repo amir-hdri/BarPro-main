@@ -14,6 +14,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { api, createBatch, generateIdempotencyKey } from '@/lib/api';
 import { formatDateTime, toPersianDigits } from '@/lib/format';
 import { normalizeDigits } from '@/lib/plate';
+import { isValidIranNationalCode } from '@/schemas/waybillSchema';
 import { useSession } from '@/hooks/useSession';
 import type { BatchProgressResponse, Driver, WaybillRouteTemplate } from '@/lib/types';
 
@@ -33,6 +34,10 @@ const RECENT_KEY = 'barpro_recent_batches';
 
 function normalizeMobile(value: string): string {
   return normalizeDigits(value).replace(/\D/g, '').slice(0, 11);
+}
+
+function normalizeCode(value: string): string {
+  return normalizeDigits(value).replace(/\D/g, '').slice(0, 10);
 }
 
 function normalizePositiveNumber(value: string): number {
@@ -72,6 +77,13 @@ export default function BatchesPage() {
   const [senderPhone, setSenderPhone] = useState('');
   const [receiverName, setReceiverName] = useState('');
   const [receiverPhone, setReceiverPhone] = useState('');
+  const [senderNationalCode, setSenderNationalCode] = useState('');
+  const [senderPostalCode, setSenderPostalCode] = useState('');
+  const [receiverNationalCode, setReceiverNationalCode] = useState('');
+  const [receiverPostalCode, setReceiverPostalCode] = useState('');
+  const [originPostalCode, setOriginPostalCode] = useState('');
+  const [destinationPostalCode, setDestinationPostalCode] = useState('');
+  const [fare, setFare] = useState('');
   const [cargoType, setCargoType] = useState('');
   const [cargoPackaging, setCargoPackaging] = useState('');
   const [cargoWeight, setCargoWeight] = useState('');
@@ -199,6 +211,43 @@ export default function BatchesPage() {
       toast.error('موبایل گیرنده باید ۱۱ رقم و با ۰۹ شروع شود');
       return;
     }
+    // Mobile-transport mandatory fields (parity with the single-waybill form):
+    // the backend create_batch gate rejects the batch with 422 without these.
+    const senderNat = normalizeCode(senderNationalCode);
+    const receiverNat = normalizeCode(receiverNationalCode);
+    if (!isValidIranNationalCode(senderNat)) {
+      toast.error('کد ملی فرستنده باید ۱۰ رقم معتبر باشد');
+      return;
+    }
+    if (!isValidIranNationalCode(receiverNat)) {
+      toast.error('کد ملی گیرنده باید ۱۰ رقم معتبر باشد');
+      return;
+    }
+    const senderPost = normalizeCode(senderPostalCode);
+    const receiverPost = normalizeCode(receiverPostalCode);
+    const originPost = normalizeCode(originPostalCode);
+    const destinationPost = normalizeCode(destinationPostalCode);
+    if (!/^\d{10}$/.test(senderPost)) {
+      toast.error('کدپستی فرستنده باید دقیقاً ۱۰ رقم باشد');
+      return;
+    }
+    if (!/^\d{10}$/.test(receiverPost)) {
+      toast.error('کدپستی گیرنده باید دقیقاً ۱۰ رقم باشد');
+      return;
+    }
+    if (!/^\d{10}$/.test(originPost)) {
+      toast.error('کدپستی مبدا باید دقیقاً ۱۰ رقم باشد');
+      return;
+    }
+    if (!/^\d{10}$/.test(destinationPost)) {
+      toast.error('کدپستی مقصد باید دقیقاً ۱۰ رقم باشد');
+      return;
+    }
+    const fareNumber = normalizePositiveNumber(fare);
+    if (!Number.isFinite(fareNumber) || fareNumber <= 0) {
+      toast.error('کرایه باید عددی بزرگ‌تر از صفر و به ریال باشد');
+      return;
+    }
     const normalizedDriverPhone = normalizeMobile(selectedDriver.phone || '');
     if (normalizedDriverPhone && (normalizedSenderPhone === normalizedDriverPhone || normalizedReceiverPhone === normalizedDriverPhone)) {
       toast.error('موبایل فرستنده و گیرنده نباید با موبایل راننده یکسان باشد');
@@ -220,8 +269,21 @@ export default function BatchesPage() {
     }
 
     const basePayload: Record<string, unknown> = {
-      sender: { name: senderName.trim(), phone: normalizedSenderPhone },
-      receiver: { name: receiverName.trim(), phone: normalizedReceiverPhone },
+      sender: {
+        name: senderName.trim(),
+        phone: normalizedSenderPhone,
+        national_code: senderNat,
+        postal_code: senderPost,
+      },
+      receiver: {
+        name: receiverName.trim(),
+        phone: normalizedReceiverPhone,
+        national_code: receiverNat,
+        postal_code: receiverPost,
+      },
+      origin: { postal_code: originPost },
+      destination: { postal_code: destinationPost },
+      financial: { cost: fareNumber },
       cargo: {
         type: cargoType.trim(),
         packaging: cargoPackaging.trim(),
@@ -386,6 +448,85 @@ export default function BatchesPage() {
                   placeholder="مثال: 09129876543"
                   value={receiverPhone}
                   onChange={(e) => setReceiverPhone(normalizeMobile(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">کد ملی فرستنده *</label>
+                <input
+                  className="field"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="۱۰ رقم"
+                  value={senderNationalCode}
+                  onChange={(e) => setSenderNationalCode(normalizeCode(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">کدپستی فرستنده *</label>
+                <input
+                  className="field"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="۱۰ رقم"
+                  value={senderPostalCode}
+                  onChange={(e) => setSenderPostalCode(normalizeCode(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">کد ملی گیرنده *</label>
+                <input
+                  className="field"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="۱۰ رقم"
+                  value={receiverNationalCode}
+                  onChange={(e) => setReceiverNationalCode(normalizeCode(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">کدپستی گیرنده *</label>
+                <input
+                  className="field"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="۱۰ رقم"
+                  value={receiverPostalCode}
+                  onChange={(e) => setReceiverPostalCode(normalizeCode(e.target.value))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">کدپستی مبدا *</label>
+                <input
+                  className="field"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="۱۰ رقم"
+                  value={originPostalCode}
+                  onChange={(e) => setOriginPostalCode(normalizeCode(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">کدپستی مقصد *</label>
+                <input
+                  className="field"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="۱۰ رقم"
+                  value={destinationPostalCode}
+                  onChange={(e) => setDestinationPostalCode(normalizeCode(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-300">کرایه (ریال) *</label>
+                <input
+                  className="field"
+                  inputMode="numeric"
+                  placeholder="مثال: 5000000"
+                  value={fare}
+                  onChange={(e) => setFare(e.target.value)}
                 />
               </div>
             </div>

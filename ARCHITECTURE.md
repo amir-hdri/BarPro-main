@@ -164,7 +164,9 @@ Beat مصرف‌کننده نیست؛ Beat schedule message تولید می‌ک
 - `barpro.fuel.inquiry` توسط تمام Workerها مصرف می‌شود، اما lock بارنامه‌ی راننده
   را تصاحب نمی‌کند.
 - taskهای orchestrator scheduler/dispatcher/orphan detector/claim reaper، cleanup
-  سوخت، gate probe و Clean IP probe روی `rpa_scheduler` publish می‌شوند.
+  سوخت و gate probe روی `rpa_scheduler` publish می‌شوند؛ `barpro.clean_ip.probe`
+  از صف ترافیک waybill جدا و روی `scheduled_tasks` است (تغییر 5f1a0e2؛
+  `CLEAN_IP_PROBE_INTERVAL_SECONDS=1800`).
 - وضعیت واقعی binding و backlog فقط با `celery inspect active_queues` و metrics
   همان deployment قابل اثبات است.
 

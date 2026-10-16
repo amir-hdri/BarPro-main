@@ -38,7 +38,7 @@ const numericText = (requiredMessage: string, invalidMessage: string, max: numbe
 // Iranian national code checksum — mirrors the backend validator
 // (WaybillPayload._validate_iran_national_code in app/schemas/multitenant.py)
 // so users get immediate client-side feedback instead of a late 422.
-const isValidIranNationalCode = (code: string): boolean => {
+export const isValidIranNationalCode = (code: string): boolean => {
   if (!/^\d{10}$/.test(code)) return false;
   if (/^(\d)\1{9}$/.test(code)) return false;
   const checksum = code

@@ -253,7 +253,7 @@ class WaybillJobService:
 
         # P1-3: Active in-transit or busy driver guard (1 active waybill per driver invariant)
         active_driver_job = await WaybillJobService.find_driver_active_job(
-            session, driver_id=driver.id, client_id=client.id
+            session, driver_id=cast(int, driver.id), client_id=client.id
         )
         if active_driver_job:
             detail_state = (
