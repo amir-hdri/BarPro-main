@@ -2064,6 +2064,13 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
     state.current_step = max(1, len(state.waypoints) - 1)
     state.traveled_km = state.distance_km
     await save_shipping_state(state)
+    if bridge.enabled:
+        try:
+            from app.android_bridge.controller import AndroidShippingController
+
+            await AndroidShippingController(bridge)._stop_location_mock_best_effort()
+        except Exception:
+            logger.warning("auto_complete_stop_mock_failed job=%s", job_id, exc_info=True)
     async with async_session_factory() as session:
         job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
         if job:

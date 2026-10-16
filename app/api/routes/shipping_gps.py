@@ -855,6 +855,12 @@ async def finish_shipping(
     except ShippingStatePersistenceError as exc:
         raise HTTPException(status_code=503, detail="وضعیت تحویل پایدار نشد") from exc
 
+    if bridge_enabled:
+        try:
+            await controller._stop_location_mock_best_effort()
+        except Exception:
+            logger.warning("finish_shipping_stop_mock_failed job=%s", req.job_id, exc_info=True)
+
     return {
         "status": "delivered",
         "message": f"حمل با موفقیت در مقصد تحویل شد: {state.dest_address}",

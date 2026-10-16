@@ -120,11 +120,20 @@ async def test_finish_applies_waybill_destination_to_faketraveler(
     runtime.state.status = "in_transit"
     monkeypatch.setattr(routes, "load_shipping_state", AsyncMock(return_value=runtime.state))
     applied: list[tuple[float, float]] = []
+    mock_stopped = False
 
     async def fake_apply(self, lat: float, lon: float, **kwargs) -> None:
         applied.append((lat, lon))
 
-    with patch("app.android_bridge.controller.AndroidShippingController.apply_location", fake_apply):
+    async def fake_stop(self) -> bool:
+        nonlocal mock_stopped
+        mock_stopped = True
+        return True
+
+    with (
+        patch("app.android_bridge.controller.AndroidShippingController.apply_location", fake_apply),
+        patch("app.android_bridge.controller.AndroidShippingController._stop_location_mock_best_effort", fake_stop),
+    ):
         req = routes.ShippingFinishRequest(
             job_id="test-job",
             latitude=35.80001,
@@ -137,6 +146,7 @@ async def test_finish_applies_waybill_destination_to_faketraveler(
     assert applied == [(35.80000, 50.90000)], (
         "FakeTraveler must apply the waybill's map-registered destination, " f"got {applied}"
     )
+    assert mock_stopped is True, "FakeTraveler mock must be stopped upon delivery"
 
 
 @pytest.mark.parametrize("destination", [False, True])

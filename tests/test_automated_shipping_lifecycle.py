@@ -982,3 +982,34 @@ async def test_invalid_trace_records_backoff_instead_of_escaping_unpersisted():
     assert state.status == "unknown"
     # The terminal POST was never attempted, so nothing is ambiguous upstream.
     client.register_end_of_shipping.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_complete_shipping_stops_mock_when_bridge_enabled():
+    """When BridgeConfig is enabled, auto_complete_shipping stops the mock location on delivery."""
+    state, _driver, job, session = _completion_fixtures("job-mock-teardown")
+    client = AsyncMock(spec=UtcmsMobileClient)
+    client.register_end_of_shipping.return_value = {"resultCode": 200, "resultMessage": "ثبت شد"}
+
+    mock_bridge_config = SimpleNamespace(enabled=True)
+    mock_stop = AsyncMock(return_value=True)
+    mock_apply = AsyncMock(return_value=None)
+
+    a, b, c, d, e = _completion_patches(state, session, client)
+    with (
+        a,
+        b,
+        c,
+        d,
+        e,
+        patch("app.android_bridge.client.BridgeConfig.from_env", return_value=mock_bridge_config),
+        patch("app.services.shipping_travel_service.verify_android_anchor", AsyncMock(return_value={"verified": True})),
+        patch("app.android_bridge.controller.AndroidShippingController.apply_location", mock_apply),
+        patch("app.android_bridge.controller.AndroidShippingController._stop_location_mock_best_effort", mock_stop),
+    ):
+        result = await auto_complete_shipping("job-mock-teardown", force=True)
+
+    assert result["status"] == "delivered"
+    assert state.status == "delivered"
+    mock_apply.assert_awaited_once_with(state.dest_lat, state.dest_lng)
+    mock_stop.assert_awaited_once()
