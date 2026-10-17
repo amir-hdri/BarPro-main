@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "ts": "2026-10-17T16:49:12.038Z",
+  "ts": "2026-10-17T17:46:41.131Z",
   "name": "BarPro-main",
   "path": "/Users/amirheidari/GitHub/BarPro-main",
-  "head": "bac017ce9678c31b33177c63fc31828b5206f574",
+  "head": "489dadb7968bda8bc12a0321df69119bb284b219",
   "phases": [
     {
       "number": 1,
@@ -58,7 +58,7 @@
     "open": 0,
     "inProgress": 0,
     "blocked": 0,
-    "nextVerb": "done",
+    "nextVerb": "ship",
     "asOf": "2026-10-17"
   }
 }

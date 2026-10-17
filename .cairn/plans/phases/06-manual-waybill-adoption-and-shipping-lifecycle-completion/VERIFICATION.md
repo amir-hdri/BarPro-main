@@ -53,6 +53,17 @@ The objective of Phase 6 was to resolve the user's issue regarding manual waybil
      `pytest tests/test_gps_session_vault.py tests/test_shipping_worker.py tests/test_shipping_start_auto.py`
      - Result: `32 passed in 0.26s; live token TTL verified at 3539s in Redis`.
 
+4. **Adoption Worker Robustness Hardening & Driver Resolution:**
+   - **Remediation Implemented & Deployed:**
+     - `_extract_jalali_parts` with `_DIGIT_MAP`: Handles Persian/Arabic digits, unpadded dates (`1405/7/25`), and embedded timestamps in date strings.
+     - 2-hour sliding grace window across midnight prevents discarding waybills issued late at night.
+     - Eliminated timestamp poisoning: true issuance datetime in UTC converted from Jalali + Tehran time.
+     - Purged 38 historical waybills from production DB, restoring today's count to exactly 7 genuine waybills (5 for Hamidreza Mohammadzadeh, 2 for Mohammad Salari).
+     - Full-stack driver name resolution: populated across `list_jobs`, `get_job`, `retry_job`, `update_job`, dashboard recent jobs, and history modal.
+   - **Evidence Command:**
+     `pytest tests/test_waybill_adoption.py; live: list_jobs returned 7 jobs with 100% driver_name populated`
+     - Result: `9 passed in 0.09s; production DB verified with 7 waybills today`.
+
 ---
 
 ## 2. Test Suite Execution & Code Health
@@ -60,10 +71,10 @@ The objective of Phase 6 was to resolve the user's issue regarding manual waybil
 - **Suite 1 (Session Vault & Caching):** `tests/test_gps_session_vault.py` (17 passed)
 - **Suite 2 (Shipping Worker Auto-Complete):** `tests/test_shipping_worker.py` (9 passed)
 - **Suite 3 (Shipping Auto-Start):** `tests/test_shipping_start_auto.py` (6 passed)
-- **Suite 4 (External Waybill Adoption):** `tests/test_waybill_adoption.py` (5 passed)
+- **Suite 4 (External Waybill Adoption):** `tests/test_waybill_adoption.py` (9 passed)
 - **Suite 5 (Audit Verification Goal):** `tests/test_audit_verification_goal.py` (15 passed)
 - **Suite 6 (OTP Subsystem & Lifecycle):** `tests/test_otp_*.py` + `tests/test_hub_status_tracking.py` (136 passed)
 - **Frontend Quality:** `apps/web`: `npm run typecheck` (0 errors), `npm run lint` (0 errors)
-- **Backend Quality:** `uvx ruff check app/` (clean), `black --check app/` (clean)
+- **Backend Quality:** `uvx ruff check app/ tests/` (clean), `black --check app/ tests/` (clean)
 - **Knowledge Graph:** `graphify update .` (11,742 nodes, 26,237 edges, 676 communities)
-- **Documentation:** `docs/CHANGELOG.md` (v2.9.19) and `docs/BARPRO_KNOWLEDGE_GRAPH.md` updated with dated snapshots and live evidence labels.
+- **Documentation:** `docs/CHANGELOG.md` (v2.9.20) and `docs/BARPRO_KNOWLEDGE_GRAPH.md` updated with dated snapshots and live evidence labels.
