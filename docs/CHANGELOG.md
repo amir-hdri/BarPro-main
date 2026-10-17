@@ -30,23 +30,23 @@ All notable changes to the UTCMS Automation System.
   - Verified 32/32 passing tests across session vault, shipping auto-start, and shipping worker test suites.
   - Frontend typecheck (`tsc --noEmit`) and linting (`eslint .`) passing with 0 errors.
 
-### Phase 5: Recurring Waybill Cycling & Intelligent Scheduling
-- **Recurring Waybill Cycling Engine (`app/services/batch_service.py`, `app/schemas/multiroute.py`)**:
+### Phase 5: Recurring Waybill Cycling & Intelligent Scheduling (Issues #107, #108, #109, #110) — VERIFIED
+- **Recurring Waybill Cycling Engine (`app/services/batch_service.py`, `app/schemas/multiroute.py`) (Issue #107)**:
   - Implemented 3 multi-route operational modes: `standard` (manual distribution), `round_trip_cycling` (recurring round trips $A \to B \to A \to B\dots$), and `one_way_repeated` (repeated one-way deliveries with automated deadhead return interval).
   - Smart Inversion (`invert_waybill_payload`): In return legs ($B \to A$), automatically swaps origin $\leftrightarrow$ destination (including coordinates and postal codes) and sender $\leftrightarrow$ receiver so the return sender's postal code aligns with the return origin postal code, preventing UTCMS address-postal discrepancy rejections.
   - Added full 31-province adjacency matrix (`IRAN_ADJACENT_PROVINCES`) and pre-dispatch fleet scope validator (`validate_driver_fleet_scope`) preventing UTCMS codes 4028 (origin outside driver licensed city) and 4045 (destination outside licensed or adjacent province).
-- **Intelligent Road Distance, Speed & Safety Buffers (`app/core/distance.py`, `app/services/distance_service.py`)**:
+- **Intelligent Road Distance, Speed & Safety Buffers (`app/core/distance.py`, `app/services/distance_service.py`) (Issue #108)**:
   - Added `calculate_cycling_times`: Computes real-world driving duration based on realistic truck speed models (intercity 60 km/h, urban 28 km/h) plus user-configurable safety/rest buffers (default 45 min).
   - Road Snapping (`snap_coordinate_to_road`): Integrated Neshan Reverse Geocoding with resilient fallback to snap user coordinates to valid roadways, preventing map street-snapping errors.
-- **Fail-Safe Chain Halt & Scheduler Hardening (`app/orchestrator/scheduler_service.py`, `app/automation/gps_shipping_manager.py`)**:
+- **Fail-Safe Chain Halt & Scheduler Hardening (`app/orchestrator/scheduler_service.py`, `app/automation/gps_shipping_manager.py`) (Issue #109)**:
   - Enhanced `SchedulerService` to detect preceding sequence failures in multi-route batches; automatically halts/skips subsequent legs if a previous leg failed or entered `NEEDS_REVIEW`, protecting driver credentials from cascading portal suspensions.
   - Hardened Code 429 rate-limiting backoff in `GpsShippingManager` with a mandatory 900s–1800s backoff window.
-- **Full-Stack UI/UX Experience (`apps/web/src/app/batches/page.tsx`, `apps/web/src/lib/types.ts`)**:
+- **Full-Stack UI/UX Experience & Test Verification (`apps/web/src/app/batches/page.tsx`, `apps/web/src/lib/types.ts`) (Issue #110)**:
   - Designed interactive scenario selector tabs for Standard, Round-Trip Cycling, and One-Way Repeated modes.
   - Implemented Live Schedule Preview Timeline table displaying estimated departure offsets, road travel times, and rest buffers.
   - Rendered explicit Fail-Safe Chain Halt alerts in the batch progress panel.
-- **Regression Verification (`tests/test_recurring_cycling_batches.py`)**:
-  - 12 comprehensive unit and regression tests passing 100% covering Smart Inversion symmetry, cycling schedule generation, fleet scope gates (4028/4045), road snapping fallback, and scheduler chain halt.
+  - 12 comprehensive unit and regression tests passing 100% in `tests/test_recurring_cycling_batches.py` covering Smart Inversion symmetry, cycling schedule generation, fleet scope gates (4028/4045), road snapping fallback, and scheduler chain halt.
+  - Frontend TypeScript compiler (`tsc --noEmit`) and ESLint passing with 0 errors.
 
 ### Phase 4: Worker Resilience, Performance & Verification
 - **Fail-Fast Business Rejections & Per-Driver Toggle**: Enforced immediate terminal `needs_review` state on deterministic UTCMS rejection codes (4028 origin scope, 4025 empty fare, 4045 fleet license province), preventing token starvation and unnecessary retries. Deployed per-driver auto-submission toggle full-stack (migration 043, API schemas, and frontend switch).
