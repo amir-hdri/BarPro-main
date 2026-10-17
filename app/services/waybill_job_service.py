@@ -316,7 +316,10 @@ class WaybillJobService:
             correlation_id=request.correlation_id,
             idempotency_key=request.idempotency_key,
         )
-        return WaybillJobResponse.model_validate(job)
+        resp = WaybillJobResponse.model_validate(job)
+        if driver and driver.full_name:
+            resp.driver_name = driver.full_name
+        return resp
 
     @staticmethod
     async def list_jobs(
@@ -392,8 +395,19 @@ class WaybillJobService:
                 clients = (await session.exec(client_stmt)).all()
                 client_map = {cast(int, c.id): c for c in clients}
 
+        driver_map: dict[int, Driver] = {}
+        if jobs:
+            driver_ids = {j.driver_id for j in jobs if j.driver_id is not None}
+            if driver_ids:
+                driver_stmt = select(Driver).where(col(Driver.id).in_(driver_ids))
+                drivers = (await session.exec(driver_stmt)).all()
+                driver_map = {cast(int, d.id): d for d in drivers}
+
         for j in jobs:
             resp = WaybillJobResponse.model_validate(j)
+            dr = driver_map.get(j.driver_id) if j.driver_id else None
+            if dr and dr.full_name:
+                resp.driver_name = dr.full_name
             if role == "client":
                 resp.last_error = None
                 resp.terminal_reason = None
@@ -441,6 +455,10 @@ class WaybillJobService:
             )
 
         resp = WaybillJobResponse.model_validate(job)
+        if job.driver_id:
+            dr = await session.get(Driver, job.driver_id)
+            if dr and dr.full_name:
+                resp.driver_name = dr.full_name
         if role == "client":
             resp.last_error = None
             resp.terminal_reason = None

@@ -155,7 +155,7 @@ const JobCard = memo(function JobCard({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-white text-sm">
-              {job.driver_name ? `راننده: ${job.driver_name}` : 'کار بدون راننده مشخص'}
+              {job.driver_name ? `راننده: ${job.driver_name}` : (job.driver_id ? `راننده #${toPersianDigits(job.driver_id)}` : 'کار بدون راننده مشخص')}
             </h3>
             {job.source && (
               <span className="rounded bg-white/5 border border-white/5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">

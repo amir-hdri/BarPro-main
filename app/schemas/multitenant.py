@@ -868,6 +868,7 @@ class WaybillJobResponse(BaseModel):
     finished_at: datetime | None = None
     payload_json: dict | list | str | Any | None = None
     result_json: dict | list | str | Any | None = None
+    driver_name: str | None = None
     client_name: str | None = None
     client_code: str | None = None
     request_digest: str | None = None
@@ -910,6 +911,26 @@ class WaybillJobResponse(BaseModel):
             self.operator_acknowledged = True
         else:
             self.operator_acknowledged = False
+
+        if not self.driver_name:
+            if isinstance(self.payload_json, dict):
+                p_name = (
+                    self.payload_json.get("driver_name")
+                    or self.payload_json.get("driver_full_name")
+                    or self.payload_json.get("driverFullName")
+                )
+                if p_name and str(p_name).strip():
+                    self.driver_name = str(p_name).strip()
+            if not self.driver_name and isinstance(self.result_json, dict):
+                details = self.result_json.get("details")
+                if isinstance(details, dict):
+                    d_name = details.get("driverFullName") or details.get("driver_name")
+                    if d_name and str(d_name).strip():
+                        self.driver_name = str(d_name).strip()
+                if not self.driver_name:
+                    r_name = self.result_json.get("driver_name") or self.result_json.get("driverFullName")
+                    if r_name and str(r_name).strip():
+                        self.driver_name = str(r_name).strip()
         return self
 
     model_config = ConfigDict(from_attributes=True)

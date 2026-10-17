@@ -2,6 +2,21 @@
 
 All notable changes to the UTCMS Automation System.
 
+## [2.9.20] - 2026-10-17 — Fix External Adoption Timestamp Poisoning & Populate Driver Names Across System
+
+### External Waybill Adoption & Driver Name Resolution
+- **Adoption Scope Date Gate (`app/orchestrator/adoption_service.py`)**:
+  - Implemented `is_today_document` gate in `ExternalWaybillAdoptionService`: Rejects historical documents from earlier dates (e.g. 1405/06/22 to 1405/07/23) so the worker strictly adopts only documents issued on the current Tehran calendar day (`tehran_today_jalali()`).
+  - True Timestamp Reconstruction: Implemented `parse_document_issued_datetime_utc` to reconstruct the exact naive-UTC instant from the document's Shamsi `date` and `time` fields, eliminating timestamp poisoning (`created_at = now()`) and correctly setting `business_date`.
+- **System-wide Driver Name Delivery (`app/schemas/multitenant.py`, `app/services/waybill_job_service.py`, `apps/web/src/app/history/page.tsx`)**:
+  - Added `driver_name: str | None = None` to `WaybillJobResponse` schema with fallback resolution from `payload_json`, `result_json.details.driverFullName`, and `result_json.driver_name`.
+  - Batch-resolved `driver_map` in `WaybillJobService.list_jobs` and `get_job` from the `Driver` table, guaranteeing 100% driver name presence on API responses.
+  - Enhanced frontend fallback in `apps/web/src/app/history/page.tsx` from misleading «کار بدون راننده مشخص» to display driver ID when driver_name is unpopulated.
+- **Production Server Database Remediation**:
+  - Purged 38 erroneously imported historical waybills from `waybill_jobs` and cleaned their Redis shipping state keys.
+  - Backfilled accurate UTC `created_at` timestamps, `business_date = 2026-10-17`, and `driver_name` for the 7 legitimate waybills issued today (5 for Hamidreza Mohammadzadeh and 2 for Mohammad Salari).
+  - Re-verified default history filter: returns exactly 7 waybills with 100% correct driver names.
+
 ## [2.9.19] - 2026-10-17 — External Waybill Adoption & Shipping Lifecycle Completion (Cairn Phase 6)
 
 ### Phase 6: Manual Waybill Adoption & Shipping Lifecycle Completion

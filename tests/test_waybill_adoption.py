@@ -151,3 +151,97 @@ async def test_adopt_all_external_waybills():
         assert summary["adopted_count"] == 1
         assert summary["error_count"] == 0
         assert summary["adopted"][0]["document_id"] == "239321329"
+
+
+@pytest.mark.asyncio
+async def test_adopt_for_driver_skips_historical_documents():
+    """Verify that historical waybills from previous dates are not adopted."""
+    service = ExternalWaybillAdoptionService()
+    driver = Driver(id=4, client_id=1, driver_national_code="5720138129", utcms_password_encrypted="secret")
+
+    mock_client = AsyncMock()
+    mock_client.get_issued_documents.return_value = {
+        "resultCode": 200,
+        "obj": [
+            {
+                "id": 239321329,
+                "docNo": "1363223066",
+                "date": "1405/06/22",
+                "time": "10:00:00",
+                "sourceStateTitle": "همدان",
+                "sourceCityTitle": "ملایر",
+            },
+        ],
+    }
+
+    mock_session = AsyncMock()
+
+    with (
+        patch("app.orchestrator.adoption_service.get_or_login_client", AsyncMock(return_value=mock_client)),
+        patch("app.orchestrator.adoption_service.decrypt_driver_password", return_value="pass"),
+        patch("app.orchestrator.adoption_service.get_worker_proxy_url", return_value="http://127.0.0.1:3128"),
+    ):
+        jobs = await service.adopt_for_driver(mock_session, driver)
+        assert len(jobs) == 0
+
+
+@pytest.mark.asyncio
+async def test_adopt_for_driver_adopts_today_document_with_metadata():
+    """Verify that today's waybills are adopted with driver_name, business_date, and correct timestamp."""
+    from app.core.jalali import tehran_today_jalali
+    from app.schemas.multitenant import WaybillJobResponse
+
+    jy, jm, jd = tehran_today_jalali()
+    today_jalali = f"{jy:04d}/{jm:02d}/{jd:02d}"
+
+    service = ExternalWaybillAdoptionService()
+    driver = Driver(
+        id=4,
+        client_id=1,
+        full_name="حمیدرضا محمدزاده",
+        driver_national_code="5720138129",
+        utcms_password_encrypted="secret",
+    )
+
+    mock_client = AsyncMock()
+    mock_client.get_issued_documents.return_value = {
+        "resultCode": 200,
+        "obj": [
+            {
+                "id": 239628695,
+                "docNo": "1363532773",
+                "date": today_jalali,
+                "time": "14:14:43",
+                "driverFullName": "حمیدرضا محمدزاده",
+                "sourceStateTitle": "همدان",
+                "sourceCityTitle": "ملایر",
+                "destStateTitle": "همدان",
+                "destCityTitle": "ملایر",
+            },
+        ],
+    }
+
+    mock_session = AsyncMock()
+    mock_exec = MagicMock()
+    mock_exec.first.return_value = None
+    mock_session.exec.return_value = mock_exec
+
+    with (
+        patch("app.orchestrator.adoption_service.get_or_login_client", AsyncMock(return_value=mock_client)),
+        patch("app.orchestrator.adoption_service.decrypt_driver_password", return_value="pass"),
+        patch("app.orchestrator.adoption_service.get_worker_proxy_url", return_value="http://127.0.0.1:3128"),
+        patch("app.orchestrator.adoption_service.init_shipping", AsyncMock()),
+        patch("app.orchestrator.adoption_service.auto_start_shipping", AsyncMock(return_value={"status": "started"})),
+    ):
+        jobs = await service.adopt_for_driver(mock_session, driver)
+        assert len(jobs) == 1
+        job = jobs[0]
+        assert job.document_id == "239628695"
+        assert job.payload_json["driver_name"] == "حمیدرضا محمدزاده"
+        assert job.result_json["driver_name"] == "حمیدرضا محمدزاده"
+        assert job.business_date is not None
+
+        # Verify schema serialization populates driver_name
+        job.id = 1
+        resp = WaybillJobResponse.model_validate(job)
+        assert resp.driver_name == "حمیدرضا محمدزاده"

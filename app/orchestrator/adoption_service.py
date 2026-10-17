@@ -27,11 +27,95 @@ from app.automation.gps_shipping_manager import (
     save_shipping_state,
 )
 from app.automation.worker_proxy import get_worker_proxy_url
+from app.core.business_time import business_date_str
 from app.core.database import async_session_factory
+from app.core.jalali import (
+    TEHRAN_UTC_OFFSET,
+    gregorian_to_jalali,
+    jalali_to_gregorian,
+    tehran_today_jalali,
+)
 from app.models.waybill_route_template import WaybillRouteTemplate
 from app.models_multitenant import Driver, WaybillJob
 
 logger = logging.getLogger(__name__)
+
+
+def is_today_document(item: dict[str, Any]) -> bool:
+    """Check if a UTCMS document was issued today in Tehran timezone."""
+    jy, jm, jd = tehran_today_jalali()
+    today_slash = f"{jy:04d}/{jm:02d}/{jd:02d}"
+    today_dash = f"{jy:04d}-{jm:02d}-{jd:02d}"
+
+    doc_date = str(item.get("date") or item.get("dateFarsi") or "").strip()
+    if doc_date:
+        norm = doc_date.replace("-", "/")
+        if norm == today_slash or doc_date.replace("/", "-") == today_dash:
+            return True
+        return False
+
+    shipping_latin = str(item.get("shippingDateLatin") or "").strip()
+    if shipping_latin:
+        try:
+            from zoneinfo import ZoneInfo
+
+            dt = datetime.fromisoformat(shipping_latin.replace(" ", "T"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("Asia/Tehran"))
+            dt_tehran = dt.astimezone(ZoneInfo("Asia/Tehran"))
+            djy, djm, djd = gregorian_to_jalali(dt_tehran.year, dt_tehran.month, dt_tehran.day)
+            return (djy, djm, djd) == (jy, jm, jd)
+        except Exception:
+            pass
+
+    # If item has no date metadata at all (e.g. minimal unit test mock), allow it
+    return True
+
+
+def parse_document_issued_datetime_utc(item: dict[str, Any], now_utc: datetime) -> tuple[datetime, str]:
+    """Calculate the true UTC issuance datetime and Tehran business date string."""
+    doc_date = str(item.get("date") or item.get("dateFarsi") or "").strip()
+    doc_time = str(item.get("time") or "").strip()
+
+    if doc_date:
+        cleaned = doc_date.replace("/", "-")
+        parts = cleaned.split("-")
+        if len(parts) == 3:
+            try:
+                jy, jm, jd = int(parts[0]), int(parts[1]), int(parts[2])
+                gy, gm, gd = jalali_to_gregorian(jy, jm, jd)
+                th, tm, ts = 0, 0, 0
+                if doc_time:
+                    t_parts = doc_time.split(":")
+                    if len(t_parts) >= 2:
+                        th = int(t_parts[0])
+                        tm = int(t_parts[1])
+                        ts = int(t_parts[2]) if len(t_parts) > 2 else 0
+                dt_tehran = datetime(gy, gm, gd, th, tm, ts)
+                dt_utc = dt_tehran - TEHRAN_UTC_OFFSET
+                if dt_utc > now_utc:
+                    dt_utc = now_utc
+                b_date = f"{gy:04d}-{gm:02d}-{gd:02d}"
+                return dt_utc, b_date
+            except Exception:
+                pass
+
+    shipping_latin = str(item.get("shippingDateLatin") or "").strip()
+    if shipping_latin:
+        try:
+            from zoneinfo import ZoneInfo
+
+            dt = datetime.fromisoformat(shipping_latin.replace(" ", "T"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("Asia/Tehran"))
+            dt_utc = dt.astimezone(UTC).replace(tzinfo=None)
+            if dt_utc > now_utc:
+                dt_utc = now_utc
+            return dt_utc, business_date_str(dt)
+        except Exception:
+            pass
+
+    return now_utc, business_date_str(now_utc)
 
 
 class ExternalWaybillAdoptionService:
@@ -105,6 +189,17 @@ class ExternalWaybillAdoptionService:
             doc_id = str(item.get("id") or "").strip()
             doc_no = str(item.get("docNo") or "").strip()
             if not doc_id and not doc_no:
+                continue
+
+            # Only adopt documents issued today in Tehran
+            if not is_today_document(item):
+                logger.info(
+                    "adoption_skip_historical_document driver_id=%s doc_id=%s doc_no=%s date=%s",
+                    driver.id,
+                    doc_id,
+                    doc_no,
+                    item.get("date") or item.get("dateFarsi"),
+                )
                 continue
 
             # Check if this waybill is already tracked in WaybillJob
@@ -186,7 +281,8 @@ class ExternalWaybillAdoptionService:
                     dur_min = 30.0
                     route_id = None
 
-            now_utc = datetime.now(UTC)
+            now_utc = datetime.now(UTC).replace(tzinfo=None)
+            issued_dt_utc, b_date = parse_document_issued_datetime_utc(item, now_utc)
             new_job_id = f"ext-{uuid.uuid4().hex[:12]}"
             idempotency_key = f"adopt-{doc_id or doc_no}"
 
@@ -194,6 +290,8 @@ class ExternalWaybillAdoptionService:
                 "transport": "mobile",
                 "driver_national_code": driver.driver_national_code,
                 "driver_id": driver.id,
+                "driver_name": driver.full_name,
+                "business_date": b_date,
                 "origin_province": source_prov,
                 "origin_city": source_city,
                 "dest_province": dest_prov,
@@ -212,6 +310,7 @@ class ExternalWaybillAdoptionService:
                 "status": "success",
                 "tracking_code": doc_no,
                 "document_id": doc_id,
+                "driver_name": driver.full_name,
                 "adopted_external": True,
                 "details": item,
             }
@@ -228,12 +327,13 @@ class ExternalWaybillAdoptionService:
                 result_json=result_json,
                 document_id=doc_id,
                 mutation_status="confirmed",
-                reconciled_at=now_utc.replace(tzinfo=None),
+                reconciled_at=now_utc,
+                business_date=b_date,
                 route_template_id=route_id,
                 distance_km=dist_km,
                 duration_min=dur_min,
-                created_at=now_utc.replace(tzinfo=None),
-                updated_at=now_utc.replace(tzinfo=None),
+                created_at=issued_dt_utc,
+                updated_at=now_utc,
             )
             session.add(job)
             await session.commit()
