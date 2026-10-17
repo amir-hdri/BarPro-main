@@ -1,60 +1,68 @@
 <!--schema:2.0.0-->
 <!--agent:Antigravity-->
-<!--timestamp:2026-10-17T21:22:35+03:30-->
-<!--cairn-phase:6-->
+<!--timestamp:2026-10-17T22:50:00+03:30-->
+<!--cairn-phase:skills-consolidation-->
 
 # 🎯 هدف جاری
-رفع ریشه‌ای و کامل خطای نمایش ۴۵ بارنامه غیرواقعی، حذف مسمومیت مهر زمانی (Timestamp Poisoning)، ایجاد گیت تاریخ جاری در ورکر پذیرش خودکار، و تامین و نمایش قطعی نام راننده در کلیه کارت‌ها و خروجی‌های سیستم.
+تجمیع و به‌روزرسانی جامع و مدرن مهارت‌های تخصصی ایجنت (Domain Skills) در مخزن BarPro: تبدیل ۲۰ اسکیل پراکنده به ۷ مهارت مرجع و بومی پروژه، بازتاب آخرین قراردادهای عملیاتی و معماری هدف (Mobile API transport، اثبات دو-شاهد، عدم مسمومیت زمانی جلالی، ساخت کانتینری Standalone نکست، و ایزولاسیون محلی).
 
 ## ✅ کارهای انجام‌شده
-- **بررسی، ریشه‌یابی و راستی‌آزمایی عمیق:**
-  - تطبیق میدانی داده‌های پایگاه‌داده پروداکشن: تایید وجود ۴۵ بارنامه که ۳۸ مورد آن اسناد تاریخی ۱ ماه گذشته (از ۲۲ شهریور تا ۲۳ مهر) با مقداردهی اشتباه `created_at = now()` در دیتابیس بودند و فقط ۷ بارنامه مربوط به امروز (۲۵ مهر ۱۴۰۵) بود.
-  - شناسایی علت عدم نمایش نام راننده: غیبت فیلد `driver_name` در اسکمای پاسخ `WaybillJobResponse` و عدم استخراج آن در متد `list_jobs` با وجود موجودیت راننده (`driver_id`) در دیتابیس.
-- **اصلاح اساسی و دائمی سرویس پذیرش خودکار (`app/orchestrator/adoption_service.py`):**
-  - پیاده‌سازی گیت اعتبارسنجی تاریخ امروز (`is_today_document`): رد قطعی کلیه اسناد تاریخی گذشته و پذیرش انحصاری اسناد صادرشده در تاریخ جاری تهران (`tehran_today_jalali()`).
-  - بازسازی دقیق مهر زمانی (`parse_document_issued_datetime_utc`): تبدیل زمان صدور واقعی سند از فیلدهای `date` و `time` سامانه UTCMS به زمان دقیق UTC و تنظیم فیلد `business_date`.
-  - درج فیلد `driver_name` در `payload_json` و `result_json`.
-- **تامین سراسری نام راننده در لایه‌های بک‌اند و فرانت‌اند:**
-  - افزودن `driver_name: str | None = None` به اسکمای `WaybillJobResponse` در `app/schemas/multitenant.py` همراه با فال‌بک خودکار در اعتبارسنج پس از مدل (`@model_validator`).
-  - بارگذاری دسته‌ای رانندگان (`driver_map`) در `WaybillJobService.list_jobs` و مقداردهی در `get_job` و `create_job`.
-  - بهبود فال‌بک کارت‌ها در `apps/web/src/app/history/page.tsx` به نمایش شناسه راننده به جای عبارت «کار بدون راننده مشخص».
-- **پاکسازی و اصلاح وضعیت زنده پایگاه‌داده پروداکشن سرور مرکزی:**
-  - حذف قطعی ۳۸ رکورد تاریخی زائد از جدول `waybill_jobs` و پاکسازی کلیدهای وضعیت حمل در Redis.
-  - اصلاح و بازنشانی دقیق مهر زمانی `created_at`، تاریخ تجاری `business_date = 2026-10-17` و نام راننده برای ۷ بارنامه واقعی امروز (۵ بارنامه برای حمیدرضا محمدزاده و ۲ بارنامه برای محمد سالاری).
-  - راستی‌آزمایی فیلتر پیش‌فرض تاریخچه: شمارشگر دقیقاً عدد ۷ بارنامه با نام‌های کامل و واقعی را بازمی‌گرداند.
-- **مقاوم‌سازی کامل اعتبارسنجی تاریخ و زمان صدور بارنامه (`app/orchestrator/adoption_service.py`):**
-  - رفع نقص رد اشتباه فرمت‌های غیراستاندارد شمسی (تاریخ‌های تک‌رقمی بدون صفر پیشرو مانند `1405/7/25`، ارقام فارسی مانند `۱۴۰۵/۰۷/۲۵`، و تاریخ‌های همراه با ساعت مانند `1405/07/25 14:14:43`).
-  - رفع باگ کرش `parse_document_issued_datetime_utc` در مواجهه با ساعت متصل به تاریخ و جلوگیری از بازگشت مسمومیت زمانی.
-  - پشتیبانی از پنجره زمانی عبور از نیمه‌شب (Cross-midnight grace window تا ۲ ساعت) تا بارنامه‌های صادرشده در اواخر شب روز قبل در اجرای نوبت اول بامداد به اشتباه رد و برای همیشه سوزانده نشوند.
-- **تکمیل انتساب نام راننده در تمام اندپوینت‌های تکی (`app/services/waybill_job_service.py`):**
-  - اضافه شدن انتساب نام راننده در `retry_job` و `update_job` برای تضمین ماندگاری نام راننده پس از ویرایش یا تلاش مجدد.
-- **بهبود فال‌بک نام راننده در سراسر فرانت‌اند (`apps/web/src/app/page.tsx` و `apps/web/src/app/history/page.tsx`):**
-  - اصلاح کارت‌های عملیات اخیر در داشبورد اصلی (`page.tsx`) و پنجره مودال جزئیات در `history/page.tsx` به نمایش شناسه راننده در صورت غیبت نام متنی.
-- **تست‌ها و راستی‌آزمایی:**
-  - افزودن آزمون‌های پوششی پیشرفته برای تمام حالت‌های فرمت تاریخ، ارقام فارسی، زمان متصل و نیمه‌شب در `tests/test_waybill_adoption.py`.
-  - اجرای موفقیت‌آمیز ۹ تست در `tests/test_waybill_adoption.py` و ۳۵ تست در `tests/test_waybill_service.py`.
-  - همگام‌سازی کامل فایل‌های بک‌اند با سرور پروداکشن و ری‌استارت سرویس‌های `barpro-backend`، `barpro-beat`، `barpro-scheduler`، و `barpro-worker-1`.
-  - راستی‌آزمایی نهایی روی سرور پروداکشن: خروجی استعلام لیست ۷ بارنامه با نام‌های کامل و واقعی تایید شد.
+- **تسک ۱: تجمیع زیرساخت، استقرار و امنیت در `barpro-deploy-ops`:**
+  - ادغام ابزارهای فایروال UFW، پروکسی‌های Squid پورت 3128 با اعتبارسنجی خروجی IP ایران، ساخت داکر Multi-stage، و پروتکل همگام‌سازی امن گیت.
+  - حذف دایرکتوری‌های مازاد `barpro-server-setup`، `security-firewall`، `proxy-ops`، `ssl-https`، و `docker-build`.
+- **تسک ۲: تجمیع اتوماسیون، چرخه حیات شیپینگ و کپچا در `barpro-rpa-ops`:**
+  - تثبیت برتری ترنسپورت Mobile API (`UtcmsMobileClient`) و اعلام بازنشستگی صریح ثبت فرم مرورگر.
+  - درج گیت اثبات دو-شاهد (Two-Witness Proof) و چرخه شیپینگ سروری Redroid اندروید مجازی (بدون گوشی فیزیکی).
+  - تثبیت قواعد تقویم جلالی (فیلتر امروز، پنجره ۲ ساعته عبور از نیمه‌شب، و صفر مسمومیت زمانی) و مدل‌های CNN/CRNN کپچا.
+  - توسعه `rpa_cli.py` با دستورات `check-captcha-models`، `verify-two-witness`، `check-adoption-date`، `check-fuel-ocr`، و `audit-browser`.
+  - حذف دایرکتوری‌های مازاد `barpro-waybill-submission-safety`، `browser-lifecycle`، `captcha-retrain`، و `barpro-fuel-inquiry`.
+- **تسک ۳: تجمیع فول‌استک و گارد UI/UX در `barpro-fullstack-sync`:**
+  - انطباق کامل اسکیماهای Zod v3 با Pydantic v2، احراز هویت کوکی httpOnly (`AUTH_COOKIE_SECURE=false`)، تایپوگرافی RTL استاندارد ایرانیان‌سنس با ارقام انگلیسی در کد و ارقام فارسی در نمایش، ابورت‌کنترلر unmount-safe، و سلسله‌مراتب فالبک نام راننده.
+  - توسعه `fullstack_cli.py` با دستورات `check-zod-imports`، `check-auth-cookies`، `check-typography`، و `audit-ui`.
+  - حذف دایرکتوری مازاد `barpro-ui-ux-guard`.
+- **تسک ۴: تجمیع پایگاه‌داده و بازیابی بحران در `database-ops` (`barpro-database-ops`):**
+  - تنظیمات اختصاصی PostgreSQL 16، قفل نشست مشورتی مایگریشن‌ها (`MIGRATION_ADVISORY_LOCK_ID = 0x42415250524F`)، پایداری دوگانه ردیس (AOF + RDB)، اسکریپت‌های پشتیبان‌گیری pg_dump، و ترمیم توالی‌ها.
+  - توسعه `db_cli.py` با دستورات `check-advisory-lock`، `check-redis-persistence`، و `verify-backup`.
+  - حذف دایرکتوری مازاد `disaster-recovery`.
+- **تسک ۵: تجمیع رصدپذیری، هشدارها و آزمون بار در `monitoring-alerting` (`barpro-monitoring-alerting`):**
+  - پشته پرومتئوس ۲.۵۳، آلرت‌منجر، داشبوردهای گرافانا، اکسترودرهای داخلی چهارگانه، و آزمون بار ۵۰۰ بارنامه در ساعت Locust.
+  - توسعه `monitor_cli.py` با دستورات `check-exporters` و `run-load-baseline`.
+  - حذف دایرکتوری مازاد `load-testing`.
+- **تسک ۶: بازسازی چرخه مستاجران و بایگانی نقشه راه ارتقا:**
+  - به‌روزرسانی `tenant-onboard` با تمرکز بر مرزهای کلاینت، رمزنگاری AES رمزهای راننده (`decrypt_driver_password`)، پیوند وب‌هوک فورواردر، و سهمیه‌های روزانه.
+  - بایگانی فایل تاریخی `barpro-master-upgrade/SKILL.md` به مسیر `docs/agent-reference/historical-master-upgrade.md` و حذف دایرکتوری آن.
+- **تسک ۷: به‌روزرسانی مستندات مرجع و اعتبارسنجی جامع:**
+  - به‌روزرسانی بخش ۳ در `AGENTS.md` برای استناد به ۷ مهارت تخصصی تجمیع‌شده.
+  - ثبت بخش ۲۲.۱ در گراف دانشی پروژه `docs/BARPRO_KNOWLEDGE_GRAPH.md`.
+  - اعتبارسنجی ۱۰۰٪ موفق دستورات `--help` و لینوکس/پایتون در تمام ۷ اسکریپت CLI.
+  - اجرای کامل `uvx ruff check .agents/skills/` با نتیجه سبز (`All checks passed!`).
 
 ## 📁 فایل‌های تغییریافته
-- `app/orchestrator/adoption_service.py`
-- `app/schemas/multitenant.py`
-- `app/services/waybill_job_service.py`
-- `apps/web/src/app/history/page.tsx`
-- `apps/web/src/app/page.tsx`
-- `tests/test_waybill_adoption.py`
-- `docs/CHANGELOG.md`
+- `.agents/skills/barpro-deploy-ops/SKILL.md`
+- `.agents/skills/barpro-deploy-ops/scripts/server_ssh.py`
+- `.agents/skills/barpro-rpa-ops/SKILL.md`
+- `.agents/skills/barpro-rpa-ops/scripts/rpa_cli.py`
+- `.agents/skills/barpro-fullstack-sync/SKILL.md`
+- `.agents/skills/barpro-fullstack-sync/scripts/fullstack_cli.py`
+- `.agents/skills/database-ops/SKILL.md`
+- `.agents/skills/database-ops/scripts/db_cli.py`
+- `.agents/skills/celery-ops/SKILL.md`
+- `.agents/skills/monitoring-alerting/SKILL.md`
+- `.agents/skills/monitoring-alerting/scripts/monitor_cli.py`
+- `.agents/skills/tenant-onboard/SKILL.md`
+- `.agents/skills/tenant-onboard/scripts/tenant_cli.py`
+- `docs/agent-reference/historical-master-upgrade.md`
+- `AGENTS.md`
 - `docs/BARPRO_KNOWLEDGE_GRAPH.md`
 - `.context/STATE.md`
 
 ## 🎯 تسک دقیق بعدی
-1. ثبت کامیت اتمیک نهایی در گیت.
-2. ارسال گزارش جامع به کاربر.
+1. تکمیل گزارش تحلیلی برای ایجنت ارشد و کاربر.
 
 ## 🧠 تصمیمات فنی و چرایی
-1. **گیت تاریخ شمسی در سطح ورکر پذیرش:** جلوگیری از ورود اسناد قدیمی به دیتابیس مانع از ایجاد ترافیک بی‌مورد، مسمومیت آماری داشبوردها و اجرای چرخه‌های شیپینگ برای اسناد ماه‌های گذشته می‌شود.
-2. **استخراج سه‌لایه نام راننده:** مقداردهی نام راننده هم از جدول `Driver`، هم از `payload_json` و هم از جزئیات `result_json.details.driverFullName` تضمین می‌کند که حتی در صورت قطعی یا عدم اتصال جداول، کارت‌های بارنامه هرگز بدون نام راننده نخواهند ماند.
-3. **مهر زمانی دقیق UTC:** محاسبه زمان دقیق صدور بر اساس ساعت و تاریخ پورتال کشوری و کسر افست ۳:۳۰ تهران، باعث مرتب‌سازی صحیح و تقویمی بارنامه‌ها در فهرست تاریخچه می‌شود.
+1. **ایزولاسیون کامل محلی مهارت‌ها:** طبق الزام کاربر، تمام مهارت‌ها در محدوده محلی مخزن `.agents/skills/` در داخل پروژه نگهداری شده و هرگز در پوشه‌های عمومی سیستم (`~/.gemini/skills/` یا `~/.gemini/config/skills/`) بارگذاری نشدند تا از نمایش یا نشت آن‌ها در سایر پروژه‌ها اکیداً جلوگیری گردد.
+2. **برتری ترنسپورت مستقیم Mobile API:** مرورگر وب برای ثبت صدور بارنامه بازنشسته شده است؛ تمام فرآیندهای حیاتی اکنون مستقیماً به کلاینت رسمی متصل هستند و از سرور اندروید مجازی Redroid برای جی‌پی‌اس استفاده می‌کنند.
+3. **گیت اثبات دو-شاهد:** ادعای ثبت بارنامه بدون وجود همزمان کد پیگیری در پاسخ RPA و ذخیره قطعی آن در دیتابیس هرگز تایید نخواهد شد.
 
 ## ⚠️ نکات حساس و موانع
-- هیچ مانع یا باگ فعالی وجود ندارد؛ سرویس‌های پروداکشن بازنشانی شدند و دیتابیس در وضعیت کاملاً منطبق و پاکسازی‌شده قرار دارد.
+- هیچ مانعی وجود ندارد. کلیه اسکریپت‌ها با پایتون استاندارد و بدون باگ سینتکسی یا لینت با موفقیت بررسی و تایید شدند.
