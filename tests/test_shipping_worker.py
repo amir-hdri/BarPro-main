@@ -188,3 +188,52 @@ def test_auto_complete_due_trips_retry_on_top_level_exception():
             auto_complete_due_trips()
 
         mock_retry.assert_called_once()
+
+
+def test_shipping_start_worker_task_registration():
+    """Verify that auto_start_due_trips is properly registered in Celery."""
+    assert celery_app is not None
+    assert "shipping.auto_start_due_trips" in celery_app.tasks
+
+    task = celery_app.tasks["shipping.auto_start_due_trips"]
+    assert task.name == "shipping.auto_start_due_trips"
+    assert task.max_retries == 2
+    assert task.default_retry_delay == 30
+
+    beat_schedule = celery_app.conf.beat_schedule
+    assert "shipping-auto-start-due" in beat_schedule
+    entry = beat_schedule["shipping-auto-start-due"]
+    assert entry["task"] == "shipping.auto_start_due_trips"
+    assert entry["schedule"].minute == set(range(0, 60, 2))
+    assert entry["options"]["queue"] == utcms_config.CELERY_WAYBILL_TASKS_QUEUE
+    assert entry["options"]["expires"] == 110
+
+
+def test_auto_start_due_trips_execution(caplog):
+    """Verify auto_start_due_trips scanning and execution flow."""
+    from app.workers.shipping_worker import auto_start_due_trips
+
+    state1 = ShippingState(job_id="job-start-1", doc_no="226010", doc_id="doc-10", status="unknown")
+    state2 = ShippingState(job_id="job-start-2", doc_no="226020", doc_id="doc-20", status="rate_limited")
+
+    with (
+        patch("app.workers.shipping_worker.get_due_start_shipping_jobs", new_callable=AsyncMock) as mock_get_due,
+        patch("app.workers.shipping_worker.auto_start_shipping", new_callable=AsyncMock) as mock_auto_start,
+        caplog.at_level(logging.INFO),
+    ):
+        mock_get_due.return_value = [state1, state2]
+        mock_auto_start.side_effect = [
+            {"status": "started", "result": {"resultCode": 0}},
+            {"status": "waiting_cooldown", "backoff_until": "2026-10-17T18:00:00Z"},
+        ]
+
+        result = auto_start_due_trips()
+
+        assert result["scanned_count"] == 2
+        assert result["started_count"] == 1
+        assert result["skipped_count"] == 1
+        assert result["failed_count"] == 0
+        assert result["started"][0]["job_id"] == "job-start-1"
+        assert result["skipped"][0]["job_id"] == "job-start-2"
+        assert "shipping_due_start_completed" in caplog.text
+        assert "shipping_due_start_skipped" in caplog.text

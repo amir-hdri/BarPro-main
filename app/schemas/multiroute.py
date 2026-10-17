@@ -62,6 +62,13 @@ class BatchCreate(BaseModel):
     )
     target_count: int = Field(default=15, ge=1, le=1000)
     repeat_mode: Literal["round_robin", "random", "sequential"] = "round_robin"
+    batch_mode: Literal["standard", "round_trip_cycling", "one_way_repeated"] = "standard"
+    cycles_count: int | None = Field(
+        default=None, ge=1, le=50, description="تعداد دور رفت و برگشت (هر دور = ۲ بارنامه)"
+    )
+    repeat_count: int | None = Field(default=None, ge=1, le=50, description="تعداد دفعات رفت با زمان بازگشت خالی")
+    buffer_minutes: int = Field(default=45, ge=0, le=720, description="بافر اطمینان استراحت، تخلیه و خنک‌سازی به دقیقه")
+    smart_inversion: bool = Field(default=True, description="معکوس‌سازی خودکار طرفین و کدپستی‌ها در مسیر برگشت")
     route_chain: bool = Field(
         default=False,
         description=(
@@ -84,5 +91,9 @@ class BatchProgressResponse(BaseModel):
     progress_percent: int
     status: str
     route_chain: bool = False
+    batch_mode: str = "standard"
+    cycles_count: int | None = None
+    repeat_count: int | None = None
+    buffer_minutes: int = 45
     next_sequence: int | None = None
     blocked_by_sequence: int | None = None

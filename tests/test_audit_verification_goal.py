@@ -40,7 +40,7 @@ async def test_item1_async_session_default_headers_false_in_get():
 
         mock_session_cls.assert_called_once_with(
             proxies={"http": "http://127.0.0.1:3128", "https": "http://127.0.0.1:3128"},
-            timeout=20.0,
+            timeout=float(utcms_config.UTCMS_MOBILE_API_TIMEOUT_SECONDS),
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,
@@ -65,7 +65,7 @@ async def test_item1_async_session_default_headers_false_in_post():
 
         mock_session_cls.assert_called_once_with(
             proxies={"http": "http://127.0.0.1:3128", "https": "http://127.0.0.1:3128"},
-            timeout=20.0,
+            timeout=float(utcms_config.UTCMS_MOBILE_API_TIMEOUT_SECONDS),
             allow_redirects=False,
             impersonate="chrome120",
             default_headers=False,

@@ -682,16 +682,32 @@ async def get_cached_token(national_code: str, *, client_id: int | str | None = 
 
 
 async def cache_token(
-    national_code: str, token: str, ttl_seconds: int = 240, *, client_id: int | str | None = None
+    national_code: str, token: str, ttl_seconds: int = 3000, *, client_id: int | str | None = None
 ) -> None:
-    """Store driver UTCMS bearer token in Redis with TTL (default 240s < 5m expiry)."""
+    """Store driver UTCMS bearer token in Redis with TTL (default 3000s ~ 50m expiry, or JWT exp)."""
     if not token or not str(token).strip():
         return
     r = await _get_redis()
     if r is None:
         return
+    token_str = str(token).strip()
+    effective_ttl = ttl_seconds
+    if effective_ttl <= 240:
+        effective_ttl = 3000
     try:
-        await r.set(_scoped_driver_key("token", client_id, national_code), str(token).strip(), ex=ttl_seconds)
+        import jwt
+
+        payload = jwt.decode(token_str, options={"verify_signature": False})
+        exp = payload.get("exp")
+        if exp:
+            now_ts = int(datetime.now(UTC).timestamp())
+            remaining = exp - now_ts
+            if remaining > 180:
+                effective_ttl = min(remaining - 60, 86400)
+    except Exception:
+        pass
+    try:
+        await r.set(_scoped_driver_key("token", client_id, national_code), token_str, ex=effective_ttl)
     except Exception as exc:
         logger.warning("cache_token_failed: %s", exc)
 
@@ -1738,7 +1754,11 @@ def _assume_utc_timestamp(value: Any, *, fallback: datetime) -> str:
         logger.warning("shipping_timestamp_parse_failed value=%r; using fallback", raw)
         return utc_shipping_timestamp(fallback)
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        parsed = parsed.replace(tzinfo=UTC)  # legacy persisted times were UTC
+        tehran_as_utc = parsed.replace(tzinfo=TEHRAN_TZ).astimezone(UTC)
+        if parsed.replace(tzinfo=UTC) > fallback and tehran_as_utc <= fallback + timedelta(minutes=5):
+            parsed = tehran_as_utc
+        else:
+            parsed = parsed.replace(tzinfo=UTC)  # legacy persisted times were UTC
     return utc_shipping_timestamp(parsed)
 
 
@@ -1942,6 +1962,8 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
         password=decrypt_driver_password(driver.utcms_password_encrypted),
         proxy_url=proxy_url,
         client_id=tenant_id,
+        force_reauth=force,
+        purpose="shipping_completion",
     )
     now = datetime.now(UTC)
     from app.automation.shipping_contract import utc_shipping_timestamp
@@ -1950,7 +1972,12 @@ async def _auto_complete_shipping_inner(job_id: str, force: bool = False) -> dic
     # it. A legacy envelope may carry a NAIVE created_at, which the strict wire
     # formatter refuses; assume UTC for it rather than hot-looping the sweep.
     origin_stamp = _assume_utc_timestamp(state.created_at, fallback=now)
-    evidence = [dict(point) for point in state.gps_list if point.get("Type") != 3]
+    evidence = []
+    for point in state.gps_list:
+        if point.get("Type") != 3:
+            p = dict(point)
+            p["Date"] = _assume_utc_timestamp(p.get("Date"), fallback=now)
+            evidence.append(p)
     if not evidence:
         evidence.append(
             {
@@ -2125,6 +2152,7 @@ async def record_shipping_rejection(
     elif code == 429:
         status, seconds = "rate_limited", min(1800, 600 * max(1, state.completion_attempts))
     else:
+
         status, seconds = "rejected", _completion_backoff_seconds(state.completion_attempts)
     if code not in RETRY_LATER_CODES and state.completion_attempts >= MAX_COMPLETION_ATTEMPTS:
         # A capped trip must stop looping: "unknown" is not swept, so it parks
@@ -2151,14 +2179,273 @@ async def record_shipping_rejection(
     return response
 
 
+START_CANDIDATE_STATUSES: tuple[str, ...] = (
+    "ready",
+    "unknown",
+    "starting",
+    "pending",
+    "rate_limited",
+    "waiting_other_trip",
+)
+
+
+async def get_due_start_shipping_jobs(now_dt: datetime | None = None) -> list[ShippingState]:
+    """Scan trips whose start of shipping is pending, unknown, or ready, and cooldown has expired."""
+    now = now_dt or datetime.now(UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    due: list[ShippingState] = []
+    seen: set[str] = set()
+
+    def consider(raw: Any) -> None:
+        try:
+            state = ShippingState.from_dict(raw)
+        except Exception:
+            return
+        if not state.job_id or state.job_id in seen:
+            return
+        seen.add(state.job_id)
+        if state.status not in START_CANDIDATE_STATUSES:
+            return
+        if not (state.doc_id or state.doc_no):
+            return
+        if not (state.origin_lat and state.origin_lng):
+            return
+        if state.backoff_until:
+            try:
+                deadline = datetime.fromisoformat(str(state.backoff_until).replace("Z", "+00:00"))
+                if deadline.tzinfo is None:
+                    deadline = deadline.replace(tzinfo=UTC)
+                if now < deadline:
+                    return
+            except (ValueError, TypeError):
+                pass
+        due.append(state)
+
+    redis = await _get_redis()
+    if redis is not None:
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = await redis.scan(cursor=cursor, match="utcms:shipping:job:*", count=100)
+                for key in keys:
+                    try:
+                        raw = await redis.get(key)
+                        if raw:
+                            consider(json.loads(raw))
+                    except Exception:
+                        pass
+                if int(cursor) == 0:
+                    break
+        except Exception:
+            logger.warning("shipping_start_due_redis_scan_failed", exc_info=True)
+
+    try:
+        from sqlalchemy import cast
+        from sqlalchemy.dialects.postgresql import JSONB
+        from sqlmodel import col, select
+
+        from app.core.database import async_session_factory
+        from app.models_multitenant import WaybillJob
+
+        async with async_session_factory() as session:
+            status_expr = cast(WaybillJob.result_json, JSONB)["_shipping_state"]["status"].astext
+            query = (
+                select(WaybillJob)
+                .where(
+                    WaybillJob.status == "success",
+                    status_expr.in_(START_CANDIDATE_STATUSES),
+                )
+                .order_by(col(WaybillJob.id).asc())
+                .limit(50)
+            )
+            jobs = (await session.exec(query)).all()
+            for job in jobs:
+                if job.job_id in seen:
+                    continue
+                try:
+                    stored = (job.result_json or {}).get("_shipping_state")
+                    if isinstance(stored, dict) and stored.get("job_id") == job.job_id:
+                        consider(stored)
+                except Exception:
+                    pass
+    except Exception:
+        logger.warning("shipping_start_due_db_scan_failed", exc_info=True)
+
+    due.sort(key=lambda s: s.created_at or "")
+    return due
+
+
+async def auto_start_shipping(job_id: str, force: bool = False) -> dict[str, Any]:
+    """Trigger or retry RegisterStartOfShipping for a pending/unknown/rate-limited trip."""
+    from app.automation.shipping_contract import shipping_acknowledged
+    from app.automation.worker_proxy import get_worker_proxy_url
+    from app.core.config import utcms_config
+
+    if not utcms_config.ALLOW_LIVE_SUBMIT:
+        return {"status": "skipped", "reason": "live_submit_disabled"}
+
+    state = await load_shipping_state(job_id)
+    if not state:
+        return {"status": "skipped", "reason": "no_shipping_state"}
+
+    if state.status in ("in_transit", "delivered", "finishing"):
+        return {"status": "already_started", "shipping_status": state.status}
+
+    now = datetime.now(UTC)
+    if not force and state.backoff_until:
+        try:
+            deadline = datetime.fromisoformat(state.backoff_until.replace("Z", "+00:00"))
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=UTC)
+            if now < deadline:
+                return {"status": "waiting_cooldown", "backoff_until": state.backoff_until}
+        except (ValueError, TypeError):
+            pass
+
+    target_doc_id = state.doc_id or state.doc_no
+    if not target_doc_id:
+        return {"status": "skipped", "reason": "missing_doc_id"}
+
+    if not state.origin_lat or not state.origin_lng:
+        return {"status": "skipped", "reason": "missing_origin_coordinates"}
+
+    from sqlmodel import select
+
+    from app.auth_multitenant import decrypt_driver_password
+    from app.core.database import async_session_factory
+    from app.models_multitenant import Driver, WaybillJob
+
+    async with async_session_factory() as session:
+        job = (await session.exec(select(WaybillJob).where(WaybillJob.job_id == job_id))).first()
+        if not job or not job.driver_id:
+            return {"status": "skipped", "reason": "job_or_driver_not_found"}
+        driver = await session.get(Driver, job.driver_id)
+        tenant_id = getattr(job, "client_id", None)
+        if not driver or getattr(driver, "client_id", None) != tenant_id:
+            return {"status": "needs_review", "reason": "driver_ownership_mismatch"}
+        if not driver.utcms_password_encrypted:
+            return {"status": "skipped", "reason": "driver_credentials_missing"}
+
+    start_iso = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    proxy_url = get_worker_proxy_url()
+    try:
+        client = await get_or_login_client(
+            national_code=driver.driver_national_code,
+            password=decrypt_driver_password(driver.utcms_password_encrypted),
+            proxy_url=proxy_url,
+            client_id=tenant_id,
+            force_reauth=force,
+            purpose="shipping_start",
+        )
+    except Exception as login_err:
+        state.last_error_message = f"login_failed: {str(login_err)[:150]}"
+        state.backoff_until = (now + timedelta(seconds=300)).isoformat()
+        await save_shipping_state(state)
+        return {"status": "login_failed", "error": str(login_err), "backoff_until": state.backoff_until}
+
+    try:
+        start_res = await client.register_start_of_shipping(
+            document_id=int(str(target_doc_id).strip()),
+            speed=0,
+            altitude=1000,
+            longitude=state.origin_lng,
+            latitude=state.origin_lat,
+            start_date=start_iso,
+            allow_live_submit=True,
+        )
+    except Exception as ship_err:
+        logger.warning("auto_start_shipping_call_failed job=%s err=%s", job_id, ship_err)
+        state.status = "unknown"
+        state.last_error_message = str(ship_err)[:200]
+        state.backoff_until = (now + timedelta(seconds=300)).isoformat()
+        await save_shipping_state(state)
+        return {"status": "unknown", "error": str(ship_err), "backoff_until": state.backoff_until}
+
+    acknowledged = isinstance(start_res, dict) and shipping_acknowledged(start_res, start=True)
+    if acknowledged:
+        state.status = "in_transit"
+        state.gps_list = [
+            {
+                "Latitude": state.origin_lat,
+                "Longitude": state.origin_lng,
+                "Type": 2,
+                "Date": start_iso,
+                "Speed": 0,
+                "Altitude": 1000,
+                "Provider": "operator_anchor",
+                "Provenance": "registered_start_of_shipping",
+            }
+        ]
+        state.last_error_code = None
+        state.last_error_message = ""
+        state.backoff_until = ""
+
+        # Check if UTCMS returned dateTimeForTimer in start_res
+        timer_str = None
+        if isinstance(start_res, dict):
+            obj = start_res.get("obj")
+            if isinstance(obj, dict):
+                timer_str = obj.get("dateTimeForTimer")
+            if not timer_str:
+                timer_str = start_res.get("dateTimeForTimer")
+
+        if timer_str:
+            try:
+                timer_dt = datetime.fromisoformat(str(timer_str).replace(" ", "T"))
+                if timer_dt.tzinfo is None:
+                    timer_dt = timer_dt.replace(tzinfo=TEHRAN_TZ)
+                state.estimated_end_at = timer_dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            except Exception:
+                pass
+
+        if not state.estimated_end_at or state.estimated_end_at < now.isoformat():
+            duration_minutes = max(
+                15.0,
+                (state.distance_km or 10.0) / AVERAGE_TRUCK_SPEED_KMH * 60.0,
+            )
+            state.estimated_end_at = (now + timedelta(minutes=duration_minutes)).isoformat()
+        await save_shipping_state(state)
+        logger.info("auto_start_shipping_acknowledged job=%s doc_id=%s", job_id, target_doc_id)
+        return {"status": "started", "result": start_res}
+    else:
+        code = start_res.get("resultCode") if isinstance(start_res, dict) else None
+        msg = str(start_res.get("resultMessage") or "") if isinstance(start_res, dict) else str(start_res)
+        state.last_error_code = code
+        state.last_error_message = msg[:200]
+        if code == 4008 or "بارنامه در حال حمل دیگری" in msg:
+            cooldown = 120
+            state.status = "waiting_other_trip"
+            state.backoff_until = (now + timedelta(seconds=cooldown)).isoformat()
+        elif code == 429 or "بیش از حد مجاز" in msg:
+            cooldown = 900
+            state.status = "rate_limited"
+            state.backoff_until = (now + timedelta(seconds=cooldown)).isoformat()
+        else:
+            cooldown = 300
+            state.status = "unknown"
+            state.backoff_until = (now + timedelta(seconds=cooldown)).isoformat()
+        await save_shipping_state(state)
+        logger.warning(
+            "auto_start_shipping_rejected job=%s code=%s msg=%s backoff_until=%s",
+            job_id,
+            code,
+            msg,
+            state.backoff_until,
+        )
+        return {"status": state.status, "result": start_res, "backoff_until": state.backoff_until}
+
+
 __all__ = [
     "DEFAULT_CITY_COORDS",
     "FENCE_STATUSES",
     "MAX_COMPLETION_ATTEMPTS",
+    "START_CANDIDATE_STATUSES",
     "GpsWaypoint",
     "ShippingState",
     "ShippingStatePersistenceError",
     "auto_complete_shipping",
+    "auto_start_shipping",
     "cache_refresh_token",
     "cache_token",
     "calculate_realistic_road_distance",
@@ -2168,6 +2455,7 @@ __all__ = [
     "get_cached_refresh_token",
     "get_cached_token",
     "get_due_in_transit_jobs",
+    "get_due_start_shipping_jobs",
     "get_or_login_client",
     "haversine_km",
     "init_shipping",

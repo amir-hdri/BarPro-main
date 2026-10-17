@@ -88,6 +88,27 @@
       ],
       "state": "closed",
       "updatedAt": "2026-10-16T18:19:14Z"
+    },
+    "104": {
+      "title": "Execute Start & End Shipping Lifecycle for 3 Manually Issued Waybills",
+      "bodyHash": "06312e63fb8c2cd3",
+      "labels": [],
+      "state": "closed",
+      "updatedAt": "2026-10-17T15:07:18Z"
+    },
+    "105": {
+      "title": "Implement External Waybill Adoption Worker in Celery Beat",
+      "bodyHash": "b17660741dec4752",
+      "labels": [],
+      "state": "closed",
+      "updatedAt": "2026-10-17T14:26:49Z"
+    },
+    "106": {
+      "title": "Harden Shipping Lifecycle: Timeout, 429 Retry, and Identical-Coordinate Detour",
+      "bodyHash": "4365abc0a63a68d3",
+      "labels": [],
+      "state": "closed",
+      "updatedAt": "2026-10-17T14:26:41Z"
     }
   },
   "phases": {

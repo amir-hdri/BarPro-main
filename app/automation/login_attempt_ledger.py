@@ -142,7 +142,14 @@ async def record_login_failure(identity: Any, kind: str = "auth") -> None:
             await redis.set(COOLDOWN_KEY.format(identity=ident), "1", ex=cooldown, nx=True)
             logger.warning(
                 "login_account_cooldown_activated",
-                extra={"extra_fields": {"identity": _mask_identity(ident), "kind": kind, "failures": count, "cooldown": cooldown}},
+                extra={
+                    "extra_fields": {
+                        "identity": _mask_identity(ident),
+                        "kind": kind,
+                        "failures": count,
+                        "cooldown": cooldown,
+                    }
+                },
             )
     except Exception as exc:
         logger.debug("login_ledger_record_unavailable: %s", exc)

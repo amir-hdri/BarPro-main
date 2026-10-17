@@ -2,7 +2,51 @@
 
 All notable changes to the UTCMS Automation System.
 
-## [2.9.18] - 2026-10-17 — Waybill Lifecycle Stability & Worker Resilience (Cairn Phases 1-4)
+## [2.9.19] - 2026-10-17 — External Waybill Adoption & Shipping Lifecycle Completion (Cairn Phase 6)
+
+### Phase 6: Manual Waybill Adoption & Shipping Lifecycle Completion
+- **Core Systemic Hardening & Session Vault Token Lifetime (`app/core/config.py`, `app/automation/utcms_mobile_client.py`, `app/services/route_authority.py`, `app/automation/gps_shipping_manager.py`)**:
+  - Increased `UTCMS_MOBILE_API_TIMEOUT_SECONDS` default from 20s to 45s in config and `.env.example` to prevent premature socket timeouts during high portal load.
+  - Implemented 200m micro-detour offset (`+0.0018` deg) in `route_authority.py` when origin and destination coordinates are near-identical (< 15m), ensuring valid polyline generation without dropping start of shipping.
+  - Discovered UTCMS Rule 4010: UTC timestamps ending in `.000Z` are rejected with Code 4010 («ساعت شروع حمل صحیح نیست»). Updated `register_start_of_shipping` to automatically convert input timestamps to Tehran local time format `%Y-%m-%dT%H:%M:%S`.
+  - Discovered Session Vault Token TTL Flaw: Fixed premature eviction of UTCMS tokens after 240s when UTCMS JWTs are valid for 1 hour (`exp: 1792252058`). Enhanced `cache_token` to automatically decode JWT `exp` claims and cache tokens for ~58 minutes (or 3000s fallback), preventing hourly login exhaustion (`LOGIN_MAX_HOURLY=6`) and eliminated unneeded login cycles.
+  - Documented that UTCMS `/Account/GetTokenByRefreshToken` returns HTTP 500 Internal Server Error on live portal; bearer token reuse within its JWT lifespan is the primary stable authentication transport.
+  - Fixed trace timestamp chronological ordering in `_assume_utc_timestamp` and `adoption_service.py` by localizing naive Tehran timestamps from UTCMS to `Asia/Tehran` before converting to UTC.
+- **External Waybill Adoption Service & Celery Beat (`app/orchestrator/adoption_service.py`, `app/workers/celery_app.py`, `app/workers/tasks.py`)**:
+  - Implemented `ExternalWaybillAdoptionService`: Periodically scans active driver accounts on UTCMS for manually/externally issued waybills via both `get_issued_documents` and `get_shipping_documents`.
+  - Look up exact registered document coordinates (`sourceLat`, `sourceLon`, `destLat`, `destLon`) via `/Document/GetDocumentByID`, preventing Code 4020 geographic boundary rejections.
+  - Ingested 40 external waybills into `waybill_jobs` database on production server, initialized `ShippingState` in Redis, and queued them for automated sequential shipping.
+  - Registered periodic Celery Beat task `barpro.waybill.adopt_external` (every 10 minutes) and `shipping.auto_start_due_trips` (every 2 minutes).
+- **Plate In-Transit Mutual Exclusion & Sequential Execution (Rule 4008)**:
+  - Discovered UTCMS Rule 4008: Vehicle plates are restricted to exactly one active waybill in transit at a time.
+  - Sequenced trips so subsequent trips are held in `waiting_other_trip` until the current trip reaches terminal `delivered` status on UTCMS.
+  - Waybill 1 (`1363223066` / `239321329`): Completed Start & End of Shipping (`shippingFinishDate: 2026-10-17T13:57:12`, Code 200 delivered).
+  - Waybill 4 (`1363597368` / `239692528`): Completed Start & End of Shipping (`shippingFinishDate: 2026-10-17T14:18:38`, Code 200 delivered).
+  - Waybill 2 (`1363273428` / `239371277`): Completed Start & End of Shipping (`shippingFinishDate: 2026-10-17T14:45:50`, Code 200 delivered).
+  - Waybill 3 (`1363532773` / `239628695`): Started on live UTCMS (`shippingStartDate: 2026-10-17T18:16:03.533`, Code 200 acknowledged). In transit with official portal timer expiring at `18:36:03`.
+- **Comprehensive Verification & OTP Lifecycle Integrity**:
+  - Audited full OTP intake, verification, stream routing, binding, and submission architecture.
+  - Verified 136/136 passing tests across all 6 OTP and Hub tracking test suites.
+  - Verified 32/32 passing tests across session vault, shipping auto-start, and shipping worker test suites.
+  - Frontend typecheck (`tsc --noEmit`) and linting (`eslint .`) passing with 0 errors.
+
+### Phase 5: Recurring Waybill Cycling & Intelligent Scheduling
+- **Recurring Waybill Cycling Engine (`app/services/batch_service.py`, `app/schemas/multiroute.py`)**:
+  - Implemented 3 multi-route operational modes: `standard` (manual distribution), `round_trip_cycling` (recurring round trips $A \to B \to A \to B\dots$), and `one_way_repeated` (repeated one-way deliveries with automated deadhead return interval).
+  - Smart Inversion (`invert_waybill_payload`): In return legs ($B \to A$), automatically swaps origin $\leftrightarrow$ destination (including coordinates and postal codes) and sender $\leftrightarrow$ receiver so the return sender's postal code aligns with the return origin postal code, preventing UTCMS address-postal discrepancy rejections.
+  - Added full 31-province adjacency matrix (`IRAN_ADJACENT_PROVINCES`) and pre-dispatch fleet scope validator (`validate_driver_fleet_scope`) preventing UTCMS codes 4028 (origin outside driver licensed city) and 4045 (destination outside licensed or adjacent province).
+- **Intelligent Road Distance, Speed & Safety Buffers (`app/core/distance.py`, `app/services/distance_service.py`)**:
+  - Added `calculate_cycling_times`: Computes real-world driving duration based on realistic truck speed models (intercity 60 km/h, urban 28 km/h) plus user-configurable safety/rest buffers (default 45 min).
+  - Road Snapping (`snap_coordinate_to_road`): Integrated Neshan Reverse Geocoding with resilient fallback to snap user coordinates to valid roadways, preventing map street-snapping errors.
+- **Fail-Safe Chain Halt & Scheduler Hardening (`app/orchestrator/scheduler_service.py`, `app/automation/gps_shipping_manager.py`)**:
+  - Enhanced `SchedulerService` to detect preceding sequence failures in multi-route batches; automatically halts/skips subsequent legs if a previous leg failed or entered `NEEDS_REVIEW`, protecting driver credentials from cascading portal suspensions.
+  - Hardened Code 429 rate-limiting backoff in `GpsShippingManager` with a mandatory 900s–1800s backoff window.
+- **Full-Stack UI/UX Experience (`apps/web/src/app/batches/page.tsx`, `apps/web/src/lib/types.ts`)**:
+  - Designed interactive scenario selector tabs for Standard, Round-Trip Cycling, and One-Way Repeated modes.
+  - Implemented Live Schedule Preview Timeline table displaying estimated departure offsets, road travel times, and rest buffers.
+  - Rendered explicit Fail-Safe Chain Halt alerts in the batch progress panel.
+- **Regression Verification (`tests/test_recurring_cycling_batches.py`)**:
+  - 12 comprehensive unit and regression tests passing 100% covering Smart Inversion symmetry, cycling schedule generation, fleet scope gates (4028/4045), road snapping fallback, and scheduler chain halt.
 
 ### Phase 4: Worker Resilience, Performance & Verification
 - **Fail-Fast Business Rejections & Per-Driver Toggle**: Enforced immediate terminal `needs_review` state on deterministic UTCMS rejection codes (4028 origin scope, 4025 empty fare, 4045 fleet license province), preventing token starvation and unnecessary retries. Deployed per-driver auto-submission toggle full-stack (migration 043, API schemas, and frontend switch).

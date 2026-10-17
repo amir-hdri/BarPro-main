@@ -9,6 +9,7 @@ them without modification. ``batch_id``/``route_template_id``/``sequence_index``
 
 from __future__ import annotations
 
+import copy
 import random
 import re
 import uuid
@@ -35,6 +36,64 @@ from app.models_multitenant import Driver, DriverPlate, TaskStatus, WaybillJob
 from app.schemas.multitenant import _normalize_plate
 
 REPEAT_MODES = {"round_robin", "random", "sequential"}
+BATCH_MODES = {"standard", "round_trip_cycling", "one_way_repeated"}
+
+IRAN_ADJACENT_PROVINCES: dict[str, set[str]] = {
+    "همدان": {"همدان", "مرکزی", "لرستان", "کرمانشاه", "کردستان", "زنجان", "قزوین"},
+    "مرکزی": {"مرکزی", "همدان", "لرستان", "اصفهان", "قم", "تهران", "البرز", "قزوین"},
+    "تهران": {"تهران", "البرز", "مازندران", "سمنان", "قم", "مرکزی"},
+    "البرز": {"البرز", "تهران", "مازندران", "قزوین", "مرکزی"},
+    "اصفهان": {
+        "اصفهان",
+        "تهران",
+        "قم",
+        "مرکزی",
+        "لرستان",
+        "چهارمحال و بختیاری",
+        "کهگیلویه و بویراحمد",
+        "فارس",
+        "یزد",
+        "سمنان",
+    },
+    "فارس": {"فارس", "اصفهان", "یزد", "کرمان", "هرمزگان", "بوشهر", "کهگیلویه و بویراحمد"},
+    "خراسان رضوی": {"خراسان رضوی", "خراسان شمالی", "خراسان جنوبی", "سمنان", "گلستان"},
+    "خراسان جنوبی": {"خراسان جنوبی", "خراسان رضوی", "یزد", "کرمان", "سیستان و بلوچستان", "سمنان"},
+    "خراسان شمالی": {"خراسان شمالی", "خراسان رضوی", "سمنان", "گلستان"},
+    "آذربایجان شرقی": {"آذربایجان شرقی", "آذربایجان غربی", "اردبیل", "زنجان"},
+    "آذربایجان غربی": {"آذربایجان غربی", "آذربایجان شرقی", "کردستان", "زنجان"},
+    "اردبیل": {"اردبیل", "آذربایجان شرقی", "گیلان", "زنجان"},
+    "گیلان": {"گیلان", "اردبیل", "زنجان", "قزوین", "مازندران"},
+    "مازندران": {"مازندران", "گیلان", "قزوین", "البرز", "تهران", "سمنان", "گلستان"},
+    "گلستان": {"گلستان", "مازندران", "سمنان", "خراسان شمالی", "خراسان رضوی"},
+    "سمنان": {
+        "سمنان",
+        "مازندران",
+        "گلستان",
+        "خراسان شمالی",
+        "خراسان رضوی",
+        "خراسان جنوبی",
+        "یزد",
+        "اصفهان",
+        "قم",
+        "تهران",
+    },
+    "قم": {"قم", "تهران", "مرکزی", "اصفهان", "سمنان"},
+    "قزوین": {"قزوین", "گیلان", "مازندران", "البرز", "مرکزی", "همدان", "زنجان"},
+    "زنجان": {"زنجان", "اردبیل", "آذربایجان شرقی", "آذربایجان غربی", "کردستان", "همدان", "قزوین", "گیلان"},
+    "کردستان": {"کردستان", "آذربایجان غربی", "زنجان", "همدان", "کرمانشاه"},
+    "کرمانشاه": {"کرمانشاه", "کردستان", "همدان", "لرستان", "ایلام"},
+    "لرستان": {"لرستان", "همدان", "مرکزی", "اصفهان", "چهارمحال و بختیاری", "خوزستان", "ایلام", "کرمانشاه"},
+    "ایلام": {"ایلام", "کرمانشاه", "لرستان", "خوزستان"},
+    "خوزستان": {"خوزستان", "ایلام", "لرستان", "چهارمحال و بختیاری", "کهگیلویه و بویراحمد", "بوشهر"},
+    "چهارمحال و بختیاری": {"چهارمحال و بختیاری", "اصفهان", "لرستان", "خوزستان", "کهگیلویه و بویراحمد"},
+    "کهگیلویه و بویراحمد": {"کهگیلویه و بویراحمد", "اصفهان", "چهارمحال و بختیاری", "خوزستان", "بوشهر", "فارس"},
+    "بوشهر": {"بوشهر", "خوزستان", "کهگیلویه و بویراحمد", "فارس", "هرمزگان"},
+    "هرمزگان": {"هرمزگان", "بوشهر", "فارس", "کرمان", "سیستان و بلوچستان"},
+    "کرمان": {"کرمان", "یزد", "فارس", "هرمزگان", "سیستان و بلوچستان", "خراسان جنوبی"},
+    "یزد": {"یزد", "اصفهان", "فارس", "کرمان", "خراسان جنوبی", "سمنان"},
+    "سیستان و بلوچستان": {"سیستان و بلوچستان", "خراسان جنوبی", "کرمان", "هرمزگان"},
+}
+
 
 _TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
@@ -249,6 +308,159 @@ def build_route_chain_schedule(
     return release_times
 
 
+def invert_waybill_payload(forward_payload: dict[str, Any]) -> dict[str, Any]:
+    """Invert a waybill payload for return leg (B -> A) with Smart Inversion.
+
+    Swaps origin <-> destination locations and sender <-> receiver parties, ensuring
+    party postal codes remain aligned with their respective cities.
+    """
+    inverted = copy.deepcopy(forward_payload)
+
+    # 1. Invert structured locations
+    orig = dict(inverted.get("origin") or {})
+    dest = dict(inverted.get("destination") or {})
+    inverted["origin"] = dest
+    inverted["destination"] = orig
+
+    # 2. Invert parties (Smart Role Swap)
+    sender = dict(inverted.get("sender") or {})
+    receiver = dict(inverted.get("receiver") or {})
+    inverted["sender"] = receiver
+    inverted["receiver"] = sender
+
+    # Synchronize party postal codes to origin/dest postal codes if present
+    if dest.get("postal_code") and not inverted["sender"].get("postal_code"):
+        inverted["sender"]["postal_code"] = dest["postal_code"]
+    if orig.get("postal_code") and not inverted["receiver"].get("postal_code"):
+        inverted["receiver"]["postal_code"] = orig["postal_code"]
+
+    # Invert flat location keys if present
+    for k_orig, k_dest in (
+        ("origin_province", "dest_province"),
+        ("origin_city", "dest_city"),
+        ("origin_address", "dest_address"),
+        ("origin_postal_code", "dest_postal_code"),
+        ("origin_lat", "dest_lat"),
+        ("origin_lng", "dest_lng"),
+    ):
+        if k_orig in inverted or k_dest in inverted:
+            v_orig = inverted.get(k_orig)
+            v_dest = inverted.get(k_dest)
+            inverted[k_orig] = v_dest
+            inverted[k_dest] = v_orig
+
+    # Invert flat party keys if present
+    for k_s, k_r in (
+        ("sender_national_code", "receiver_national_code"),
+        ("sender_name", "receiver_name"),
+        ("sender_phone", "receiver_phone"),
+        ("sender_postal_code", "receiver_postal_code"),
+    ):
+        if k_s in inverted or k_r in inverted:
+            v_s = inverted.get(k_s)
+            v_r = inverted.get(k_r)
+            inverted[k_s] = v_r
+            inverted[k_r] = v_s
+
+    inverted["is_return_trip"] = True
+    return inverted
+
+
+def get_driver_fleet_scope(driver: Driver) -> tuple[str | None, str | None]:
+    """Extract driver's licensed activity city and province from metadata or defaults."""
+    meta = driver.metadata_json or {}
+    defaults = driver.default_payload_json or {}
+
+    city = meta.get("activity_city") or meta.get("fleet_city") or meta.get("city")
+    if not city:
+        city = (defaults.get("origin") or {}).get("city") or defaults.get("origin_city")
+
+    province = meta.get("activity_province") or meta.get("fleet_province") or meta.get("province")
+    if not province:
+        province = (defaults.get("origin") or {}).get("province") or defaults.get("origin_province")
+
+    return (str(city).strip() if city else None, str(province).strip() if province else None)
+
+
+def validate_driver_fleet_scope(
+    driver: Driver,
+    origin_city: str | None,
+    dest_province: str | None,
+) -> None:
+    """Pre-dispatch gate to prevent UTCMS 4028 (city scope) and 4045 (province scope) rejections."""
+    licensed_city, licensed_province = get_driver_fleet_scope(driver)
+
+    # 1. Code 4028 gate: origin city must match driver's activity city if specified
+    if licensed_city and origin_city:
+        clean_orig = str(origin_city).strip()
+        clean_lic = str(licensed_city).strip()
+        if clean_orig != clean_lic and clean_orig not in clean_lic and clean_lic not in clean_orig:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"مبدأ بارنامه («{clean_orig}») با شهر پروانه فعالیت راننده («{clean_lic}») "
+                    "همخوانی ندارد. صدور سند حمل صرفاً در محدوده شهر/شهرستان پروانه امکان‌پذیر است (پیشگیری از خطای ۴۰۲۸ کشوری)."
+                ),
+            )
+
+    # 2. Code 4045 gate: destination province must be licensed province or adjacent
+    if licensed_province and dest_province:
+        clean_dest = str(dest_province).strip()
+        clean_prov = str(licensed_province).strip()
+        adjacents = IRAN_ADJACENT_PROVINCES.get(clean_prov, {clean_prov})
+        if clean_dest not in adjacents:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"مقصد انتخابی («{clean_dest}») در استان پروانه ناوگان («{clean_prov}») یا استان‌های همجوار آن نیست "
+                    "(پیشگیری از خطای ۴۰۴۵ کشوری)."
+                ),
+            )
+
+
+def build_cycling_schedule(
+    routes: list[WaybillRouteTemplate],
+    batch_mode: str,
+    cycles_count: int | None,
+    repeat_count: int | None,
+    buffer_minutes: int,
+    start_at: datetime,
+) -> tuple[int, list[datetime], list[bool]]:
+    """Compute total count, release times, and is_return flags for cycling schedules."""
+    buffer = max(10, int(buffer_minutes or 45))
+    release_times: list[datetime] = []
+    is_return_flags: list[bool] = []
+    cursor = start_at
+    route = routes[0]
+    duration = max(1.0, estimate_route_duration_minutes(route))
+
+    if batch_mode == "round_trip_cycling":
+        cycles = max(1, int(cycles_count or 1))
+        total_count = cycles * 2
+        step_delta = timedelta(minutes=duration + buffer)
+        for step in range(total_count):
+            release_times.append(cursor)
+            is_return = step % 2 == 1
+            is_return_flags.append(is_return)
+            cursor += step_delta
+
+    elif batch_mode == "one_way_repeated":
+        reps = max(1, int(repeat_count or 1))
+        total_count = reps
+        # Outbound trip + rest/unloading buffer + empty return trip + reload buffer
+        step_delta = timedelta(minutes=(duration * 2) + (buffer * 2))
+        for _ in range(total_count):
+            release_times.append(cursor)
+            is_return_flags.append(False)
+            cursor += step_delta
+
+    else:
+        total_count = len(routes)
+        return total_count, [start_at] * total_count, [False] * total_count
+
+    return total_count, release_times, is_return_flags
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -288,6 +500,10 @@ class BatchService:
         mode = payload.repeat_mode or "round_robin"
         if mode not in REPEAT_MODES:
             raise HTTPException(status_code=422, detail="repeat_mode نامعتبر است")
+
+        batch_mode = getattr(payload, "batch_mode", "standard") or "standard"
+        if batch_mode not in BATCH_MODES:
+            raise HTTPException(status_code=422, detail="batch_mode نامعتبر است")
 
         # Idempotency: a repeated request with the same key returns the existing batch.
         if idempotency_key:
@@ -361,8 +577,22 @@ class BatchService:
             route_errors = _validate_route_location(route)
             if route_errors:
                 raise HTTPException(status_code=422, detail=f"مسیر «{route.name}» ناقص است: " + "، ".join(route_errors))
+            # Validate fleet license scope against driver's registered activity scope
+            validate_driver_fleet_scope(driver, route.origin_city, route.dest_province)
 
-        if payload.route_chain and payload.target_count != len(routes):
+        is_route_chain = bool(payload.route_chain) or (batch_mode in {"round_trip_cycling", "one_way_repeated"})
+
+        if batch_mode in {"round_trip_cycling", "one_way_repeated"}:
+            metric_errors = [error for route in routes if (error := route_schedule_metric_error(route))]
+            if metric_errors:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "برای زمان‌بندی چرخه، فاصله یا زمان تخمینی مثبت برای مسیرها الزامی است: "
+                        + "، ".join(metric_errors)
+                    ),
+                )
+        elif is_route_chain and payload.target_count != len(routes):
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -370,8 +600,7 @@ class BatchService:
                     f"(مسیرها={len(routes)}، target_count={payload.target_count})"
                 ),
             )
-
-        if payload.route_chain:
+        elif is_route_chain:
             metric_errors = [error for route in routes if (error := route_schedule_metric_error(route))]
             if metric_errors:
                 raise HTTPException(
@@ -406,6 +635,44 @@ class BatchService:
                     detail=f"بارنامهٔ مسیر «{route.name}» ناقص است: " + "، ".join(payload_errors),
                 )
 
+            if batch_mode == "round_trip_cycling":
+                inverted_payload = invert_waybill_payload(route_payload)
+                enhanced_inverted = build_enhanced_waybill_payload(inverted_payload)
+                inv_base_errors = validate_live_waybill_payload(
+                    enhanced_inverted,
+                    expected_driver_national_code=driver.driver_national_code,
+                    expected_plate=plate.plate_number,
+                    expected_driver_mobile=driver.phone,
+                )
+                inv_errors = list(inv_base_errors)
+                for mobile_error in validate_mobile_source_payload(enhanced_inverted):
+                    if mobile_error not in inv_errors:
+                        inv_errors.append(mobile_error)
+                if inv_errors:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"بارنامهٔ برگشت مسیر «{route.name}» ناقص است: " + "، ".join(inv_errors),
+                    )
+
+        now = _utcnow()
+        if batch_mode in {"round_trip_cycling", "one_way_repeated"}:
+            total_target_count, release_times, is_return_flags = build_cycling_schedule(
+                routes,
+                batch_mode,
+                getattr(payload, "cycles_count", None),
+                getattr(payload, "repeat_count", None),
+                getattr(payload, "buffer_minutes", 45),
+                now,
+            )
+        else:
+            total_target_count = payload.target_count
+            release_times = (
+                build_route_chain_schedule(routes, payload.interval_minutes, now)
+                if is_route_chain
+                else [now + timedelta(minutes=step * payload.interval_minutes) for step in range(total_target_count)]
+            )
+            is_return_flags = [False] * total_target_count
+
         batch = WaybillBatch(
             client_id=client_id,
             idempotency_key=idempotency_key,
@@ -413,12 +680,21 @@ class BatchService:
             name=getattr(payload, "name", None),
             route_template_ids=[r.id for r in routes],
             base_payload_json=base_payload,
-            target_count=payload.target_count,
+            target_count=total_target_count,
             repeat_mode=mode,
-            route_chain=bool(payload.route_chain),
+            route_chain=is_route_chain,
             interval_minutes=payload.interval_minutes,
             status="active",
-            progress={"completed": 0, "failed": 0, "today": 0},
+            progress={
+                "completed": 0,
+                "failed": 0,
+                "today": 0,
+                "batch_mode": batch_mode,
+                "cycles_count": getattr(payload, "cycles_count", None),
+                "repeat_count": getattr(payload, "repeat_count", None),
+                "buffer_minutes": getattr(payload, "buffer_minutes", 45),
+                "smart_inversion": getattr(payload, "smart_inversion", True),
+            },
         )
         session.add(batch)
         try:
@@ -439,15 +715,24 @@ class BatchService:
                     return existing
             raise
 
-        now = _utcnow()
         priority = getattr(payload, "priority", 5)
-        chain_schedule = (
-            build_route_chain_schedule(routes, payload.interval_minutes, now) if payload.route_chain else None
-        )
         jobs: list[WaybillJob] = []
-        for step in range(payload.target_count):
-            route_index = step if payload.route_chain else select_route_index(step, len(routes), mode)
+        for step in range(total_target_count):
+            route_index = (
+                0
+                if batch_mode in {"round_trip_cycling", "one_way_repeated"}
+                else (step if is_route_chain else select_route_index(step, len(routes), mode))
+            )
             route = routes[route_index]
+            is_return = is_return_flags[step] if step < len(is_return_flags) else False
+
+            forward_job_payload = build_job_payload(route, base_payload)
+            job_payload = (
+                invert_waybill_payload(forward_job_payload)
+                if (is_return and getattr(payload, "smart_inversion", True))
+                else forward_job_payload
+            )
+
             jobs.append(
                 WaybillJob(
                     job_id=str(uuid.uuid4()),
@@ -455,21 +740,14 @@ class BatchService:
                     client_id=client_id,
                     driver_id=payload.driver_id,
                     status=TaskStatus.PENDING.value,
-                    payload_json=build_job_payload(route, base_payload),
+                    payload_json=job_payload,
                     priority=priority,
                     batch_id=batch.id,
                     route_template_id=route.id,
                     sequence_index=step,
                     distance_km=route.distance_km,
                     duration_min=route.duration_min,
-                    # In a route chain, release times are cumulative travel-time
-                    # estimates. The scheduler additionally requires the prior
-                    # leg to be reconciled SUCCESS before dispatching this job.
-                    submit_after=(
-                        chain_schedule[step]
-                        if chain_schedule is not None
-                        else now + timedelta(minutes=step * payload.interval_minutes)
-                    ),
+                    submit_after=release_times[step] if step < len(release_times) else now,
                 )
             )
         session.add_all(jobs)
@@ -542,6 +820,8 @@ class BatchService:
                     }:
                         blocked_by_sequence = previous.sequence_index
                 break
+
+        progress_data = batch.progress if isinstance(batch.progress, dict) else {}
         return {
             "batch_id": batch.id,
             "target": target,
@@ -551,6 +831,10 @@ class BatchService:
             "progress_percent": min(int(completed / target * 100), 100) if target else 0,
             "status": batch.status,
             "route_chain": route_chain,
+            "batch_mode": progress_data.get("batch_mode", "standard"),
+            "cycles_count": progress_data.get("cycles_count"),
+            "repeat_count": progress_data.get("repeat_count"),
+            "buffer_minutes": progress_data.get("buffer_minutes", 45),
             "next_sequence": next_sequence,
             "blocked_by_sequence": blocked_by_sequence,
         }

@@ -217,6 +217,14 @@ def _build_beat_schedule() -> dict:
                     "expires": 110,
                 },
             },
+            "shipping-auto-start-due": {
+                "task": "shipping.auto_start_due_trips",
+                "schedule": crontab(minute="*/2"),
+                "options": {
+                    "queue": utcms_config.CELERY_WAYBILL_TASKS_QUEUE,
+                    "expires": 110,
+                },
+            },
             "squid-recovery-probe": {
                 "task": "barpro.proxy.probe_squid_recovery",
                 "schedule": crontab(minute="*/5"),
@@ -231,6 +239,14 @@ def _build_beat_schedule() -> dict:
                 "options": {
                     "queue": utcms_config.RPA_SCHEDULER_QUEUE,
                     "expires": 10,
+                },
+            },
+            "waybill-adopt-external": {
+                "task": "barpro.waybill.adopt_external",
+                "schedule": crontab(minute="*/10"),
+                "options": {
+                    "queue": utcms_config.RPA_SCHEDULER_QUEUE,
+                    "expires": 540,
                 },
             },
         }

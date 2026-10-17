@@ -638,6 +638,11 @@ export interface BatchCreateRequest {
   base_payload_json: Record<string, unknown>;
   target_count?: number;
   repeat_mode?: 'round_robin' | 'random' | 'sequential';
+  batch_mode?: 'standard' | 'round_trip_cycling' | 'one_way_repeated';
+  cycles_count?: number;
+  repeat_count?: number;
+  buffer_minutes?: number;
+  smart_inversion?: boolean;
   route_chain?: boolean;
   interval_minutes?: number;
   priority?: number;
@@ -656,7 +661,16 @@ export interface WaybillBatch {
   route_chain?: boolean;
   interval_minutes: number;
   status: string;
-  progress: { completed: number; failed: number; today: number };
+  progress: {
+    completed: number;
+    failed: number;
+    today: number;
+    batch_mode?: string;
+    cycles_count?: number;
+    repeat_count?: number;
+    buffer_minutes?: number;
+    smart_inversion?: boolean;
+  };
   created_at: string;
   updated_at: string;
 }
@@ -670,6 +684,11 @@ export interface BatchProgressResponse {
   progress_percent: number;
   status: string;
   route_chain?: boolean;
+  batch_mode?: string;
+  cycles_count?: number | null;
+  repeat_count?: number | null;
+  buffer_minutes?: number;
   next_sequence?: number | null;
   blocked_by_sequence?: number | null;
 }
+

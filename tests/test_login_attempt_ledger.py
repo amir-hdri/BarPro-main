@@ -275,4 +275,3 @@ async def test_login_hourly_quota_exceeded(ledger_env, monkeypatch):
     allowed, reason = await check_login_allowed("5720047670", check_throttle=True)
     assert allowed is False
     assert reason is not None and "hourly login quota" in reason.lower()
-

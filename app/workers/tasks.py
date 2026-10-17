@@ -426,3 +426,10 @@ if celery_app is not None:
             return outcome
 
         return _run_async(_run())
+
+    @celery_app.task(name="barpro.waybill.adopt_external")
+    def adopt_external_waybills():
+        """Periodic task to scan active driver accounts on UTCMS and adopt externally issued waybills."""
+        from app.orchestrator.adoption_service import adoption_service
+
+        return _run_async(adoption_service.adopt_all_external_waybills())

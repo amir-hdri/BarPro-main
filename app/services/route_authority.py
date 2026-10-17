@@ -201,7 +201,16 @@ async def resolve_route(
     _validate_anchor(origin_lat, origin_lng)
     _validate_anchor(dest_lat, dest_lng)
 
-    neshan = await _fetch_neshan_route(origin_lat, origin_lng, dest_lat, dest_lng)
+    # Standard 200m micro-detour for identical or near-identical origin and destination (< 15 meters)
+    # Allows intra-facility / same-address shipments to form a valid road route polyline
+    # without triggering degenerate provider_geometry_invalid or requires_reselection.
+    eff_dest_lat = float(dest_lat)
+    eff_dest_lng = float(dest_lng)
+    if haversine_km(origin_lat, origin_lng, dest_lat, dest_lng) < 0.015:
+        eff_dest_lat = round(eff_dest_lat + 0.0018, 6)
+        eff_dest_lng = round(eff_dest_lng + 0.0018, 6)
+
+    neshan = await _fetch_neshan_route(origin_lat, origin_lng, eff_dest_lat, eff_dest_lng)
     geometry: RouteGeometry | None = None
     distance_km: float | None = None
     duration_min: float | None = None
@@ -209,9 +218,11 @@ async def resolve_route(
     fallback_reason = "provider_unavailable"
     snap_metadata: dict[str, Any] = {}
     if neshan:
-        geometry, distance_km, duration_min = _geometry_from_neshan(origin_lat, origin_lng, dest_lat, dest_lng, neshan)
+        geometry, distance_km, duration_min = _geometry_from_neshan(
+            origin_lat, origin_lng, eff_dest_lat, eff_dest_lng, neshan
+        )
         if geometry is not None:
-            start, end = GeoPoint(origin_lat, origin_lng), GeoPoint(dest_lat, dest_lng)
+            start, end = GeoPoint(origin_lat, origin_lng), GeoPoint(eff_dest_lat, eff_dest_lng)
             origin_gap = haversine_km(*start, *geometry.start)
             dest_gap = haversine_km(*end, *geometry.end)
             if max(origin_gap, dest_gap) > MAX_ROAD_SNAP_KM:
@@ -240,12 +251,12 @@ async def resolve_route(
             fallback_reason = "provider_geometry_invalid"
 
     if geometry is None:
-        geometry, distance_km, duration_min = _haversine_geometry(origin_lat, origin_lng, dest_lat, dest_lng)
+        geometry, distance_km, duration_min = _haversine_geometry(origin_lat, origin_lng, eff_dest_lat, eff_dest_lng)
         source = FALLBACK_SOURCE
         # Spherical interpolation can introduce floating-point endpoint drift.
         geometry.points[0] = GeoPoint(origin_lat, origin_lng)
-        if haversine_km(origin_lat, origin_lng, dest_lat, dest_lng) >= 1e-5:
-            geometry.points[-1] = GeoPoint(dest_lat, dest_lng)
+        if haversine_km(origin_lat, origin_lng, eff_dest_lat, eff_dest_lng) >= 1e-5:
+            geometry.points[-1] = GeoPoint(eff_dest_lat, eff_dest_lng)
 
     assert geometry is not None and distance_km is not None
     duration_s = round(float(duration_min or 0.0) * 60.0, 1)
@@ -272,7 +283,7 @@ async def resolve_route(
         "duration_s": duration_s,
         "segments": [s.to_dict() for s in geometry.segments],
         "provider_duration_s": round(float(geometry.provider_duration_s or duration_s), 1),
-        "anchor_hash": _anchor_hash(origin_lat, origin_lng, dest_lat, dest_lng),
+        "anchor_hash": _anchor_hash(origin_lat, origin_lng, eff_dest_lat, eff_dest_lng),
         "created_at": utc_now_iso(),
         "route_version": ROUTE_VERSION,
     }

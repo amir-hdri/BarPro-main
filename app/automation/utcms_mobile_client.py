@@ -719,9 +719,26 @@ class UtcmsMobileClient:
     ) -> dict[str, Any]:
         if not allow_live_submit:
             raise PermissionError("ALLOW_LIVE_SUBMIT must be explicitly enabled for mobile shipping mutation")
-        from app.automation.shipping_contract import shipping_number, utc_shipping_timestamp
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
 
-        start_date = utc_shipping_timestamp(start_date)
+        from app.automation.shipping_contract import shipping_number
+
+        # UTCMS expects Tehran local time formatted as %Y-%m-%dT%H:%M:%S for RegisterStartOfShipping.
+        # Strict UTC with .000Z causes resultCode 4010 («ساعت شروع حمل صحیح نیست»).
+        try:
+            if isinstance(start_date, str):
+                dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            else:
+                dt = start_date
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("Asia/Tehran"))
+            else:
+                dt = dt.astimezone(ZoneInfo("Asia/Tehran"))
+            formatted_start_date = dt.strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            formatted_start_date = str(start_date)
+
         latitude = shipping_number(latitude, -90, 90, "latitude")
         longitude = shipping_number(longitude, -180, 180, "longitude")
         speed = shipping_number(speed, 0, 400, "speed")
@@ -735,7 +752,7 @@ class UtcmsMobileClient:
                 "Altitude": altitude,
                 "Longitude": longitude,
                 "Latitude": latitude,
-                "StartDate": start_date,
+                "StartDate": formatted_start_date,
                 "havePermission": True,
             },
         )

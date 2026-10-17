@@ -2,9 +2,21 @@
 
 import { sessionQueryKey } from '@/lib/session-query';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CubeIcon, TruckIcon, PlayIcon, CheckCircleIcon, ExclamationCircleIcon, MapPinIcon } from '@heroicons/react/24/outline';
+
+import {
+  CubeIcon,
+  TruckIcon,
+  PlayIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
+  MapPinIcon,
+  ArrowPathIcon,
+  ArrowsRightLeftIcon,
+  ClockIcon,
+  ShieldCheckIcon,
+} from '@heroicons/react/24/outline';
 import { Route as RouteIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -17,6 +29,30 @@ import { normalizeDigits } from '@/lib/plate';
 import { isValidIranNationalCode } from '@/schemas/waybillSchema';
 import { useSession } from '@/hooks/useSession';
 import type { BatchProgressResponse, Driver, WaybillRouteTemplate } from '@/lib/types';
+
+function estimateRouteDurationMinutes(route: WaybillRouteTemplate): number {
+  const dur = Number(route.duration_min || 0);
+  if (dur > 0) return dur;
+  const dist = Number(route.distance_km || 0);
+  if (dist <= 0) return 60;
+  const isUrban = Boolean(route.origin_city && route.dest_city && route.origin_city.trim() === route.dest_city.trim());
+  const speed = isUrban ? 28.0 : 60.0;
+  return Math.max(1, Math.round((dist / speed) * 60));
+}
+
+function formatMinutes(min: number): string {
+  if (min <= 0) return '0 دقیقه';
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  if (h === 0) return `${m} دقیقه`;
+  if (m === 0) return `${h} ساعت`;
+  return `${h} ساعت و ${m} دقیقه`;
+}
+
+function formatOffset(min: number): string {
+  if (min === 0) return 'شروع اولیه (دقیقه 0)';
+  return `+${Math.round(min)} دقیقه (${formatMinutes(min)})`;
+}
 
 const REPEAT_MODES: Array<{ value: 'round_robin' | 'random' | 'sequential'; label: string }> = [
   { value: 'round_robin', label: 'چرخشی (Round-robin)' },
@@ -71,8 +107,14 @@ export default function BatchesPage() {
   const [selectedRoutes, setSelectedRoutes] = useState<number[]>([]);
   const [targetCount, setTargetCount] = useState(15);
   const [repeatMode, setRepeatMode] = useState<'round_robin' | 'random' | 'sequential'>('round_robin');
+  const [batchMode, setBatchMode] = useState<'standard' | 'round_trip_cycling' | 'one_way_repeated'>('standard');
+  const [cyclesCount, setCyclesCount] = useState<number>(5);
+  const [repeatCount, setRepeatCount] = useState<number>(5);
+  const [bufferMinutes, setBufferMinutes] = useState<number>(45);
+  const [smartInversion, setSmartInversion] = useState<boolean>(true);
   const [routeChain, setRouteChain] = useState(true);
   const [intervalMinutes, setIntervalMinutes] = useState(40);
+
   const [senderName, setSenderName] = useState('');
   const [senderPhone, setSenderPhone] = useState('');
   const [receiverName, setReceiverName] = useState('');
@@ -154,15 +196,157 @@ export default function BatchesPage() {
   const selectedDriver = drivers.find((d) => d.id === driverId) || null;
 
   useEffect(() => {
-    if (routeChain && selectedRoutes.length > 0) {
+    if (batchMode === 'standard' && routeChain && selectedRoutes.length > 0) {
       setTargetCount(selectedRoutes.length);
       setRepeatMode('sequential');
     }
-  }, [routeChain, selectedRoutes.length]);
+  }, [batchMode, routeChain, selectedRoutes.length]);
 
   function toggleRoute(id: number) {
     setSelectedRoutes((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
+
+  const selectedRouteTemplates = useMemo(() => {
+    return selectedRoutes
+      .map((id) => templates.find((t) => t.id === id))
+      .filter((t): t is WaybillRouteTemplate => Boolean(t));
+  }, [selectedRoutes, templates]);
+
+  interface ScheduleLeg {
+    index: number;
+    legType: 'forward' | 'return' | 'standard';
+    cycleLabel: string;
+    origin: string;
+    destination: string;
+    distanceKm: number;
+    durationMinutes: number;
+    depMinutesFromStart: number;
+    arrMinutesFromStart: number;
+    bufferMinutes: number;
+    smartInverted: boolean;
+  }
+
+  const schedulePreview = useMemo(() => {
+    if (selectedRouteTemplates.length === 0) return [];
+
+    const legs: ScheduleLeg[] = [];
+
+    if (batchMode === 'round_trip_cycling') {
+      const cycles = Math.max(1, cyclesCount || 1);
+      const buffer = Math.max(0, bufferMinutes || 0);
+      let currentMinutes = 0;
+      let legCounter = 1;
+
+      for (let c = 1; c <= cycles; c++) {
+        for (const route of selectedRouteTemplates) {
+          const dur = estimateRouteDurationMinutes(route);
+          const dist = Number(route.distance_km || 0);
+
+          // Forward leg
+          legs.push({
+            index: legCounter++,
+            legType: 'forward',
+            cycleLabel: `چرخه ${c} (رفت)`,
+            origin: `${route.origin_city || route.origin_province || 'مبدأ'}`,
+            destination: `${route.dest_city || route.dest_province || 'مقصد'}`,
+            distanceKm: dist,
+            durationMinutes: dur,
+            depMinutesFromStart: currentMinutes,
+            arrMinutesFromStart: currentMinutes + dur,
+            bufferMinutes: buffer,
+            smartInverted: false,
+          });
+          currentMinutes += dur + buffer;
+
+          // Return leg
+          legs.push({
+            index: legCounter++,
+            legType: 'return',
+            cycleLabel: `چرخه ${c} (برگشت)`,
+            origin: `${route.dest_city || route.dest_province || 'مقصد'}`,
+            destination: `${route.origin_city || route.origin_province || 'مبدأ'}`,
+            distanceKm: dist,
+            durationMinutes: dur,
+            depMinutesFromStart: currentMinutes,
+            arrMinutesFromStart: currentMinutes + dur,
+            bufferMinutes: buffer,
+            smartInverted: smartInversion,
+          });
+          currentMinutes += dur + buffer;
+        }
+      }
+    } else if (batchMode === 'one_way_repeated') {
+      const repeats = Math.max(1, repeatCount || 1);
+      const buffer = Math.max(0, bufferMinutes || 0);
+      let currentMinutes = 0;
+      let legCounter = 1;
+
+      for (let r = 1; r <= repeats; r++) {
+        for (const route of selectedRouteTemplates) {
+          const dur = estimateRouteDurationMinutes(route);
+          const dist = Number(route.distance_km || 0);
+
+          legs.push({
+            index: legCounter++,
+            legType: 'forward',
+            cycleLabel: `تکرار ${r}`,
+            origin: `${route.origin_city || route.origin_province || 'مبدأ'}`,
+            destination: `${route.dest_city || route.dest_province || 'مقصد'}`,
+            distanceKm: dist,
+            durationMinutes: dur,
+            depMinutesFromStart: currentMinutes,
+            arrMinutesFromStart: currentMinutes + dur,
+            bufferMinutes: buffer,
+            smartInverted: false,
+          });
+          // Spacing: forward dur + buffer + empty return dur + buffer
+          currentMinutes += dur * 2 + buffer * 2;
+        }
+      }
+    } else {
+      const count = Math.max(1, targetCount || 1);
+      const isChain = routeChain;
+      let currentMinutes = 0;
+
+      for (let i = 0; i < count; i++) {
+        const route = selectedRouteTemplates[i % selectedRouteTemplates.length];
+        const dur = estimateRouteDurationMinutes(route);
+        const dist = Number(route.distance_km || 0);
+
+        legs.push({
+          index: i + 1,
+          legType: 'standard',
+          cycleLabel: `بارنامه ${i + 1}`,
+          origin: `${route.origin_city || route.origin_province || 'مبدأ'}`,
+          destination: `${route.dest_city || route.dest_province || 'مقصد'}`,
+          distanceKm: dist,
+          durationMinutes: dur,
+          depMinutesFromStart: currentMinutes,
+          arrMinutesFromStart: currentMinutes + dur,
+          bufferMinutes: intervalMinutes,
+          smartInverted: false,
+        });
+
+        if (isChain) {
+          currentMinutes += dur + intervalMinutes;
+        } else {
+          currentMinutes += intervalMinutes;
+        }
+      }
+    }
+
+    return legs;
+  }, [
+    selectedRouteTemplates,
+    batchMode,
+    cyclesCount,
+    repeatCount,
+    bufferMinutes,
+    smartInversion,
+    targetCount,
+    routeChain,
+    intervalMinutes,
+  ]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -179,17 +363,25 @@ export default function BatchesPage() {
       toast.error('حداقل یک مسیر را انتخاب کنید');
       return;
     }
-    if (routeChain && targetCount !== selectedRoutes.length) {
+    if (batchMode === 'round_trip_cycling' && (cyclesCount < 1 || cyclesCount > 100)) {
+      toast.error('تعداد دور کامل (چرخه) باید عددی بین 1 تا 100 باشد');
+      return;
+    }
+    if (batchMode === 'one_way_repeated' && (repeatCount < 1 || repeatCount > 100)) {
+      toast.error('تعداد دفعات تکرار مسیر رفت باید عددی بین 1 تا 100 باشد');
+      return;
+    }
+    if (batchMode === 'standard' && routeChain && targetCount !== selectedRoutes.length) {
       toast.error('در حالت زنجیره‌ای، تعداد بارنامه باید برابر تعداد مسیرها باشد');
       return;
     }
-    if (routeChain) {
+    if (batchMode !== 'standard' || routeChain) {
       const routesWithoutTiming = selectedRoutes
         .map((id) => templates.find((route) => route.id === id))
         .filter((route): route is WaybillRouteTemplate => Boolean(route))
         .filter((route) => !(Number(route.duration_min || 0) > 0 || Number(route.distance_km || 0) > 0));
       if (routesWithoutTiming.length > 0) {
-        toast.error('برای هر مسیر زنجیره‌ای فاصله یا زمان تخمینی معتبر لازم است');
+        toast.error('برای هر مسیر در حالت زمان‌بندی هوشمند، فاصله یا زمان تخمینی معتبر لازم است');
         return;
       }
     }
@@ -303,17 +495,30 @@ export default function BatchesPage() {
     // network timeout + resubmit does not create a duplicate batch. Cleared on success.
     const idemKey = pendingKeyRef.current || generateIdempotencyKey();
     pendingKeyRef.current = idemKey;
+
+    const calculatedTargetCount =
+      batchMode === 'round_trip_cycling'
+        ? (cyclesCount || 1) * 2 * selectedRoutes.length
+        : batchMode === 'one_way_repeated'
+          ? (repeatCount || 1) * selectedRoutes.length
+          : targetCount;
+
     const res = await createBatch(
       {
         driver_id: selectedDriver.id,
         name: batchName.trim() || undefined,
         route_template_ids: selectedRoutes,
         base_payload_json: basePayload,
-        target_count: targetCount,
+        target_count: calculatedTargetCount,
         repeat_mode: repeatMode,
-        route_chain: routeChain,
+        route_chain: batchMode !== 'standard' ? true : routeChain,
         interval_minutes: intervalMinutes,
         priority: 5,
+        batch_mode: batchMode,
+        cycles_count: batchMode === 'round_trip_cycling' ? cyclesCount : undefined,
+        repeat_count: batchMode === 'one_way_repeated' ? repeatCount : undefined,
+        buffer_minutes: bufferMinutes,
+        smart_inversion: smartInversion,
       },
       idemKey
     );
@@ -550,61 +755,302 @@ export default function BatchesPage() {
               </div>
             </div>
 
-            {/* batch options */}
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-300">تعداد بارنامه</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={1000}
-                  className="field"
-                  value={targetCount}
-                  onChange={(e) => setTargetCount(Number(e.target.value) || 1)}
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-300">الگوی توزیع مسیر</label>
-                <select
-                  className="field disabled:cursor-not-allowed disabled:opacity-60"
-                  value={repeatMode}
-                  disabled={routeChain}
-                  onChange={(e) => setRepeatMode(e.target.value as typeof repeatMode)}
+            {/* scenario strategy selector */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-300">
+                استراتژی و سناریوی ثبت بارنامه *
+              </label>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchMode('standard');
+                  }}
+                  className={`flex flex-col items-start rounded-2xl border p-4 text-right transition ${
+                    batchMode === 'standard'
+                      ? 'border-cyan-500 bg-cyan-500/10 shadow-lg shadow-cyan-500/10'
+                      : 'border-white/10 bg-white/5 hover:border-white/20'
+                  }`}
                 >
-                  {REPEAT_MODES.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-slate-300">فاصلهٔ زمانی (دقیقه)</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={1440}
-                  className="field"
-                  value={intervalMinutes}
-                  onChange={(e) => setIntervalMinutes(Number(e.target.value) || 0)}
-                />
+                  <div className="flex w-full items-center justify-between">
+                    <span className="text-xs font-black text-white">استاندارد دستی</span>
+                    <RouteIcon className={`h-4 w-4 ${batchMode === 'standard' ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                    توزیع دلخواه بارنامه‌ها طبق الگوی انتخابی با فاصله زمانی ثابت یا زنجیره‌ای.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchMode('round_trip_cycling');
+                    setRouteChain(true);
+                  }}
+                  className={`flex flex-col items-start rounded-2xl border p-4 text-right transition ${
+                    batchMode === 'round_trip_cycling'
+                      ? 'border-cyan-500 bg-cyan-500/10 shadow-lg shadow-cyan-500/10'
+                      : 'border-white/10 bg-white/5 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <span className="text-xs font-black text-white">رفت و برگشت متوالی (چرخه‌ای)</span>
+                    <ArrowsRightLeftIcon className={`h-4 w-4 ${batchMode === 'round_trip_cycling' ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                    چرخه‌های رفت و برگشت با وارون‌سازی خودکار فرستنده/گیرنده و بافر استراحت.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBatchMode('one_way_repeated');
+                    setRouteChain(true);
+                  }}
+                  className={`flex flex-col items-start rounded-2xl border p-4 text-right transition ${
+                    batchMode === 'one_way_repeated'
+                      ? 'border-cyan-500 bg-cyan-500/10 shadow-lg shadow-cyan-500/10'
+                      : 'border-white/10 bg-white/5 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <span className="text-xs font-black text-white">فقط رفت (با بازگشت خالی)</span>
+                    <ArrowPathIcon className={`h-4 w-4 ${batchMode === 'one_way_repeated' ? 'text-cyan-400' : 'text-slate-500'}`} />
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                    تکرار ارسال‌های رفت با احتساب خودکار مدت‌زمان بازگشت ناوگان بدون بار به مبدأ.
+                  </p>
+                </button>
               </div>
             </div>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
-              <input
-                type="checkbox"
-                checked={routeChain}
-                onChange={(e) => setRouteChain(e.target.checked)}
-                className="mt-0.5 h-4 w-4 accent-cyan-500"
-              />
-              <span>
-                <span className="block text-xs font-black text-cyan-200">زنجیرهٔ مسیر برای همین راننده</span>
-                <span className="mt-1 block text-[11px] text-slate-400">
-                  بارنامه‌ها هم‌زمان ارسال نمی‌شوند؛ هر leg بعد از موفقیت و زمان تقریبی leg قبل آزاد می‌شود و گیت ساعات مجاز UTCMS نیز اعمال می‌گردد.
-                </span>
-              </span>
-            </label>
+            {/* scenario specific options */}
+            {batchMode === 'standard' ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-300">تعداد بارنامه</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={1000}
+                      className="field"
+                      value={targetCount}
+                      onChange={(e) => setTargetCount(Number(e.target.value) || 1)}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-300">الگوی توزیع مسیر</label>
+                    <select
+                      className="field disabled:cursor-not-allowed disabled:opacity-60"
+                      value={repeatMode}
+                      disabled={routeChain}
+                      onChange={(e) => setRepeatMode(e.target.value as typeof repeatMode)}
+                    >
+                      {REPEAT_MODES.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-300">فاصلهٔ زمانی (دقیقه)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1440}
+                      className="field"
+                      value={intervalMinutes}
+                      onChange={(e) => setIntervalMinutes(Number(e.target.value) || 0)}
+                    />
+                  </div>
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
+                  <input
+                    type="checkbox"
+                    checked={routeChain}
+                    onChange={(e) => setRouteChain(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-cyan-500"
+                  />
+                  <span>
+                    <span className="block text-xs font-black text-cyan-200">زنجیرهٔ مسیر برای همین راننده</span>
+                    <span className="mt-1 block text-[11px] text-slate-400">
+                      بارنامه‌ها هم‌زمان ارسال نمی‌شوند؛ هر leg بعد از موفقیت و زمان تقریبی leg قبل آزاد می‌شود و گیت ساعات مجاز UTCMS نیز اعمال می‌گردد.
+                    </span>
+                  </span>
+                </label>
+              </>
+            ) : batchMode === 'round_trip_cycling' ? (
+              <div className="space-y-4 rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                      تعداد دور کامل (چرخه رفت و برگشت) *
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      className="field"
+                      value={cyclesCount}
+                      onChange={(e) => setCyclesCount(Math.max(1, Number(e.target.value) || 1))}
+                    />
+                    <p className="mt-1 text-[11px] text-cyan-300">
+                      مجموع بارنامه‌ها: {cyclesCount * 2 * (selectedRoutes.length || 1)} فقره ({cyclesCount} رفت + {cyclesCount} برگشت)
+                    </p>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                      زمان بافر و استراحت راننده بین سفرها (دقیقه) *
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1440}
+                      className="field"
+                      value={bufferMinutes}
+                      onChange={(e) => setBufferMinutes(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      شامل زمان استراحت طبق آیین‌نامه، تخلیه بار و بارگیری مجدد در مبدأ/مقصد.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                  <input
+                    type="checkbox"
+                    checked={smartInversion}
+                    onChange={(e) => setSmartInversion(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-cyan-500"
+                  />
+                  <span>
+                    <span className="block text-xs font-black text-slate-200">
+                      وارون‌سازی هوشمند فرستنده و گیرنده (Smart Inversion)
+                    </span>
+                    <span className="mt-1 block text-[11px] text-slate-400">
+                      در مسیر برگشت، موقعیت جغرافیایی و طرفین قرارداد جابجا می‌شوند تا کدپستی فرستنده برگشت با کدپستی مبدأ برگشت همخوانی دقیق داشته باشد و از خطای سامانه‌ای جلوگیری شود.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <div className="space-y-4 rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                      تعداد دفعات تکرار مسیر رفت *
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      className="field"
+                      value={repeatCount}
+                      onChange={(e) => setRepeatCount(Math.max(1, Number(e.target.value) || 1))}
+                    />
+                    <p className="mt-1 text-[11px] text-cyan-300">
+                      مجموع بارنامه‌های صادره: {repeatCount * (selectedRoutes.length || 1)} فقره
+                    </p>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold text-slate-300">
+                      بافر استراحت و تخلیه در هر سفر (دقیقه) *
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1440}
+                      className="field"
+                      value={bufferMinutes}
+                      onChange={(e) => setBufferMinutes(Math.max(0, Number(e.target.value) || 0))}
+                    />
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      سیستم به طور خودکار مدت‌زمان بازگشت خالی ناوگان در جاده به اضافه ۲ بافر استراحت را قبل از صدور بارنامه بعدی لحاظ می‌کند.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* schedule preview timeline */}
+            {schedulePreview.length > 0 && (
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-950/80 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ClockIcon className="h-4 w-4 text-cyan-400" />
+                    <span className="text-xs font-black text-white">
+                      پیش‌نمایش جدول زمان‌بندی هوشمند ({schedulePreview.length} مرحله)
+                    </span>
+                  </div>
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400 border border-emerald-500/20">
+                    <ShieldCheckIcon className="h-3.5 w-3.5" />
+                    محافظت توقف زنجیره (Fail-Safe Chain Halt) فعال است
+                  </span>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-white/5">
+                  <table className="w-full text-right text-xs">
+                    <thead className="sticky top-0 bg-slate-900 text-slate-400">
+                      <tr className="border-b border-white/10">
+                        <th className="py-2.5 px-3 font-bold">مرحله</th>
+                        <th className="py-2.5 px-3 font-bold">نوع سفر</th>
+                        <th className="py-2.5 px-3 font-bold">مسیر (مبدأ → مقصد)</th>
+                        <th className="py-2.5 px-3 font-bold">مسافت و مدت</th>
+                        <th className="py-2.5 px-3 font-bold">زمان شروع تخمینی</th>
+                        <th className="py-2.5 px-3 font-bold">زمان رسیدن</th>
+                        <th className="py-2.5 px-3 font-bold">بافر استراحت</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-300">
+                      {schedulePreview.map((leg) => (
+                        <tr
+                          key={leg.index}
+                          className={`hover:bg-white/5 transition ${
+                            leg.legType === 'return' ? 'bg-indigo-950/20' : ''
+                          }`}
+                        >
+                          <td className="py-2.5 px-3 font-bold text-white">{leg.index}</td>
+                          <td className="py-2.5 px-3">
+                            {leg.legType === 'forward' ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-cyan-500/10 px-2 py-0.5 text-[11px] font-bold text-cyan-300 border border-cyan-500/20">
+                                رفت
+                              </span>
+                            ) : leg.legType === 'return' ? (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-indigo-500/10 px-2 py-0.5 text-[11px] font-bold text-indigo-300 border border-indigo-500/20">
+                                برگشت {leg.smartInverted ? '(وارون هوشمند)' : ''}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-md bg-slate-500/10 px-2 py-0.5 text-[11px] font-bold text-slate-300 border border-slate-500/20">
+                                استاندارد
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 font-medium">
+                            {leg.origin} → {leg.destination}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400">
+                            {leg.distanceKm > 0 ? `${leg.distanceKm} کیلومتر` : '—'} ({formatMinutes(leg.durationMinutes)})
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-cyan-300">
+                            {formatOffset(leg.depMinutesFromStart)}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400">
+                            +{Math.round(leg.arrMinutesFromStart)} دقیقه
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400">
+                            {formatMinutes(leg.bufferMinutes)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"
@@ -667,13 +1113,29 @@ export default function BatchesPage() {
                   </div>
                 </div>
               )}
-              {progress?.route_chain && progress.next_sequence != null && (
-                <p className="mt-4 text-xs text-slate-400">
-                  leg بعدی: {toPersianDigits(progress.next_sequence + 1)}
-                  {progress.blocked_by_sequence != null
-                    ? `؛ منتظر رسیدگی به leg ${toPersianDigits(progress.blocked_by_sequence + 1)} است`
-                    : '؛ پس از پایان leg قبلی و زمان تخمینی آزاد می‌شود'}
-                </p>
+              {progress?.route_chain && (
+                <div className="mt-4 rounded-xl border border-white/5 bg-white/5 p-3 text-xs">
+                  {progress.blocked_by_sequence != null ? (
+                    <div className="flex items-start gap-2 text-rose-300">
+                      <ExclamationCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+                      <div>
+                        <span className="font-bold">توقف ایمن زنجیره (Fail-Safe Chain Halt):</span>
+                        <p className="mt-0.5 text-[11px] text-slate-300">
+                          عملیات ارسال در leg شماره {progress.blocked_by_sequence + 1} با خطا مواجه شد. جهت محافظت از سهمیه و جلوگیری از مسدودسازی راننده در پورتال کشوری، اجرای بارنامه‌های بعدی متوقف شده و نیاز به بررسی دستی دارد.
+                        </p>
+                      </div>
+                    </div>
+                  ) : progress.next_sequence != null ? (
+                    <div className="flex items-center gap-2 text-cyan-300">
+                      <ClockIcon className="h-4 w-4 shrink-0 text-cyan-400" />
+                      <span>
+                        آماده‌سازی leg بعدی: شماره {progress.next_sequence + 1} (پس از اتمام موفقیت‌آمیز leg قبل و سپری شدن زمان بافر استراحت آزاد خواهد شد)
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-slate-400">تمام مراحل زنجیره با موفقیت آزاد و پردازش شده‌اند.</p>
+                  )}
+                </div>
               )}
             </div>
           )}

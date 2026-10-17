@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 
 from app.core.database import async_session_factory
+from app.models.waybill_batch import WaybillBatch
 from app.models_multitenant import Client, ClientStatus, Driver, DriverStatus, TaskStatus, WaybillJob
 from app.models_rpa import DispatchIntent, DriverRuntimeState
 from app.orchestrator.state_machine import JobStateMachine
@@ -200,6 +201,52 @@ class SchedulerService:
                         )
                         skipped += 1
                         continue
+
+                    # Batch chain & cycling order guard (Fail-Safe Chain Halt)
+                    if job.batch_id is not None and (job.sequence_index or 0) > 0:
+                        batch = await session.get(WaybillBatch, job.batch_id)
+                        if batch is not None and batch.route_chain:
+                            prev_job_stmt = select(WaybillJob).where(
+                                WaybillJob.batch_id == job.batch_id,
+                                WaybillJob.sequence_index == (job.sequence_index or 0) - 1,
+                            )
+                            prev_job = (await session.exec(prev_job_stmt)).first()
+                            if prev_job is not None:
+                                if prev_job.status in {
+                                    TaskStatus.FAILED.value,
+                                    TaskStatus.NEEDS_REVIEW.value,
+                                    TaskStatus.DEAD_LETTER.value,
+                                    TaskStatus.CANCELLED.value,
+                                }:
+                                    logger.warning(
+                                        "batch_chain_halted_due_to_previous_job_failure",
+                                        extra={
+                                            "extra_fields": {
+                                                "job_id": job.job_id,
+                                                "batch_id": job.batch_id,
+                                                "sequence_index": job.sequence_index,
+                                                "prev_job_id": prev_job.job_id,
+                                                "prev_status": prev_job.status,
+                                            }
+                                        },
+                                    )
+                                    skipped += 1
+                                    continue
+                                if prev_job.status != TaskStatus.SUCCESS.value:
+                                    logger.debug(
+                                        "batch_chain_waiting_for_previous_job_success",
+                                        extra={
+                                            "extra_fields": {
+                                                "job_id": job.job_id,
+                                                "batch_id": job.batch_id,
+                                                "sequence_index": job.sequence_index,
+                                                "prev_job_id": prev_job.job_id,
+                                                "prev_status": prev_job.status,
+                                            }
+                                        },
+                                    )
+                                    skipped += 1
+                                    continue
 
                     # Tenant concurrency quota: in-flight jobs per tenant.
                     if job.client_id not in in_flight_counts:

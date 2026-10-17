@@ -1,11 +1,16 @@
-"""Celery worker for auto-completing due in-transit shipping trips."""
+"""Celery worker for auto-completing due in-transit shipping trips and auto-starting pending trips."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any, cast
 
-from app.automation.gps_shipping_manager import auto_complete_shipping, get_due_in_transit_jobs
+from app.automation.gps_shipping_manager import (
+    auto_complete_shipping,
+    auto_start_shipping,
+    get_due_in_transit_jobs,
+    get_due_start_shipping_jobs,
+)
 from app.core.utils import run_async
 from app.workers.celery_app import celery_app
 
@@ -131,6 +136,78 @@ def _execute_auto_complete_task(task_instance: Any = None) -> dict[str, Any]:
         raise
 
 
+async def _auto_start_due_trips() -> dict[str, Any]:
+    """Scan trips whose start of shipping is pending/unknown and retry them."""
+    due_jobs = await get_due_start_shipping_jobs()
+    scanned_count = len(due_jobs)
+    started: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    logger.info(
+        "shipping_due_start_scan_started",
+        extra={"extra_fields": {"due_count": scanned_count}},
+    )
+
+    for state in due_jobs:
+        job_id = state.job_id
+        doc_no = getattr(state, "doc_no", "")
+        doc_id = getattr(state, "doc_id", "")
+
+        try:
+            res = await auto_start_shipping(job_id)
+            res_status = res.get("status") if isinstance(res, dict) else str(res)
+            if res_status == "started":
+                started.append({"job_id": job_id, "doc_no": doc_no, "doc_id": doc_id, "result": res})
+                logger.info(
+                    "shipping_due_start_completed",
+                    extra={"extra_fields": {"job_id": job_id, "doc_no": doc_no, "doc_id": doc_id, "result": res}},
+                )
+            else:
+                skipped.append({"job_id": job_id, "doc_no": doc_no, "status": res_status, "result": res})
+                logger.info(
+                    "shipping_due_start_skipped",
+                    extra={"extra_fields": {"job_id": job_id, "doc_no": doc_no, "result_status": res_status}},
+                )
+        except Exception as exc:
+            failed.append({"job_id": job_id, "doc_no": doc_no, "error": str(exc)})
+            logger.error(
+                "shipping_due_start_failed",
+                extra={"extra_fields": {"job_id": job_id, "doc_no": doc_no, "error": str(exc)}},
+                exc_info=True,
+            )
+
+    summary = {
+        "scanned_count": scanned_count,
+        "started_count": len(started),
+        "skipped_count": len(skipped),
+        "failed_count": len(failed),
+        "started": started,
+        "skipped": skipped,
+        "failed": failed,
+    }
+
+    logger.info("shipping_due_start_scan_completed", extra={"extra_fields": summary})
+    return summary
+
+
+def _execute_auto_start_task(task_instance: Any = None) -> dict[str, Any]:
+    try:
+        return cast(dict[str, Any], run_async(_auto_start_due_trips()))
+    except Exception as exc:
+        logger.error(
+            "shipping_auto_start_due_trips_fatal_error",
+            extra={"extra_fields": {"error": str(exc)}},
+            exc_info=True,
+        )
+        if task_instance is not None and hasattr(task_instance, "retry"):
+            retries = getattr(getattr(task_instance, "request", None), "retries", 0)
+            max_retries = getattr(task_instance, "max_retries", 2)
+            if retries < max_retries:
+                raise task_instance.retry(exc=exc) from exc
+        raise
+
+
 if celery_app is not None:
 
     @celery_app.task(
@@ -143,11 +220,25 @@ if celery_app is not None:
         """Auto-complete due in-transit shipping trips on schedule."""
         return _execute_auto_complete_task(self)
 
+    @celery_app.task(
+        name="shipping.auto_start_due_trips",
+        bind=True,
+        max_retries=2,
+        default_retry_delay=30,
+    )
+    def auto_start_due_trips(self: Any = None, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Auto-start pending/retryable shipping trips on schedule."""
+        return _execute_auto_start_task(self)
+
 else:
 
     def auto_complete_due_trips(self: Any = None, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Fallback definition when Celery is not initialized."""
         return _execute_auto_complete_task(self)
 
+    def auto_start_due_trips(self: Any = None, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Fallback definition when Celery is not initialized."""
+        return _execute_auto_start_task(self)
 
-__all__ = ["auto_complete_due_trips"]
+
+__all__ = ["auto_complete_due_trips", "auto_start_due_trips"]

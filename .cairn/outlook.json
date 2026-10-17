@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "ts": "2026-10-17T09:25:10.634Z",
+  "ts": "2026-10-17T15:07:19.535Z",
   "name": "BarPro-main",
   "path": "/Users/amirheidari/GitHub/BarPro-main",
-  "head": "11e5ceaebf30b328a6481d312fc80a62682e2ccd",
+  "head": "15ca95a8f11a791dc071325d83baa0c47efa1877",
   "phases": [
     {
       "number": 1,
@@ -32,6 +32,20 @@
       "planned": true,
       "verified": true,
       "issueCount": 3
+    },
+    {
+      "number": 5,
+      "name": "recurring waybill cycling and intelligent scheduling",
+      "planned": true,
+      "verified": false,
+      "issueCount": 0
+    },
+    {
+      "number": 6,
+      "name": "manual waybill adoption and shipping lifecycle completion",
+      "planned": true,
+      "verified": false,
+      "issueCount": 3
     }
   ],
   "sessions": {
@@ -44,7 +58,7 @@
     "open": 0,
     "inProgress": 0,
     "blocked": 0,
-    "nextVerb": "ship",
+    "nextVerb": "none",
     "asOf": "2026-10-17"
   }
 }

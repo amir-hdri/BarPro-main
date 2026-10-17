@@ -136,7 +136,9 @@ async def test_create_job_rejects_busy_in_transit_driver(async_db: AsyncSession,
 
 
 @pytest.mark.asyncio
-async def test_create_job_rejects_driver_with_issued_waybill_still_in_transit(async_db: AsyncSession, setup_client_and_driver):
+async def test_create_job_rejects_driver_with_issued_waybill_still_in_transit(
+    async_db: AsyncSession, setup_client_and_driver
+):
     client, driver, plate = setup_client_and_driver
 
     # Existing waybill that was successfully issued, has document_id and tracking_code, but NOT completed

@@ -36,3 +36,50 @@ def estimate_time(distance_km: float, is_urban: bool = False) -> float:
     if distance_km <= 0 or speed <= 0:
         return 0.0
     return (distance_km / speed * 60.0) + BUFFER_MINUTES
+
+
+DEFAULT_TRUCK_INTERCITY_SPEED_KMH = 60.0
+DEFAULT_TRUCK_URBAN_SPEED_KMH = 28.0
+DEFAULT_CYCLING_BUFFER_MINUTES = 45.0
+
+
+def calculate_cycling_times(
+    distance_km: float,
+    buffer_minutes: float = DEFAULT_CYCLING_BUFFER_MINUTES,
+    is_urban: bool = False,
+    truck_speed_kmh: float | None = None,
+) -> dict[str, float]:
+    """Calculate driving duration and safe buffers for multi-route cycling and deadhead return.
+
+    Parameters:
+        distance_km: One-way road distance in kilometers.
+        buffer_minutes: Safety/rest/unloading buffer in minutes between consecutive waybills.
+        is_urban: If True, uses urban truck speed profile; otherwise intercity.
+        truck_speed_kmh: Optional custom truck speed override.
+
+    Returns:
+        Dictionary with:
+          - distance_km
+          - driving_minutes (one-way transit time)
+          - buffer_minutes (rest/unloading buffer)
+          - leg_total_minutes (one-way driving + buffer)
+          - deadhead_return_minutes (unloaded return driving time)
+          - cycle_total_minutes (driving + buffer + deadhead_return + buffer)
+    """
+    speed = truck_speed_kmh or (DEFAULT_TRUCK_URBAN_SPEED_KMH if is_urban else DEFAULT_TRUCK_INTERCITY_SPEED_KMH)
+    buffer = max(0.0, float(buffer_minutes))
+    dist = max(0.0, float(distance_km))
+
+    driving_min = (dist / speed * 60.0) if speed > 0 and dist > 0 else 0.0
+    leg_total = driving_min + buffer
+    deadhead_return = driving_min  # same physical distance for empty return
+    cycle_total = driving_min + buffer + deadhead_return + buffer
+
+    return {
+        "distance_km": round(dist, 2),
+        "driving_minutes": round(driving_min, 1),
+        "buffer_minutes": round(buffer, 1),
+        "leg_total_minutes": round(leg_total, 1),
+        "deadhead_return_minutes": round(deadhead_return, 1),
+        "cycle_total_minutes": round(cycle_total, 1),
+    }

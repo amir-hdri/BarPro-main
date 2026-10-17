@@ -104,3 +104,41 @@ async def get_route_distance(origin_lat: float, origin_lng: float, dest_lat: flo
         except Exception as exc:  # noqa: BLE001
             logger.debug("Route cache write failed: %s", exc)
     return result
+
+
+async def snap_coordinate_to_road(lat: float, lng: float) -> dict[str, Any]:
+    """Snap a coordinate to the nearest roadway via Neshan Reverse Geocoding.
+
+    Returns a dict with 'lat', 'lng', 'snapped' (bool), 'address', and 'source'.
+    Degrades safely to the original coordinate if Neshan is unconfigured or unreachable.
+    """
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+        return {"lat": lat, "lng": lng, "snapped": False, "source": "invalid_range"}
+
+    api_key = (utcms_config.NESHAN_API_KEY or "").strip()
+    if not api_key:
+        return {"lat": lat, "lng": lng, "snapped": False, "source": "unconfigured"}
+
+    try:
+        async with httpx.AsyncClient(timeout=utcms_config.NESHAN_TIMEOUT_SECONDS, trust_env=False) as client:
+            resp = await client.get(
+                "https://api.neshan.org/v5/reverse",
+                params={"lat": lat, "lng": lng},
+                headers={"Api-Key": api_key},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                address = data.get("formatted_address") or ""
+                route_name = data.get("route_name") or ""
+                return {
+                    "lat": lat,
+                    "lng": lng,
+                    "snapped": bool(route_name or address),
+                    "address": address,
+                    "street": route_name,
+                    "source": "neshan_reverse",
+                }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Neshan snap_coordinate_to_road failed: %s", exc)
+
+    return {"lat": lat, "lng": lng, "snapped": False, "source": "fallback"}

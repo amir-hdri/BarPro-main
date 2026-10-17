@@ -310,14 +310,12 @@ async def receive_sms_forwarder_webhook(request: Request, path_driver_phone: str
                         for n in (json_data.get("hub_numbers") or utcms_config.HUB_NUMBERS)
                         if normalize_phone_for_otp_key(n)
                     ]
-                    if configured_hubs:
-                        is_hub = norm_phone in configured_hubs
-                    else:
-                        is_hub = (
-                            request.headers.get("x-app-role", "").upper() == "HUB"
-                            or str(json_data.get("app_role", "")).upper() == "HUB"
-                            or str(json_data.get("role", "")).upper() == "HUB"
-                        )
+                    is_hub = (
+                        request.headers.get("x-app-role", "").upper() == "HUB"
+                        or str(json_data.get("app_role", "")).upper() == "HUB"
+                        or str(json_data.get("role", "")).upper() == "HUB"
+                        or (bool(configured_hubs) and norm_phone in configured_hubs)
+                    )
                     if is_hub:
                         hub_state = {
                             "app_role": "HUB",

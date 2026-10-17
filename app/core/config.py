@@ -178,7 +178,7 @@ class UTCMSConfig:
             "UTCMS_MOBILE_API_BASE_URL",
             "https://mobservices-barname.utcms.ir/baarnameh_sd/API",
         ).strip()
-        self.UTCMS_MOBILE_API_TIMEOUT_SECONDS = float(os.getenv("UTCMS_MOBILE_API_TIMEOUT_SECONDS", "20"))
+        self.UTCMS_MOBILE_API_TIMEOUT_SECONDS = float(os.getenv("UTCMS_MOBILE_API_TIMEOUT_SECONDS", "45"))
         self.UTCMS_MOBILE_TLS_VERIFY = _to_bool(os.getenv("UTCMS_MOBILE_TLS_VERIFY"), default=True)
         if (os.getenv("ENVIRONMENT") or "").lower() == "production" and not self.UTCMS_MOBILE_TLS_VERIFY:
             raise ValueError("UTCMS_MOBILE_TLS_VERIFY=false is forbidden in production")
