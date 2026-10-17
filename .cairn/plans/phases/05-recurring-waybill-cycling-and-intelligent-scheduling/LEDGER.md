@@ -1,0 +1,8 @@
+# Phase 5: recurring waybill cycling and intelligent scheduling — Ledger
+
+<!-- append-only; one line per verified task; server appends, never rewrites -->
+
+- [x] 107 — Implement multi-route cycling engine with Smart Payload Inversion and 31-province fleet scope validation — commits c4475fa..c4475fa — evidence ./.venv/bin/pytest tests/test_recurring_cycling_batches.py -k "test_invert_waybill_payload or test_validate_driver_fleet_scope or test_build_cycling_schedule" => 6 passed in 0.09s — actuals wall=1m:observed_claim claimed=none est=none worklog=not_requested — 107 closed 2026-10-17
+- [x] 108 — Implement intelligent road distance, realistic speed profiles, rest buffers, and road snapping — commits c4475fa..c4475fa — evidence ./.venv/bin/pytest tests/test_recurring_cycling_batches.py -k "test_calculate_cycling_times or test_snap_coordinate_to_road" => 5 passed in 0.07s — actuals wall=1m:observed_claim claimed=none est=none worklog=not_requested — 108 closed 2026-10-17
+- [x] 109 — Implement fail-safe chain halt on prior leg failure and Code 429 rate limit backoff — commits c4475fa..c4475fa — evidence ./.venv/bin/pytest tests/test_recurring_cycling_batches.py -k "test_scheduler_fail_safe_chain_halt" => 1 passed in 0.05s — actuals wall=0m:observed_claim claimed=none est=none worklog=not_requested — 109 closed 2026-10-17
+- [x] 110 — Build multi-route timeline UI and verify end-to-end cycling test suite and frontend typecheck — commits c4475fa..c4475fa — evidence ./.venv/bin/pytest tests/test_recurring_cycling_batches.py && cd apps/web && npx tsc --noEmit => 12 passed in 0.10s; tsc 0 errors — actuals wall=1m:observed_claim claimed=none est=none worklog=not_requested — 110 closed 2026-10-17

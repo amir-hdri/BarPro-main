@@ -116,8 +116,9 @@
       "labels": [
         "cairn:feature"
       ],
-      "state": "open",
-      "updatedAt": "2026-10-17T16:14:34Z"
+      "assignee": "amir-hdri",
+      "state": "closed",
+      "updatedAt": "2026-10-17T16:27:12Z"
     },
     "108": {
       "title": "Intelligent Road Distance, Speed Models & Highway Snapping Buffers",
@@ -125,8 +126,9 @@
       "labels": [
         "cairn:feature"
       ],
-      "state": "open",
-      "updatedAt": "2026-10-17T16:14:40Z"
+      "assignee": "amir-hdri",
+      "state": "closed",
+      "updatedAt": "2026-10-17T16:28:09Z"
     },
     "109": {
       "title": "Fail-Safe Chain Halt & Multi-Route Scheduler Resilience",
@@ -134,8 +136,9 @@
       "labels": [
         "cairn:feature"
       ],
-      "state": "open",
-      "updatedAt": "2026-10-17T16:14:46Z"
+      "assignee": "amir-hdri",
+      "state": "closed",
+      "updatedAt": "2026-10-17T16:28:59Z"
     },
     "110": {
       "title": "Multi-Route Scenario Timeline UI & Cycling Regression Test Suite",
@@ -143,8 +146,9 @@
       "labels": [
         "cairn:feature"
       ],
-      "state": "open",
-      "updatedAt": "2026-10-17T16:14:52Z"
+      "assignee": "amir-hdri",
+      "state": "closed",
+      "updatedAt": "2026-10-17T16:30:03Z"
     }
   },
   "phases": {
