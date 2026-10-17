@@ -109,6 +109,42 @@
       "labels": [],
       "state": "closed",
       "updatedAt": "2026-10-17T14:26:41Z"
+    },
+    "107": {
+      "title": "Recurring Waybill Cycling Engine: Multi-Route Modes & Smart Payload Inversion",
+      "bodyHash": "ff25e2c690d33226",
+      "labels": [
+        "cairn:feature"
+      ],
+      "state": "open",
+      "updatedAt": "2026-10-17T16:14:34Z"
+    },
+    "108": {
+      "title": "Intelligent Road Distance, Speed Models & Highway Snapping Buffers",
+      "bodyHash": "720f49a9ac0c7767",
+      "labels": [
+        "cairn:feature"
+      ],
+      "state": "open",
+      "updatedAt": "2026-10-17T16:14:40Z"
+    },
+    "109": {
+      "title": "Fail-Safe Chain Halt & Multi-Route Scheduler Resilience",
+      "bodyHash": "4213e80649844d1e",
+      "labels": [
+        "cairn:feature"
+      ],
+      "state": "open",
+      "updatedAt": "2026-10-17T16:14:46Z"
+    },
+    "110": {
+      "title": "Multi-Route Scenario Timeline UI & Cycling Regression Test Suite",
+      "bodyHash": "bbc54165bfa233c6",
+      "labels": [
+        "cairn:feature"
+      ],
+      "state": "open",
+      "updatedAt": "2026-10-17T16:14:52Z"
     }
   },
   "phases": {
