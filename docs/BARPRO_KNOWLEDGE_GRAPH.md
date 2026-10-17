@@ -1567,15 +1567,15 @@ EXTERNAL-OBSERVATION و خطوط قرمز:
 
 مجموعه ۲۰ اسکیل اولیه و پراکنده به ۷ مهارت تخصصی و متمرکز در `.agents/skills/` تجمیع گردید:
 
-| مهارت | اسکریپت CLI | حوزه‌های تحت پوشش و ادغام‌شده | وضعیت |
-|---|---|---|---|
-| `barpro-deploy-ops` | `deploy_cli.py` | زیرساخت، فایروال UFW، پروکسی Squid، کامپایل Standalone فرانت‌اند، ایمنی گیت سرور | CODE-VERIFIED |
-| `barpro-rpa-ops` | `rpa_cli.py` | برتری Mobile API Transport، اثبات دو-شاهد، چرخه GPS اندروید Redroid، عدم مسمومیت تاریخ جلالی، مدل‌های CNN/CRNN | CODE-VERIFIED |
-| `barpro-fullstack-sync` | `fullstack_cli.py` | همگام‌سازی Zod v3 با Pydantic v2، کوکی httpOnly، تایپوگرافی RTL، ایمنی AbortController، سلسله‌مراتب فالبک نام راننده | CODE-VERIFIED |
-| `barpro-database-ops` | `db_cli.py` | قفل نشست PostgreSQL (کد `0x42415250524F`)، پایداری AOF/RDB ردیس، راستی‌آزمایی pg_dump، بازیابی بحران | CODE-VERIFIED |
-| `barpro-celery-ops` | `celery_cli.py` | پایش صف‌ها، ناظر Celery Beat، ایزولاسیون دیتابیس 0 ردیس، حد حافظه ورکرها | CODE-VERIFIED |
-| `barpro-monitoring-alerting` | `monitor_cli.py` | پشته پرومتئوس و آلرت‌منجر، اکسترودرهای داخلی، آزمون بار Locust با هدف 500 بارنامه در ساعت | CODE-VERIFIED |
-| `barpro-tenant-onboard` | `tenant_cli.py` | چرخه چندمستاجری، رمزنگاری AES رمز عبور راننده، وب‌هوک فورواردر پیامک، اعمال سهمیه‌ها | CODE-VERIFIED |
+| مهارت | مسیر دایرکتوری | اسکریپت CLI | حوزه‌های تحت پوشش و ادغام‌شده | وضعیت راستی‌آزمایی |
+|---:|---:|---:|---:|---:|
+| `barpro-deploy-ops` | `.agents/skills/barpro-deploy-ops/` | `deploy_cli.py` | زیرساخت، فایروال UFW، پروکسی Squid، کامپایل Standalone فرانت‌اند، ایمنی گیت سرور | `CODE-VERIFIED` |
+| `barpro-rpa-ops` | `.agents/skills/barpro-rpa-ops/` | `rpa_cli.py` | برتری Mobile API Transport، اثبات دو-شاهد، چرخه GPS اندروید Redroid، عدم مسمومیت تاریخ جلالی، مدل‌های CNN/CRNN | `CODE-VERIFIED` |
+| `barpro-fullstack-sync` | `.agents/skills/barpro-fullstack-sync/` | `fullstack_cli.py` | همگام‌سازی Zod v3 با Pydantic v2، کوکی httpOnly، تایپوگرافی RTL، ایمنی AbortController، سلسله‌مراتب فالبک نام راننده | `CODE-VERIFIED` |
+| `barpro-database-ops` | `.agents/skills/database-ops/` | `db_cli.py` | قفل نشست PostgreSQL (کد `0x42415250524F`)، پایداری AOF/RDB ردیس، راستی‌آزمایی pg_dump، بازیابی بحران | `CODE-VERIFIED` |
+| `barpro-celery-ops` | `.agents/skills/celery-ops/` | `celery_cli.py` | پایش صف‌ها، ناظر Celery Beat، ایزولاسیون دیتابیس 0 ردیس، حد حافظه ورکرها | `CODE-VERIFIED` |
+| `barpro-monitoring-alerting` | `.agents/skills/monitoring-alerting/` | `monitor_cli.py` | پشته پرومتئوس و آلرت‌منجر، اکسترودرهای داخلی، آزمون بار Locust با هدف 500 بارنامه در ساعت | `CODE-VERIFIED` |
+| `barpro-tenant-onboard` | `.agents/skills/tenant-onboard/` | `tenant_cli.py` | چرخه چندمستاجری، رمزنگاری AES رمز عبور راننده، وب‌هوک فورواردر پیامک، اعمال سهمیه‌ها | `CODE-VERIFIED` |
 
 ---
 

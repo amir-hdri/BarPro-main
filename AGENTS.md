@@ -117,7 +117,7 @@ implements it.
   - web research, scraping, monitoring → Firecrawl / Tavily / Exa
   - UI or web-app verification → Playwright / Chrome DevTools / Lighthouse MCPs
   - office documents (docx/xlsx/pdf/pptx) → document skills/MCPs
-  - this repo's own knowledge → query `docs/BARPRO_KNOWLEDGE_GRAPH.md` first (canonical, dated snapshots + evidence labels), then `docs/INDEX.md`, `CRITICAL_RULES.md`, `docs/UTCMS_CONSTRAINTS.md`, and the 7 consolidated domain skills in `.agents/skills/` (`barpro-deploy-ops`, `barpro-rpa-ops`, `barpro-fullstack-sync`, `barpro-database-ops`, `celery-ops`, `monitoring-alerting`, `tenant-onboard`)
+  - this repo's own knowledge → query `docs/BARPRO_KNOWLEDGE_GRAPH.md` first (canonical, dated snapshots + evidence labels), then `docs/INDEX.md`, `CRITICAL_RULES.md`, `docs/UTCMS_CONSTRAINTS.md`, and the 7 consolidated domain skills in `.agents/skills/` (`barpro-deploy-ops`, `barpro-rpa-ops`, `barpro-fullstack-sync`, `database-ops` [barpro-database-ops], `celery-ops` [barpro-celery-ops], `monitoring-alerting` [barpro-monitoring-alerting], `tenant-onboard` [barpro-tenant-onboard])
 - Building a hand-rolled solution while a matching tool exists is a violation. If nothing fits, proceed and state that in the report.
 
 ### 4. Network reality (BarPro-scoped): UTCMS requires an Iranian egress IP

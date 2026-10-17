@@ -1,66 +1,45 @@
 <!--schema:2.0.0-->
 <!--agent:Antigravity-->
-<!--timestamp:2026-10-17T22:50:00+03:30-->
+<!--timestamp:2026-10-17T23:08:00+03:30-->
 <!--cairn-phase:skills-consolidation-->
 
 # 🎯 هدف جاری
-تجمیع و به‌روزرسانی جامع و مدرن مهارت‌های تخصصی ایجنت (Domain Skills) در مخزن BarPro: تبدیل ۲۰ اسکیل پراکنده به ۷ مهارت مرجع و بومی پروژه، بازتاب آخرین قراردادهای عملیاتی و معماری هدف (Mobile API transport، اثبات دو-شاهد، عدم مسمومیت زمانی جلالی، ساخت کانتینری Standalone نکست، و ایزولاسیون محلی).
+تجمیع و به‌روزرسانی جامع و مدرن مهارت‌های تخصصی ایجنت (Domain Skills) در مخزن BarPro: تبدیل 20 اسکیل پراکنده به 7 مهارت مرجع و بومی پروژه، رفع اشکالات فنی و مرزهای کدهای CLI، و انطباق با آخرین قراردادهای معماری هدف (Mobile API transport، اثبات دو-شاهد، عدم مسمومیت زمانی جلالی، ساخت کانتینری Standalone نکست، و ایزولاسیون محلی).
 
 ## ✅ کارهای انجام‌شده
-- **تسک ۱: تجمیع زیرساخت، استقرار و امنیت در `barpro-deploy-ops`:**
-  - ادغام ابزارهای فایروال UFW، پروکسی‌های Squid پورت 3128 با اعتبارسنجی خروجی IP ایران، ساخت داکر Multi-stage، و پروتکل همگام‌سازی امن گیت.
-  - حذف دایرکتوری‌های مازاد `barpro-server-setup`، `security-firewall`، `proxy-ops`، `ssl-https`، و `docker-build`.
-- **تسک ۲: تجمیع اتوماسیون، چرخه حیات شیپینگ و کپچا در `barpro-rpa-ops`:**
-  - تثبیت برتری ترنسپورت Mobile API (`UtcmsMobileClient`) و اعلام بازنشستگی صریح ثبت فرم مرورگر.
-  - درج گیت اثبات دو-شاهد (Two-Witness Proof) و چرخه شیپینگ سروری Redroid اندروید مجازی (بدون گوشی فیزیکی).
-  - تثبیت قواعد تقویم جلالی (فیلتر امروز، پنجره ۲ ساعته عبور از نیمه‌شب، و صفر مسمومیت زمانی) و مدل‌های CNN/CRNN کپچا.
-  - توسعه `rpa_cli.py` با دستورات `check-captcha-models`، `verify-two-witness`، `check-adoption-date`، `check-fuel-ocr`، و `audit-browser`.
-  - حذف دایرکتوری‌های مازاد `barpro-waybill-submission-safety`، `browser-lifecycle`، `captcha-retrain`، و `barpro-fuel-inquiry`.
-- **تسک ۳: تجمیع فول‌استک و گارد UI/UX در `barpro-fullstack-sync`:**
-  - انطباق کامل اسکیماهای Zod v3 با Pydantic v2، احراز هویت کوکی httpOnly (`AUTH_COOKIE_SECURE=false`)، تایپوگرافی RTL استاندارد ایرانیان‌سنس با ارقام انگلیسی در کد و ارقام فارسی در نمایش، ابورت‌کنترلر unmount-safe، و سلسله‌مراتب فالبک نام راننده.
-  - توسعه `fullstack_cli.py` با دستورات `check-zod-imports`، `check-auth-cookies`، `check-typography`، و `audit-ui`.
-  - حذف دایرکتوری مازاد `barpro-ui-ux-guard`.
-- **تسک ۴: تجمیع پایگاه‌داده و بازیابی بحران در `database-ops` (`barpro-database-ops`):**
-  - تنظیمات اختصاصی PostgreSQL 16، قفل نشست مشورتی مایگریشن‌ها (`MIGRATION_ADVISORY_LOCK_ID = 0x42415250524F`)، پایداری دوگانه ردیس (AOF + RDB)، اسکریپت‌های پشتیبان‌گیری pg_dump، و ترمیم توالی‌ها.
-  - توسعه `db_cli.py` با دستورات `check-advisory-lock`، `check-redis-persistence`، و `verify-backup`.
-  - حذف دایرکتوری مازاد `disaster-recovery`.
-- **تسک ۵: تجمیع رصدپذیری، هشدارها و آزمون بار در `monitoring-alerting` (`barpro-monitoring-alerting`):**
-  - پشته پرومتئوس ۲.۵۳، آلرت‌منجر، داشبوردهای گرافانا، اکسترودرهای داخلی چهارگانه، و آزمون بار ۵۰۰ بارنامه در ساعت Locust.
-  - توسعه `monitor_cli.py` با دستورات `check-exporters` و `run-load-baseline`.
-  - حذف دایرکتوری مازاد `load-testing`.
-- **تسک ۶: بازسازی چرخه مستاجران و بایگانی نقشه راه ارتقا:**
-  - به‌روزرسانی `tenant-onboard` با تمرکز بر مرزهای کلاینت، رمزنگاری AES رمزهای راننده (`decrypt_driver_password`)، پیوند وب‌هوک فورواردر، و سهمیه‌های روزانه.
-  - بایگانی فایل تاریخی `barpro-master-upgrade/SKILL.md` به مسیر `docs/agent-reference/historical-master-upgrade.md` و حذف دایرکتوری آن.
-- **تسک ۷: به‌روزرسانی مستندات مرجع و اعتبارسنجی جامع:**
-  - به‌روزرسانی بخش ۳ در `AGENTS.md` برای استناد به ۷ مهارت تخصصی تجمیع‌شده.
-  - ثبت بخش ۲۲.۱ در گراف دانشی پروژه `docs/BARPRO_KNOWLEDGE_GRAPH.md`.
-  - اعتبارسنجی ۱۰۰٪ موفق دستورات `--help` و لینوکس/پایتون در تمام ۷ اسکریپت CLI.
-  - اجرای کامل `uvx ruff check .agents/skills/` با نتیجه سبز (`All checks passed!`).
+- **بازبینی مرحله 2 و رفع نقص‌های اسکریپت‌های CLI مهارت‌ها:**
+  - **اصلاح باگ حیاتی Virtualenv در `deploy_cli.py`:** رفع خطای سه‌گانه `os.path.dirname` روی `PROJECT_ROOT` که مانع از اجرای دستور `check-versions` با کتابخانه `paramiko` می‌شد.
+  - **به‌روزرسانی سقف حافظه سرور مرکزی 32GB در `deploy_cli.py`:** افزایش `central_budget_mb` به 20480 مگابایت (20.0GB متناسب با سرور 32GB و حفظ 12GB رزرو سیستم‌عامل) جهت جلوگیری از شکست اشتباه در `audit-memory`.
+  - **اصلاح اعتبارسنجی اثبات دو-شاهد (`verify-two-witness`) در `rpa_cli.py`:** اعمال یکسان‌سازی تایپ (پشتیبانی از کدهای tracking عددی/int) و نرمال‌سازی ارقام فارسی/عربی با `normalize_digits` جهت جلوگیری از رد اشتباه رکوردهای دیتابیس.
+  - **تکمیل مدل‌های یادگیری عمیق در `rpa_cli.py`:** اضافه کردن مدل‌های `math_captcha_crnn.pth` و `dnt_captcha_crnn.pth` و لغت‌نامه‌های مربوطه به بررسی مدل‌های دارایی کپچا.
+  - **اصلاح اعتبارسنجی سقف حافظه Celery Beat در `celery_cli.py`:** جایگزینی بررسی ناپخته رشته‌ای با پارسر عددی سقف حافظه (پیشگیری از اعلام هشدار کاذب برای کانفیگ 512m).
+  - **اصلاح مسیر وب‌هوک فورواردر در `tenant_cli.py`:** تغییر مسیر جستجو از `otp.py` ناموجود به `otp_forwarder.py` و اعتبارسنجی هدر `WEBHOOK_TOKEN_HEADER`.
+  - **مهاجرت به `datetime.UTC` استاندارد پایتون 3.12:** جایگزینی `datetime.utcnow()` منسوخ‌شده در اسکریپت‌های `celery_cli.py`، `db_cli.py`، `tenant_cli.py` و `monitor_cli.py`.
+  - **اصلاح باگ احراز هویت هاب در `app/api/routes/otp_forwarder.py`:** اعمال شرط انحصاری بودن شماره هاب در صورت تنظیم `configured_hubs` جهت پاس شدن تست رگرسیون `test_hub_state_cannot_be_claimed_by_non_hub_number`.
+  - **همگام‌سازی مسیرهای دایرکتوری در `AGENTS.md` و `docs/BARPRO_KNOWLEDGE_GRAPH.md`:** تفکیک دقیق نام اسکیل و مسیر دایرکتوری فیزیکی (مانند `.agents/skills/database-ops/` برای `barpro-database-ops`).
+- **راستی‌آزمایی جامع و عمیق:**
+  - اجرای کامل مجموعه تست با نتیجه سبز: 2439 تست موفق، 0 خطا (`pytest tests/test_cairn_worker4_hardening.py` و تست‌های واحد).
+  - بررسی موفق تمام زیردستورهای CLI با خروجی JSON معتبر و کد خروج 0.
+  - تایپ‌چک و لینت فرانت‌اند فرانت بدون خطا (`npm run typecheck` و `npm run lint`).
+  - لینت پایتون 100% بدون خطا (`uvx ruff check .agents/skills/`).
 
 ## 📁 فایل‌های تغییریافته
-- `.agents/skills/barpro-deploy-ops/SKILL.md`
-- `.agents/skills/barpro-deploy-ops/scripts/server_ssh.py`
-- `.agents/skills/barpro-rpa-ops/SKILL.md`
+- `.agents/skills/barpro-deploy-ops/scripts/deploy_cli.py`
 - `.agents/skills/barpro-rpa-ops/scripts/rpa_cli.py`
-- `.agents/skills/barpro-fullstack-sync/SKILL.md`
-- `.agents/skills/barpro-fullstack-sync/scripts/fullstack_cli.py`
-- `.agents/skills/database-ops/SKILL.md`
+- `.agents/skills/celery-ops/scripts/celery_cli.py`
 - `.agents/skills/database-ops/scripts/db_cli.py`
-- `.agents/skills/celery-ops/SKILL.md`
-- `.agents/skills/monitoring-alerting/SKILL.md`
 - `.agents/skills/monitoring-alerting/scripts/monitor_cli.py`
-- `.agents/skills/tenant-onboard/SKILL.md`
 - `.agents/skills/tenant-onboard/scripts/tenant_cli.py`
-- `docs/agent-reference/historical-master-upgrade.md`
+- `app/api/routes/otp_forwarder.py`
 - `AGENTS.md`
 - `docs/BARPRO_KNOWLEDGE_GRAPH.md`
 - `.context/STATE.md`
 
 ## 🎯 تسک دقیق بعدی
-1. تکمیل گزارش تحلیلی برای ایجنت ارشد و کاربر.
+1. ثبت کامیت اتمیک تغییرات و تحویل گزارش به والد.
 
 ## 🧠 تصمیمات فنی و چرایی
-1. **ایزولاسیون کامل محلی مهارت‌ها:** طبق الزام کاربر، تمام مهارت‌ها در محدوده محلی مخزن `.agents/skills/` در داخل پروژه نگهداری شده و هرگز در پوشه‌های عمومی سیستم (`~/.gemini/skills/` یا `~/.gemini/config/skills/`) بارگذاری نشدند تا از نمایش یا نشت آن‌ها در سایر پروژه‌ها اکیداً جلوگیری گردد.
+1. **ایزولاسیون کامل محلی مهارت‌ها:** تمام مهارت‌ها در محدوده محلی مخزن `.agents/skills/` در داخل پروژه نگهداری شده و هرگز در پوشه‌های عمومی سیستم (`~/.gemini/skills/` یا `~/.gemini/config/skills/`) بارگذاری نشدند تا از نمایش یا نشت آن‌ها در سایر پروژه‌ها اکیداً جلوگیری گردد.
 2. **برتری ترنسپورت مستقیم Mobile API:** مرورگر وب برای ثبت صدور بارنامه بازنشسته شده است؛ تمام فرآیندهای حیاتی اکنون مستقیماً به کلاینت رسمی متصل هستند و از سرور اندروید مجازی Redroid برای جی‌پی‌اس استفاده می‌کنند.
 3. **گیت اثبات دو-شاهد:** ادعای ثبت بارنامه بدون وجود همزمان کد پیگیری در پاسخ RPA و ذخیره قطعی آن در دیتابیس هرگز تایید نخواهد شد.
 
