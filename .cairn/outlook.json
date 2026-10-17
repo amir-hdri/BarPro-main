@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "ts": "2026-10-17T15:07:19.535Z",
+  "ts": "2026-10-17T15:51:59.704Z",
   "name": "BarPro-main",
   "path": "/Users/amirheidari/GitHub/BarPro-main",
-  "head": "15ca95a8f11a791dc071325d83baa0c47efa1877",
+  "head": "ebf941d3ceb63ed191326f7fb250f3ac34ccb8b2",
   "phases": [
     {
       "number": 1,
@@ -44,7 +44,7 @@
       "number": 6,
       "name": "manual waybill adoption and shipping lifecycle completion",
       "planned": true,
-      "verified": false,
+      "verified": true,
       "issueCount": 3
     }
   ],
@@ -58,7 +58,7 @@
     "open": 0,
     "inProgress": 0,
     "blocked": 0,
-    "nextVerb": "none",
+    "nextVerb": "ship",
     "asOf": "2026-10-17"
   }
 }
