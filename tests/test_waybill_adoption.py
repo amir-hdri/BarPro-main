@@ -245,3 +245,66 @@ async def test_adopt_for_driver_adopts_today_document_with_metadata():
         job.id = 1
         resp = WaybillJobResponse.model_validate(job)
         assert resp.driver_name == "حمیدرضا محمدزاده"
+
+
+def test_is_today_document_robust_formats():
+    """Verify is_today_document handles unpadded dates, Persian digits, embedded times, and cross-midnight."""
+    from datetime import datetime, timedelta
+
+    from app.core.jalali import TEHRAN_UTC_OFFSET, tehran_today_jalali
+    from app.orchestrator.adoption_service import is_today_document
+
+    now = datetime(2026, 10, 18, 0, 5, 0)  # 00:05 UTC (03:35 Tehran)
+    jy, jm, jd = tehran_today_jalali(now)
+
+    # 1. Standard padded today
+    assert is_today_document({"date": f"{jy:04d}/{jm:02d}/{jd:02d}"}, now) is True
+
+    # 2. Unpadded month/day today
+    assert is_today_document({"date": f"{jy}/{jm}/{jd}"}, now) is True
+
+    # 3. Persian digits today
+    persian_digits = "۰۱۲۳۴۵۶۷۸۹"
+    p_date = "".join(persian_digits[int(c)] if c.isdigit() else c for c in f"{jy:04d}/{jm:02d}/{jd:02d}")
+    assert is_today_document({"date": p_date}, now) is True
+
+    # 4. Embedded time in date field
+    assert is_today_document({"date": f"{jy:04d}/{jm:02d}/{jd:02d} 14:15:00"}, now) is True
+
+    # 5. Historical document (month ago) is rejected
+    assert is_today_document({"date": "1405/06/22", "time": "10:00:00"}, now) is False
+
+    # 6. Cross-midnight: issued 10 minutes ago late yesterday evening
+    # 00:05 Tehran is 20:35 UTC. 10 mins ago is 23:55 Tehran yesterday (20:25 UTC).
+    now_tehran_midnight = datetime(2026, 10, 18, 0, 5, 0) - TEHRAN_UTC_OFFSET
+    y_jy, y_jm, y_jd = tehran_today_jalali(now_tehran_midnight - timedelta(days=1))
+    doc_cross = {"date": f"{y_jy:04d}/{y_jm:02d}/{y_jd:02d}", "time": "23:55:00"}
+    assert is_today_document(doc_cross, now_tehran_midnight) is True
+
+    # 7. Yesterday noon (issued > 2 hours ago) is rejected
+    doc_yesterday_noon = {"date": f"{y_jy:04d}/{y_jm:02d}/{y_jd:02d}", "time": "12:00:00"}
+    assert is_today_document(doc_yesterday_noon, now_tehran_midnight) is False
+
+
+def test_parse_document_issued_datetime_utc_robust():
+    """Verify parse_document_issued_datetime_utc parses unpadded, Persian, and time-in-date formats."""
+    from datetime import datetime
+
+    from app.orchestrator.adoption_service import parse_document_issued_datetime_utc
+
+    now = datetime(2026, 10, 17, 18, 0, 0)
+
+    # Date with embedded time
+    dt, b = parse_document_issued_datetime_utc({"date": "1405/07/25 10:15:30"}, now)
+    assert dt == datetime(2026, 10, 17, 6, 45, 30)
+    assert b == "2026-10-17"
+
+    # Persian digits
+    dt, b = parse_document_issued_datetime_utc({"date": "۱۴۰۵/۰۷/۲۵", "time": "۱۰:۱۵:۳۰"}, now)
+    assert dt == datetime(2026, 10, 17, 6, 45, 30)
+    assert b == "2026-10-17"
+
+    # Unpadded
+    dt, b = parse_document_issued_datetime_utc({"date": "1405/7/25", "time": "9:5:0"}, now)
+    assert dt == datetime(2026, 10, 17, 5, 35, 0)
+    assert b == "2026-10-17"

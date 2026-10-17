@@ -643,7 +643,12 @@ class WaybillJobService:
         # This prevents races between direct dispatch and scheduled dispatch.
 
         await session.refresh(job)
-        return WaybillJobResponse.model_validate(job)
+        resp = WaybillJobResponse.model_validate(job)
+        if not resp.driver_name and job.driver_id:
+            dr = await session.get(Driver, job.driver_id)
+            if dr and dr.full_name:
+                resp.driver_name = dr.full_name
+        return resp
 
     @classmethod
     async def submit_otp(
@@ -1352,7 +1357,12 @@ class WaybillJobService:
         session.add(job)
         await session.commit()
         await session.refresh(job)
-        return WaybillJobResponse.model_validate(job)
+        resp = WaybillJobResponse.model_validate(job)
+        if not resp.driver_name and job.driver_id:
+            dr = await session.get(Driver, job.driver_id)
+            if dr and dr.full_name:
+                resp.driver_name = dr.full_name
+        return resp
 
     @staticmethod
     async def delete_job(user_context: dict | Client, job_id: str, session: AsyncSession) -> None:

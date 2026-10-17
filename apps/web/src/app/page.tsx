@@ -313,7 +313,7 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <p className="text-base sm:text-lg font-black text-white ">
-                          {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : `عملیات ثبت بارنامه`}
+                          {job.driver_name ? `ثبت بارنامه برای ${job.driver_name}` : (job.driver_id ? `ثبت بارنامه برای راننده #${toPersianDigits(job.driver_id)}` : `عملیات ثبت بارنامه`)}
                         </p>
                         <p className="mt-0.5 text-[10px] font-mono text-slate-400">
                           شناسه: #{job.job_id.slice(0, 8)}

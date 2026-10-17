@@ -1002,7 +1002,7 @@ export default function HistoryPage() {
                               </span>
                             </div>
                             <h3 className="mt-2 text-lg font-black text-white">
-                              {selectedJob.driver_name ? `ماموریت بارنامه: ${selectedJob.driver_name}` : 'جزئیات ماموریت بارنامه'}
+                              {selectedJob.driver_name ? `ماموریت بارنامه: ${selectedJob.driver_name}` : (selectedJob.driver_id ? `ماموریت راننده #${toPersianDigits(selectedJob.driver_id)}` : 'جزئیات ماموریت بارنامه')}
                             </h3>
                             {isAdmin && selectedJob.client_name && (
                               <p className="text-xs text-cyan-400 font-medium mt-0.5">
@@ -1065,7 +1065,7 @@ export default function HistoryPage() {
                           <div className="rounded-xl bg-slate-950/60 p-3 border border-white/5 space-y-1">
                             <span className="text-[10px] text-slate-400 block font-bold">اطلاعات راننده و تماس:</span>
                             <span className="text-slate-200 font-medium block">
-                              {selectedJob.driver_name || '—'}
+                              {selectedJob.driver_name || (selectedJob.driver_id ? `راننده #${toPersianDigits(selectedJob.driver_id)}` : '—')}
                               {selectedJobPayload?.driverPhone ? ` | ${toPersianDigitsPreserveZero(selectedJobPayload.driverPhone)}` : ''}
                             </span>
                             {selectedJobPayload?.driverNationalCode && (

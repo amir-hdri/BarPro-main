@@ -41,30 +41,84 @@ from app.models_multitenant import Driver, WaybillJob
 logger = logging.getLogger(__name__)
 
 
-def is_today_document(item: dict[str, Any]) -> bool:
-    """Check if a UTCMS document was issued today in Tehran timezone."""
-    jy, jm, jd = tehran_today_jalali()
-    today_slash = f"{jy:04d}/{jm:02d}/{jd:02d}"
-    today_dash = f"{jy:04d}-{jm:02d}-{jd:02d}"
+_DIGIT_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
-    doc_date = str(item.get("date") or item.get("dateFarsi") or "").strip()
-    if doc_date:
-        norm = doc_date.replace("-", "/")
-        if norm == today_slash or doc_date.replace("/", "-") == today_dash:
-            return True
-        return False
 
-    shipping_latin = str(item.get("shippingDateLatin") or "").strip()
+def _extract_jalali_parts(raw: str) -> tuple[int, int, int] | None:
+    """Safely extract (jy, jm, jd) from any Jalali date string.
+
+    Supports:
+    - Padded: '1405/07/25', '1405-07-25'
+    - Unpadded: '1405/7/25', '1405-7-25'
+    - Persian/Arabic digits: '۱۴۰۵/۰۷/۲۵'
+    - Embedded time: '1405/07/25 14:14:43'
+    """
+    if not raw:
+        return None
+    cleaned = str(raw).translate(_DIGIT_MAP).strip()
+    first_token = cleaned.split()[0].replace("/", "-")
+    parts = first_token.split("-")
+    if len(parts) == 3:
+        try:
+            return int(parts[0]), int(parts[1]), int(parts[2])
+        except ValueError:
+            pass
+    return None
+
+
+def is_today_document(item: dict[str, Any], now_utc: datetime | None = None) -> bool:
+    """Check if a UTCMS document was issued today in Tehran timezone (or within 2h cross-midnight window)."""
+    if now_utc is None:
+        now_utc = datetime.now(UTC).replace(tzinfo=None)
+    jy, jm, jd = tehran_today_jalali(now_utc)
+
+    raw_date = item.get("date") or item.get("dateFarsi") or item.get("DateFarsi")
+    if raw_date:
+        parts = _extract_jalali_parts(str(raw_date))
+        if parts:
+            djy, djm, djd = parts
+            if (djy, djm, djd) == (jy, jm, jd):
+                return True
+            # Cross-midnight window: if issued late yesterday evening (within past 2 hours), allow adoption
+            try:
+                gy, gm, gd = jalali_to_gregorian(djy, djm, djd)
+                raw_time = str(item.get("time") or item.get("Time") or "").translate(_DIGIT_MAP).strip()
+                th, tm, ts = 0, 0, 0
+                if raw_time:
+                    t_parts = raw_time.split(":")
+                    if len(t_parts) >= 2:
+                        th, tm = int(t_parts[0]), int(t_parts[1])
+                        ts = int(t_parts[2]) if len(t_parts) > 2 else 0
+                elif len(str(raw_date).split()) > 1:
+                    t_token = str(raw_date).translate(_DIGIT_MAP).split()[1]
+                    t_parts = t_token.split(":")
+                    if len(t_parts) >= 2:
+                        th, tm = int(t_parts[0]), int(t_parts[1])
+                        ts = int(t_parts[2]) if len(t_parts) > 2 else 0
+                issued_utc = datetime(gy, gm, gd, th, tm, ts) - TEHRAN_UTC_OFFSET
+                age_seconds = (now_utc - issued_utc).total_seconds()
+                if 0 <= age_seconds <= 7200:
+                    return True
+            except Exception:
+                pass
+            return False
+
+    shipping_latin = item.get("shippingDateLatin") or item.get("ShippingDateLatin")
     if shipping_latin:
         try:
             from zoneinfo import ZoneInfo
 
-            dt = datetime.fromisoformat(shipping_latin.replace(" ", "T"))
+            dt = datetime.fromisoformat(str(shipping_latin).strip().replace(" ", "T"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=ZoneInfo("Asia/Tehran"))
             dt_tehran = dt.astimezone(ZoneInfo("Asia/Tehran"))
             djy, djm, djd = gregorian_to_jalali(dt_tehran.year, dt_tehran.month, dt_tehran.day)
-            return (djy, djm, djd) == (jy, jm, jd)
+            if (djy, djm, djd) == (jy, jm, jd):
+                return True
+            dt_utc = dt.astimezone(UTC).replace(tzinfo=None)
+            if 0 <= (now_utc - dt_utc).total_seconds() <= 7200:
+                return True
+            return False
         except Exception:
             pass
 
@@ -74,22 +128,27 @@ def is_today_document(item: dict[str, Any]) -> bool:
 
 def parse_document_issued_datetime_utc(item: dict[str, Any], now_utc: datetime) -> tuple[datetime, str]:
     """Calculate the true UTC issuance datetime and Tehran business date string."""
-    doc_date = str(item.get("date") or item.get("dateFarsi") or "").strip()
-    doc_time = str(item.get("time") or "").strip()
+    raw_date = item.get("date") or item.get("dateFarsi") or item.get("DateFarsi")
+    raw_time = item.get("time") or item.get("Time")
 
-    if doc_date:
-        cleaned = doc_date.replace("/", "-")
-        parts = cleaned.split("-")
-        if len(parts) == 3:
+    if raw_date:
+        parts = _extract_jalali_parts(str(raw_date))
+        if parts:
             try:
-                jy, jm, jd = int(parts[0]), int(parts[1]), int(parts[2])
+                jy, jm, jd = parts
                 gy, gm, gd = jalali_to_gregorian(jy, jm, jd)
                 th, tm, ts = 0, 0, 0
-                if doc_time:
-                    t_parts = doc_time.split(":")
+                time_str = str(raw_time or "").translate(_DIGIT_MAP).strip()
+                if time_str:
+                    t_parts = time_str.split(":")
                     if len(t_parts) >= 2:
-                        th = int(t_parts[0])
-                        tm = int(t_parts[1])
+                        th, tm = int(t_parts[0]), int(t_parts[1])
+                        ts = int(t_parts[2]) if len(t_parts) > 2 else 0
+                elif len(str(raw_date).split()) > 1:
+                    t_token = str(raw_date).translate(_DIGIT_MAP).split()[1]
+                    t_parts = t_token.split(":")
+                    if len(t_parts) >= 2:
+                        th, tm = int(t_parts[0]), int(t_parts[1])
                         ts = int(t_parts[2]) if len(t_parts) > 2 else 0
                 dt_tehran = datetime(gy, gm, gd, th, tm, ts)
                 dt_utc = dt_tehran - TEHRAN_UTC_OFFSET
@@ -100,12 +159,12 @@ def parse_document_issued_datetime_utc(item: dict[str, Any], now_utc: datetime) 
             except Exception:
                 pass
 
-    shipping_latin = str(item.get("shippingDateLatin") or "").strip()
+    shipping_latin = item.get("shippingDateLatin") or item.get("ShippingDateLatin")
     if shipping_latin:
         try:
             from zoneinfo import ZoneInfo
 
-            dt = datetime.fromisoformat(shipping_latin.replace(" ", "T"))
+            dt = datetime.fromisoformat(str(shipping_latin).strip().replace(" ", "T"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=ZoneInfo("Asia/Tehran"))
             dt_utc = dt.astimezone(UTC).replace(tzinfo=None)
